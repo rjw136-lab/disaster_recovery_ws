@@ -383,4 +383,4 @@ ros2 topic echo /recovery/status
 
 ## 📄 License
 
-[Apache License 2.0](LICENSE) © 2026 Jongwoo Noh (Kyungpook National University)
+[Apache License 2.0](LICENSE) © 2026 Jongwoo Ro (Kyungpook National University)
