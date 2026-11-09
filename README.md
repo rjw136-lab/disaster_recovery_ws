@@ -220,7 +220,7 @@ disaster_recovery_ws/
 
 ```bash
 source /opt/ros/humble/setup.bash
-export ROS_DOMAIN_ID=30
+export ROS_DOMAIN_ID=0
 export ROS_LOCALHOST_ONLY=0
 export TURTLEBOT3_MODEL=burger
 export LDS_MODEL=LDS-01          # RPi 4
