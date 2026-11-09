@@ -192,6 +192,12 @@ disaster_recovery_ws/
 ├── README.md
 ├── LICENSE
 ├── .gitignore
+├── scripts/
+│   └── rpi/                             # 라즈베리파이 온보드 편의 실행 스크립트
+│       ├── start_camera.sh              # camera_ros 고속 모드 (640x480 @ 30 FPS)
+│       ├── start_audio.sh               # AB13X USB 마이크 캡처 노드 시작
+│       ├── start_all.sh                 # 로봇 Bringup + 카메라 + 복귀 패키지 원클릭 실행
+│       └── stop_all.sh                  # 로봇 관련 프로세스 일괄 안전 종료
 ├── docs/
 │   ├── DISASTER_RECOVERY_GUIDEBOOK.md   # 종합 설계 문서
 │   ├── WSL_NETWORK_SETUP.md             # .wslconfig, ROS 2, CUDA 설정
@@ -294,7 +300,7 @@ source install/setup.bash
 | # | 기기 | 명령 |
 | :-: | :--- | :--- |
 | 1 | RPi 4 | `ros2 launch turtlebot3_bringup robot.launch.py` |
-| 2 | RPi 4 | `ros2 run v4l2_camera v4l2_camera_node --ros-args -p image_size:="[640,480]" -p camera_info_url:=file:///home/ubuntu/camera_info.yaml -r image_raw:=/camera/image_raw -r camera_info:=/camera/camera_info` |
+| 2 | RPi 4 | `ros2 run camera_ros camera_node --ros-args -p width:=640 -p height:=480 -p format:=BGR888` (또는 `bash scripts/rpi/start_camera.sh`) |
 | 3 | RPi 4 | `ros2 launch disaster_recovery robot_onboard.launch.py` |
 | 4 | Host | `ros2 launch disaster_recovery host_station.launch.py` (RViz 동시 실행: `use_rviz:=true`) |
 | 5 | Host | `ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -r cmd_vel:=/cmd_vel_remote` |

@@ -17,16 +17,27 @@ ros2 launch turtlebot3_bringup robot.launch.py
 ```
 *동작 검증*: `/odom`, `/scan`, `/tf` 토픽이 정상 발행되는지 확인한다.
 
-#### [RPi 4 - Terminal 2] 카메라 및 마이크 센서 드라이버 구동
+#### [RPi 4 - Terminal 2] 카메라 센서 드라이버 구동
+
 ```bash
 source /opt/ros/humble/setup.bash
-ros2 run v4l2_camera v4l2_camera_node --ros-args \
-  -p video_device:="/dev/video0" \
-  -p image_size:="[640,480]" \
-  -p pixel_format:="YUYV" \
-  -p camera_info_url:=file:///home/ubuntu/camera_info.yaml \
-  -r image_raw:=/camera/image_raw \
-  -r camera_info:=/camera/camera_info
+
+# 방법 1 (권장: camera_ros - 640x480 @ 30 FPS 고속 구동)
+ros2 run camera_ros camera_node --ros-args \
+  -p width:=640 -p height:=480 -p format:=BGR888 \
+  -p FrameDurationLimits:="[33333, 33333]"
+
+# 또는 스크립트 실행:
+bash ~/disaster_recovery_ws/scripts/rpi/start_camera.sh
+
+# 방법 2 (대체: v4l2_camera 사용 시)
+# ros2 run v4l2_camera v4l2_camera_node --ros-args \
+#   -p video_device:="/dev/video0" \
+#   -p image_size:="[640,480]" \
+#   -p pixel_format:="YUYV" \
+#   -p camera_info_url:=file:///home/ubuntu/camera_info.yaml \
+#   -r image_raw:=/camera/image_raw \
+#   -r camera_info:=/camera/camera_info
 ```
 *동작 검증*: `ros2 topic hz /camera/image_raw` 명령으로 약 25~30 Hz 스트리밍을 확인한다.
 `ros-humble-image-transport-plugins`가 설치되어 있으면 `/camera/image_raw/compressed`(JPEG)도 함께 발행되며, Host AI는 기본적으로 이 압축 토픽을 구독한다 (`ros2 topic hz /camera/image_raw/compressed`).
