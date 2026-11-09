@@ -20,6 +20,12 @@ Key Algorithmic Steps:
      - Angular velocity (w): Steers to eliminate lateral offset (tx) and orientation error (yaw).
      - Linear velocity (v): Drives forward to achieve target stopping distance (tz = 0.20 m).
   6. Emits /aruco/dock_complete upon convergence (error < 2 cm, yaw < 3 deg) for >= 10 frames.
+
+Camera Mounting Compensation:
+  The Pi camera on this robot is mounted rolled 90 deg about its optical axis (the host station
+  rotates the image by 270 deg to make it upright). solvePnP is run on the *unrotated* image so the
+  calibrated intrinsics stay valid; the resulting pose is then re-expressed in the upright camera
+  frame via `camera_rotation_deg` (0/90/180/270, same convention as host `rotation_angle`).
 =================================================================================================
 """
 
@@ -56,6 +62,7 @@ class ArUcoDockingNode(Node):
         self.declare_parameter('max_linear_speed', 0.08)       # Creep speed for precision
         self.declare_parameter('max_angular_speed', 0.35)
         self.declare_parameter('search_angular_speed', 0.20)
+        self.declare_parameter('camera_rotation_deg', 0)       # 0/90/180/270 (cv2.rotate convention)
 
         self.marker_id = self.get_parameter('marker_id').value
         self.marker_size = self.get_parameter('marker_size_m').value
@@ -69,6 +76,23 @@ class ArUcoDockingNode(Node):
         self.v_max = self.get_parameter('max_linear_speed').value
         self.w_max = self.get_parameter('max_angular_speed').value
         self.w_search = self.get_parameter('search_angular_speed').value
+        self.camera_rotation = int(self.get_parameter('camera_rotation_deg').value) % 360
+
+        # Rotation mapping raw-sensor camera coordinates -> upright camera coordinates.
+        # 90 : cv2.ROTATE_90_CLOCKWISE        -> x_u = -y_s, y_u =  x_s
+        # 180: cv2.ROTATE_180                 -> x_u = -x_s, y_u = -y_s
+        # 270: cv2.ROTATE_90_COUNTERCLOCKWISE -> x_u =  y_s, y_u = -x_s
+        rot_map = {
+            0: np.eye(3),
+            90: np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
+            180: np.array([[-1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, 1.0]]),
+            270: np.array([[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
+        }
+        if self.camera_rotation not in rot_map:
+            self.get_logger().warn(
+                f"Unsupported camera_rotation_deg={self.camera_rotation}; falling back to 0.")
+            self.camera_rotation = 0
+        self.R_sensor_to_upright = rot_map[self.camera_rotation]
 
         # -------------------------------------------------------------------------
         # Camera Intrinsics State
@@ -192,6 +216,7 @@ class ArUcoDockingNode(Node):
 
         target_marker_found = False
         target_idx = -1
+        info_text = None
 
         if ids is not None:
             for i in range(len(ids)):
@@ -215,12 +240,14 @@ class ArUcoDockingNode(Node):
             )
 
             if success:
-                tx = float(tvec[0])
-                ty = float(tvec[1])
-                tz = float(tvec[2])
+                # Re-express pose in the upright camera frame (compensates sideways mounting)
+                t_up = self.R_sensor_to_upright @ np.asarray(tvec, dtype=np.float64).reshape(3)
+                tx = float(t_up[0])
+                tz = float(t_up[2])
 
                 # Compute Euler angles from rotation vector
-                rot_matrix, _ = cv2.Rodrigues(rvec)
+                rot_sensor, _ = cv2.Rodrigues(rvec)
+                rot_matrix = self.R_sensor_to_upright @ rot_sensor
                 # Yaw around camera Y-axis: atan2(-R[0,2], R[2,2]) or asin(R[0,2])
                 yaw = math.atan2(rot_matrix[0, 2], rot_matrix[2, 2])
 
@@ -230,12 +257,19 @@ class ArUcoDockingNode(Node):
                 cv2.aruco.drawDetectedMarkers(cv_image, corners, ids)
                 cv2.drawFrameAxes(cv_image, cam_mat, dist_coeff, rvec, tvec, 0.05)
                 info_text = f"X:{tx:.3f}m Z:{tz:.3f}m Yaw:{math.degrees(yaw):.1f}deg"
-                cv2.putText(cv_image, info_text, (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
         else:
             # Marker not found in frame: Perform active search sweep
             self.execute_search_sweep()
 
-        # Publish debug visualization image
+        # Publish debug visualization image (rotated upright for human viewing)
+        if self.camera_rotation == 90:
+            cv_image = cv2.rotate(cv_image, cv2.ROTATE_90_CLOCKWISE)
+        elif self.camera_rotation == 180:
+            cv_image = cv2.rotate(cv_image, cv2.ROTATE_180)
+        elif self.camera_rotation == 270:
+            cv_image = cv2.rotate(cv_image, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        if info_text:
+            cv2.putText(cv_image, info_text, (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
         try:
             debug_msg = self.bridge.cv2_to_imgmsg(cv_image, encoding='bgr8')
             self.pub_debug_img.publish(debug_msg)

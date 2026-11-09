@@ -52,11 +52,13 @@ def generate_launch_description():
         emulate_tty=True
     )
 
+    # Generic AB13X USB mic (plughw:1,0, 48 kHz S16_LE mono) -> /audio/raw (UInt8MultiArray)
     audio_node = Node(
         package='disaster_recovery',
         executable='audio_capture_node',
         name='audio_capture_node',
         output='screen',
+        parameters=[param_file],
         emulate_tty=True
     )
 

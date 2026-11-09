@@ -1,0 +1,26 @@
+# colcon
+build/
+install/
+log/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Model weights (downloaded automatically by Ultralytics / Faster-Whisper)
+*.pt
+*.onnx
+*.engine
+
+# Runtime outputs
+blackbox_logs/
+frames_*.gv
+frames_*.pdf
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store

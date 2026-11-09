@@ -4,7 +4,7 @@
 
 ## 1. 다중 터미널 실행 시퀀스 (Execution Sequence)
 
-시스템 구동 전 Host PC와 Raspberry Pi 4가 동일한 사설 무선 공유기(192.168.0.x)에 연결되어 있고, `ROS_DOMAIN_ID=30`이 등록되었는지 확인한다.
+시스템 구동 전 Host PC와 Raspberry Pi 4가 동일한 사설 무선 공유기(192.168.0.x)에 연결되어 있고, `ROS_DOMAIN_ID=0`이 등록되었는지 확인한다.
 
 ### 1.1 Raspberry Pi 4 (온보드 로봇 본체) 실행
 
@@ -29,6 +29,13 @@ ros2 run v4l2_camera v4l2_camera_node --ros-args \
   -r camera_info:=/camera/camera_info
 ```
 *동작 검증*: `ros2 topic hz /camera/image_raw` 명령으로 약 25~30 Hz 스트리밍을 확인한다.
+`ros-humble-image-transport-plugins`가 설치되어 있으면 `/camera/image_raw/compressed`(JPEG)도 함께 발행되며, Host AI는 기본적으로 이 압축 토픽을 구독한다 (`ros2 topic hz /camera/image_raw/compressed`).
+
+마이크 확인 (AB13X USB 마이크가 card 1, device 0으로 잡혀야 한다):
+```bash
+arecord -l                                              # card 1: AB13X USB Audio
+arecord -D plughw:1,0 -f S16_LE -r 48000 -c 1 -d 3 test.wav && aplay test.wav
+```
 
 #### [RPi 4 - Terminal 3] 자율 복귀 및 안전 워치독 패키지 통합 구동
 ```bash
@@ -36,7 +43,7 @@ source /opt/ros/humble/setup.bash
 source ~/disaster_recovery_ws/install/setup.bash
 ros2 launch disaster_recovery robot_onboard.launch.py
 ```
-*동작 검증*: `recovery_controller`, `aruco_docking`, `gas_sensor_node`, `blackbox_recorder` 노드가 일괄 초기화되며 대기 상태(`INIT`)로 진입한다. `gas_sensor_node`는 60초 예열 + 5초 기준 측정 후부터 `/gas/level`을 발행하므로, **기동 직후 1분간은 깨끗한 공기에서 대기**한다.
+*동작 검증*: `recovery_controller`, `aruco_docking`, `gas_sensor_node`, `blackbox_recorder`, `audio_capture_node` 노드가 일괄 초기화되며 대기 상태(`INIT`)로 진입한다. `gas_sensor_node`는 60초 예열 + 5초 기준 측정 후부터 `/gas/level`을 발행하므로, **기동 직후 1분간은 깨끗한 공기에서 대기**한다.
 
 ---
 
@@ -51,7 +58,14 @@ ros2 launch disaster_recovery host_station.launch.py
 *동작 검증*:
 - 10Hz 주기로 `/heartbeat` 발행 시작.
 - RPi 4의 `recovery_controller` 노드가 "First Heartbeat received" 로그와 함께 `NORMAL_TELEOP` 모드로 전이.
-- GTX 1050 Ti CUDA 가속 기반 YOLOv8n 및 Faster-Whisper 로드 완료.
+- GTX 1050 Ti CUDA 가속 기반 YOLO26n 및 Faster-Whisper(int8) 로드 완료.
+- `Disaster Recovery - YOLO26n Host Station` OpenCV 창에 **정방향(270° 회전 보정)** 영상이 표시된다.
+- 주요 launch argument (필요 시):
+  ```bash
+  ros2 launch disaster_recovery host_station.launch.py \
+    image_topic:=/camera/image_raw use_compressed:=false \   # 원본 영상 사용 시
+    rotation_angle:=0 show_window:=false use_rviz:=true        # 회전 없음 / 창 끄기 / RViz 동시 실행
+  ```
 
 #### [Host PC - Terminal 2] 원격 텔레옵(Teleoperation) 조종 노드 실행
 ```bash

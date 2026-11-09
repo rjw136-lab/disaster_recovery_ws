@@ -48,3 +48,12 @@ aruco_docking:
     max_linear_speed: 0.08
     max_angular_speed: 0.35
     search_angular_speed: 0.20
+    camera_rotation_deg: 270       # Pi camera mounted sideways (same as host rotation_angle)
+
+audio_capture_node:
+  ros__parameters:
+    alsa_device: "plughw:1,0"      # Generic AB13X USB Audio (check with: arecord -l)
+    sample_rate: 48000             # native rate of the AB13X mic (S16_LE, mono)
+    channels: 1
+    chunk_duration_sec: 0.5        # 48,000 B per /audio/raw message
+    audio_topic: "/audio/raw"

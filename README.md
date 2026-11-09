@@ -8,7 +8,8 @@
 ![CUDA](https://img.shields.io/badge/CUDA-GTX%201050%20Ti-76B900?logo=nvidia&logoColor=white)
 ![OpenCV](https://img.shields.io/badge/OpenCV-ArUco%20%2F%20solvePnP-5C3EE8?logo=opencv&logoColor=white)
 ![License](https://img.shields.io/badge/License-Apache%202.0-blue)
-![Status](https://img.shields.io/badge/Status-Prototype%20(Untested%20on%20HW)-orange)
+![YOLO](https://img.shields.io/badge/YOLO-26n-00FFFF)
+![Status](https://img.shields.io/badge/Status-Prototype%20(Host%20AI%20verified)-orange)
 
 > 원격 탐사 중 **Wi-Fi가 끊기거나(Heartbeat 3초 타임아웃)** **가연성 가스가 감지되면(MQ-2)**,
 > 로봇이 Host PC 도움 없이 **온보드 연산만으로** 지나온 경로를 역순으로 되짚어 출발점 **반경 15 cm 이내**로 돌아온다.
@@ -43,8 +44,10 @@
 | **LiDAR 긴급 정지** | 복귀 중 전방 ±20°, 0.12–0.25 m 장애물 감지 시 정지·대기, 해제 시 재개 | RPi 4 |
 | **ArUco 정밀 도킹** | 원점 0.5 m 진입 시 ArUco(ID 0, 10 cm)를 `solvePnP`로 추정해 슬립 오차 보정 | RPi 4 |
 | **로컬 블랙박스** | 비상 전환 시 MicroSD에 영상(mp4) + 텔레메트리(csv) 기록 | RPi 4 |
-| **비전 AI** | Ultralytics YOLO (기본 `yolov8n.pt`, `yolo26n.pt`로 교체 가능)로 조난자 탐지 | Host PC (GPU) |
-| **음성 AI** | Faster-Whisper로 "살려주세요 / 도와주세요 / help" 등 구조 요청 키워드 검출 | Host PC (GPU) |
+| **비전 AI** | Ultralytics **YOLO26n** (`yolo26n.pt`)으로 조난자(`person`) 탐지 · 압축 영상 수신 · 270° 회전 보정 · Zero-Lag 최신 프레임 워커 · 연속 2프레임 디바운스 | Host PC (GPU) |
+| **오디오 캡처** | AB13X USB 마이크(`plughw:1,0`, 48 kHz S16_LE mono)를 `arecord`로 읽어 `/audio/raw`로 PCM 스트리밍 | RPi 4 |
+| **음성 AI** | `/audio/raw` → 16 kHz 다운샘플 → RMS VAD → Faster-Whisper(int8, 한국어)로 "살려주세요 / 도와주세요 / help" 등 구조 요청 키워드 검출 | Host PC (GPU) |
+| **RViz2 관제** | `disaster_station.rviz` — RobotModel + `/scan` + `/map` + `/detection/image` 원클릭 레이아웃 | Host PC |
 
 > **설계 원칙:** 생존·복귀에 필요한 모든 제어 루프는 로봇 내부에서 닫힌다. Host PC는 관제·AI·Heartbeat만 담당하며, Host PC가 사라져도 복귀 기능은 영향을 받지 않는다 (Brooks, 1986의 계층형 제어 구조 개념 참고).
 
@@ -57,7 +60,7 @@ flowchart LR
     subgraph HOST["Host PC · Windows 11 + WSL2 (mirrored)"]
         HB["Heartbeat 10Hz"]
         TELEOP["teleop_twist_keyboard"]
-        AI["host_ai_pipeline<br/>YOLO + Faster-Whisper"]
+        AI["host_ai_pipeline<br/>YOLO26n + Faster-Whisper"]
         SLAM["Cartographer + RViz2"]
     end
 
@@ -67,6 +70,7 @@ flowchart LR
         BB["blackbox_recorder"]
         GB["gas_sensor_node"]
         CAM["v4l2_camera"]
+        MIC["audio_capture_node<br/>AB13X USB mic"]
         LDS["LDS-01 driver"]
     end
 
@@ -81,7 +85,8 @@ flowchart LR
 
     HB -- "/heartbeat" --> RC
     TELEOP -- "/cmd_vel_remote" --> RC
-    CAM -- "/camera/image_raw" --> AI
+    CAM -- "/camera/image_raw/compressed" --> AI
+    MIC -- "/audio/raw" --> AI
     CAM --> AD
     CAM --> BB
     LDS -- "/scan" --> RC
@@ -105,11 +110,12 @@ flowchart LR
             │
             └── Wi-Fi ── Raspberry Pi 4 (TurtleBot3)
 
- 공통: ROS_DOMAIN_ID=30, ROS_LOCALHOST_ONLY=0, DDS 멀티캐스트 디스커버리
+ 공통: ROS_DOMAIN_ID=0, ROS_LOCALHOST_ONLY=0, DDS 멀티캐스트 디스커버리 (Fast DDS 기본)
 ```
 
 - 학교 망 인증(고정 IP/MAC)은 유선 NIC에서 그대로 유지하고, ROS 2 트래픽은 사설 공유기로만 흐른다.
 - WSL2 미러드 모드는 Windows의 NIC/IP를 Linux에 그대로 노출하므로 NAT 포트포워딩 없이 DDS 멀티캐스트가 동작한다. 단, Windows 방화벽(Hyper-V firewall)에서 UDP 수신을 허용해야 할 수 있다. 상세: [`docs/WSL_NETWORK_SETUP.md`](docs/WSL_NETWORK_SETUP.md)
+- 공유기에 직접 붙을 수 없는 경우 **Tailscale + CycloneDDS 유니캐스트 피어**로도 운용 가능하지만, 지연(50–150 ms)·지터 때문에 Heartbeat 타임아웃 오작동 위험이 있어 현장 시험에는 사설 Wi-Fi 직결을 권장한다 (`WSL_NETWORK_SETUP.md` §6).
 
 ---
 
@@ -146,10 +152,10 @@ stateDiagram-v2
 | :--- | :--- |
 | 로봇 | TurtleBot3 Burger (OpenCR 1.0 + Raspberry Pi 4 4/8GB) |
 | LiDAR | LDS-01 (USB2LDS) |
-| 카메라 | Raspberry Pi Camera Module (CSI, 640×480) |
+| 카메라 | Raspberry Pi Camera Module (CSI, 640×480) — **케이블 배선상 90° 옆으로 장착** → 소프트웨어에서 270° 회전 보정 |
 | 가스 센서 | MQ-2 (5 V 구동) → 10k/20k 분압 → **ADS1115** 16-bit I2C ADC → RPi 4 |
-| 마이크 | USB 무지향성 콘덴서 핀마이크 (16 kHz) |
-| Host PC | i7-8700 / GTX 1050 Ti 4GB / Windows 11 + WSL2 Ubuntu 22.04 |
+| 마이크 | Generic **AB13X USB Audio** (card 1, device 0 = `plughw:1,0`, S16_LE · mono · 48 kHz) |
+| Host PC | i7-8700 / GTX 1050 Ti 4GB / Windows 11 + WSL2 Ubuntu 22.04 / PyTorch 2.5.1 + CUDA 12.1 |
 
 ### MQ-2 + ADS1115 회로
 
@@ -190,24 +196,27 @@ disaster_recovery_ws/
 │   ├── DISASTER_RECOVERY_GUIDEBOOK.md   # 종합 설계 문서
 │   ├── WSL_NETWORK_SETUP.md             # .wslconfig, ROS 2, CUDA 설정
 │   ├── CIRCUIT_AND_CALIBRATION.md       # MQ-2 분압 회로, 카메라 캘리브레이션
-│   └── FIELD_TEST_CHECKLIST.md          # 터미널별 실행 순서, 검증 체크리스트
+│   ├── FIELD_TEST_CHECKLIST.md          # 터미널별 실행 순서, 검증 체크리스트
+│   ├── Disaster_Recovery_TurtleBot3_Integration_Report.md   # YOLO26n·오디오 통합 구축 보고서
+│   └── Disaster_Recovery_TurtleBot3_Integration_Report.docx # 동일 보고서 (Word)
 └── src/disaster_recovery/
     ├── package.xml
     ├── setup.py / setup.cfg
     ├── config/
     │   ├── recovery_params.yaml         # 임계값, 속도, 게인
-    │   └── camera_info_sample.yaml      # 예시값 (반드시 직접 캘리브레이션한 값으로 교체)
+    │   ├── camera_info_sample.yaml      # 예시값 (반드시 직접 캘리브레이션한 값으로 교체)
+    │   └── disaster_station.rviz        # RViz2 관제 레이아웃
     ├── launch/
-    │   ├── robot_onboard.launch.py      # RPi 4용
-    │   └── host_station.launch.py       # Host PC용
+    │   ├── robot_onboard.launch.py      # RPi 4용 (recovery/aruco/gas/blackbox/audio)
+    │   └── host_station.launch.py       # Host PC용 (launch argument 지원, use_rviz)
     ├── disaster_recovery/
     │   ├── recovery_controller.py       # 워치독 + 로거 + 백트래킹 + LiDAR 정지 FSM
-    │   ├── aruco_docking.py             # solvePnP 기반 도킹 P-제어
-    │   ├── host_ai_pipeline.py          # YOLO + Faster-Whisper + Heartbeat
+    │   ├── aruco_docking.py             # solvePnP 기반 도킹 P-제어 (카메라 장착 회전 보정)
+    │   ├── host_ai_pipeline.py          # YOLO26n + Faster-Whisper + Heartbeat
     │   ├── gas_sensor_node.py           # ADS1115 → EMA → /gas/level
     │   ├── ads1115_mq2.py               # ADS1115 드라이버 + MQ-2 계산 (ROS 비의존)
     │   ├── blackbox_recorder.py         # MicroSD 영상·CSV 기록
-    │   └── audio_capture_node.py        # USB 마이크 캡처 (스텁)
+    │   └── audio_capture_node.py        # arecord → /audio/raw PCM 스트리밍
     └── test/
         └── test_ads1115_mq2.py          # 단위 테스트 (pytest)
 ```
@@ -243,18 +252,24 @@ autoProxy=true
 sudo apt install -y ros-humble-desktop ros-humble-cv-bridge \
                     ros-humble-teleop-twist-keyboard ros-humble-camera-calibration \
                     ros-humble-turtlebot3-cartographer
-pip3 install ultralytics faster-whisper opencv-contrib-python
+pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+pip3 install ultralytics faster-whisper
+pip3 install "numpy==1.26.4" "opencv-python==4.10.0.84"     # cv_bridge(NumPy 1.x) 호환 고정
 python3 -c "import torch; print(torch.cuda.is_available())"   # True 확인
 ```
 
 > WSL2 내부에 Linux용 NVIDIA 드라이버를 설치하지 않는다. Windows 드라이버가 WSL로 전달된다.
+>
+> `yolo26n.pt`는 첫 실행 시 Ultralytics가 자동 다운로드한다 (저장소에는 포함하지 않음). NumPy 2.x가 설치되면 `cv_bridge` import가 실패하므로 위 버전 고정을 유지한다.
 
 ### RPi 4
 
 ```bash
 sudo apt install -y ros-humble-v4l2-camera ros-humble-cv-bridge python3-opencv \
-                    python3-smbus i2c-tools
-sudo usermod -aG i2c $USER   # 재로그인 필요
+                    ros-humble-image-transport-plugins \
+                    python3-smbus i2c-tools alsa-utils
+sudo usermod -aG i2c,audio $USER   # 재로그인 필요
+arecord -l                          # card 1: AB13X USB Audio 확인 (번호가 다르면 alsa_device 수정)
 ```
 
 ### 단위 테스트 (ROS·하드웨어 불필요)
@@ -267,7 +282,7 @@ cd src/disaster_recovery && python3 -m pytest test -q   # ADS1115 레지스터/M
 
 ```bash
 mkdir -p ~/disaster_recovery_ws && cd ~/disaster_recovery_ws
-git clone https://github.com/<YOUR_ID>/<YOUR_REPO>.git .
+git clone https://github.com/rjw136-lab/disaster_recovery_ws.git .
 colcon build --symlink-install --packages-select disaster_recovery
 source install/setup.bash
 ```
@@ -281,7 +296,7 @@ source install/setup.bash
 | 1 | RPi 4 | `ros2 launch turtlebot3_bringup robot.launch.py` |
 | 2 | RPi 4 | `ros2 run v4l2_camera v4l2_camera_node --ros-args -p image_size:="[640,480]" -p camera_info_url:=file:///home/ubuntu/camera_info.yaml -r image_raw:=/camera/image_raw -r camera_info:=/camera/camera_info` |
 | 3 | RPi 4 | `ros2 launch disaster_recovery robot_onboard.launch.py` |
-| 4 | Host | `ros2 launch disaster_recovery host_station.launch.py` |
+| 4 | Host | `ros2 launch disaster_recovery host_station.launch.py` (RViz 동시 실행: `use_rviz:=true`) |
 | 5 | Host | `ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -r cmd_vel:=/cmd_vel_remote` |
 | 6 | Host | `ros2 launch turtlebot3_cartographer cartographer.launch.py` |
 
@@ -291,6 +306,33 @@ source install/setup.bash
 
 ```bash
 ros2 topic echo /recovery/status
+ros2 topic echo /disaster/victim_alert
+ros2 topic echo /disaster/audio_alert
+ros2 run rviz2 rviz2 -d $(ros2 pkg prefix disaster_recovery)/share/disaster_recovery/config/disaster_station.rviz
+```
+
+### `host_station.launch.py` 인자
+
+| 인자 | 기본값 | 설명 |
+| :--- | :-: | :--- |
+| `yolo_model_path` | `yolo26n.pt` | YOLO 가중치 경로/이름 |
+| `image_topic` | `/camera/image_raw/compressed` | 카메라 토픽 |
+| `use_compressed` | `true` | `CompressedImage` 구독 (Wi-Fi 대역폭 절약, 권장) |
+| `rotation_angle` | `270` | 영상 회전 (0/90/180/270, `cv2.rotate` 기준) |
+| `show_window` | `true` | OpenCV 탐지 창 표시 |
+| `heartbeat_rate_hz` | `10.0` | Heartbeat 주기 |
+| `confidence_threshold` | `0.40` | YOLO 추론 임계값 |
+| `person_conf_threshold` | `0.55` | 조난자 알림 임계값 |
+| `only_person_detection` | `true` | COCO class 0(person)만 추론 |
+| `min_consecutive_detections` | `2` | 알림 발행에 필요한 연속 탐지 프레임 수 |
+| `cuda_device` | `0` | GPU 번호 |
+| `use_rviz` | `false` | `disaster_station.rviz`로 RViz2 동시 실행 |
+
+예) 원본 영상 + 회전 없음 + 창 끄기:
+
+```bash
+ros2 launch disaster_recovery host_station.launch.py \
+  image_topic:=/camera/image_raw use_compressed:=false rotation_angle:=0 show_window:=false
 ```
 
 ---
@@ -308,7 +350,11 @@ ros2 topic echo /recovery/status
 | `/gas/voltage` | `std_msgs/Float32` | gas_sensor_node → (모니터링) MQ-2 출력 전압 |
 | `/gas/rs_ro` | `std_msgs/Float32` | gas_sensor_node → (모니터링) 데이터시트 ppm 곡선용 Rs/Ro |
 | `/gas/sensor_ok` | `std_msgs/Bool` | gas_sensor_node → (모니터링) I2C 읽기 실패 시 false |
-| `/camera/image_raw` | `sensor_msgs/Image` | v4l2_camera → aruco_docking, blackbox, host_ai |
+| `/camera/image_raw` | `sensor_msgs/Image` | v4l2_camera → aruco_docking, blackbox, (host_ai: `use_compressed:=false`) |
+| `/camera/image_raw/compressed` | `sensor_msgs/CompressedImage` | image_transport → host_ai_pipeline (기본, BEST_EFFORT depth 1) |
+| `/detection/image` | `sensor_msgs/Image` | host_ai_pipeline → RViz2 (바운딩 박스 + SURVIVOR 배너) |
+| `/audio/raw` | `std_msgs/UInt8MultiArray` | audio_capture_node → host_ai_pipeline (48 kHz S16_LE mono, 0.5 s/msg) |
+| `/aruco/debug_image` | `sensor_msgs/Image` | aruco_docking → (모니터링, 정방향 회전) |
 | `/camera/camera_info` | `sensor_msgs/CameraInfo` | v4l2_camera → aruco_docking |
 | `/aruco/dock_trigger` | `std_msgs/Bool` | recovery_controller → aruco_docking |
 | `/aruco/dock_complete` | `std_msgs/Bool` | aruco_docking → recovery_controller |
@@ -338,6 +384,11 @@ ros2 topic echo /recovery/status
 | `lidar_fov_half_deg` | 20.0 | 전방 감시 반각 |
 | `docking_start_distance_m` | 0.50 | ArUco 도킹 전환 거리 |
 | `marker_size_m` / `target_dock_dist_m` | 0.10 / 0.20 | 마커 크기 / 마커 앞 정지 거리 |
+| `camera_rotation_deg` (aruco_docking) | 270 | 카메라 장착 회전. solvePnP 결과를 정방향 카메라 좌표계로 변환 |
+| `alsa_device` / `sample_rate` (audio_capture_node) | `plughw:1,0` / 48000 | USB 마이크 장치 / 샘플레이트 |
+| `chunk_duration_sec` (audio_capture_node) | 0.5 | `/audio/raw` 메시지 1개 길이 |
+
+Host AI 오디오 파라미터 (`host_ai_pipeline`, 코드 기본값): `audio_sample_rate=48000`, `sample_rate_hz=16000`(Whisper 입력), `audio_buffer_sec=2.0`(50% 중첩), `voice_activity_threshold=0.012`(RMS), `whisper_model_size=base`.
 
 ---
 
@@ -353,20 +404,24 @@ ros2 topic echo /recovery/status
 - [ ] 복귀 중 전방 약 15 cm에 장애물을 두면 정지하고, 치우면 재개하는가
 - [ ] 원점 0.5 m 이내에서 ArUco 도킹으로 전환되고 최종 위치가 출발점 15 cm 이내인가
 - [ ] 라이터 가스(점화 금지)를 MQ-2에 근접시켰을 때 동일한 복귀 시퀀스가 시작되는가
+- [x] Host 탐지 창/`/detection/image`가 정방향(270° 보정)으로 표시되고 사람 앞에서 `SURVIVOR LOCATED` 배너가 뜨는가
+- [ ] 마이크 앞에서 "살려주세요"라고 말하면 `/disaster/audio_alert`가 발행되는가
 
 ---
 
 ## ⚠ 알려진 한계 및 TODO
 
-본 저장소는 **설계·코드 프로토타입**이며, 실제 하드웨어에서의 동작 검증은 아직 수행되지 않았다.
+본 저장소는 **설계·코드 프로토타입**이다. Host AI(YOLO26n 추론·영상 회전·압축 스트림 수신)는 실제 TurtleBot3 영상으로 확인했으나, 자율 복귀·도킹·가스·오디오 경로의 전체 하드웨어 검증은 아직 진행 중이다.
 
 1. ~~**OpenCR 펌웨어 충돌**~~ → **해결됨.** MQ-2를 ADS1115(I2C)로 RPi 4에 직접 연결하는 방식으로 바꿨다. OpenCR은 순정 TurtleBot3 펌웨어를 유지한다. ADS1115 레지스터 설정과 MQ-2 계산은 단위 테스트로 검증했지만, 실제 하드웨어에서는 아직 검증하지 않았다.
-2. **`audio_capture_node`는 스텁**이다. 실제 PCM 캡처 및 Host 전송 로직(예: `audio_common_msgs` 또는 `Int16MultiArray`)이 미구현이며, `host_ai_pipeline`의 Whisper 큐에도 아직 데이터가 공급되지 않는다.
+2. ~~**`audio_capture_node`는 스텁**~~ → **구현됨.** `arecord`로 48 kHz PCM을 읽어 `/audio/raw`(`UInt8MultiArray`, 약 96 KB/s)로 보내고, Host가 16 kHz로 다운샘플해 Whisper에 넣는다. 단, 3:1 단순 decimation(저역통과 필터 없음)이라 앨리어싱이 생길 수 있고, 50% 중첩 윈도우 때문에 같은 키워드가 연속 2회 알림될 수 있다.
 3. **블랙박스의 Wi-Fi 스트리밍 차단**은 구현되어 있지 않다. 현재는 로컬 기록만 시작한다.
 4. **`OBSTACLE_HOLD`와 제자리 회전**: 회전 단계에서도 전방 장애물 검사를 하므로, 벽 근처에서 회전이 막혀 대기 상태가 지속될 수 있다. 회전 단계에서는 검사를 생략하거나 회전 방향 섹터만 검사하는 개선이 필요하다.
 5. **도킹 기하**: 마커가 출발 위치 정면 벽에 있다는 가정이다. 출발 자세와 마커 위치의 상대 관계(오프셋)는 현장에서 실측해 `target_dock_dist_m`을 조정해야 한다.
 6. **가스 지표**: `/gas/level`은 기준 공기 대비 센서 저항 감소율(`1 − Rs/Rs_air`)이며 ppm 값이 아니다. 기동 후 60초 예열 + 5초 기준 측정 동안은 가스 감시가 비활성 상태이고, 이 시간에는 **깨끗한 공기**에 두어야 한다. 정밀 측정에는 데이터시트상 장시간 burn-in이 권장된다.
-7. `camera_info_sample.yaml`의 값은 **예시**이다. 반드시 직접 캘리브레이션한 값을 사용해야 한다.
+7. `camera_info_sample.yaml`의 값은 **예시**이다. 반드시 직접 캘리브레이션한 값을 사용해야 한다. 캘리브레이션은 **회전하지 않은 원본 영상**으로 수행한다 (`aruco_docking`은 원본에서 solvePnP 후 `camera_rotation_deg`로 좌표만 변환).
+8. **카메라 장착 회전 보정**: `camera_rotation_deg=270`의 축 변환(수평 오차 X, yaw)은 수식으로만 검증했다. 현장에서 마커를 좌/우에 두고 `/aruco/debug_image`의 X 부호가 맞는지 먼저 확인할 것. 블랙박스 영상은 회전 없이 원본으로 저장된다.
+9. Host의 OpenCV 창(`show_window`)은 GUI가 없는 환경(SSH 등)에서는 `show_window:=false`로 꺼야 한다.
 
 ---
 

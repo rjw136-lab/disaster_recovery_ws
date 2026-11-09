@@ -45,13 +45,13 @@ flowchart TD
         NIC2["USB 무선 Wi-Fi 동글 (192.168.0.100)"]
         WSL["WSL2 Ubuntu 22.04 LTS (networkingMode=mirrored)"]
         GPU["NVIDIA GeForce GTX 1050 Ti (CUDA 12.x)"]
-        AI1["YOLO26/v8n Vision AI (Person/Hazard 탐지)"]
+        AI1["YOLO26n Vision AI (Person 탐지, 270° 회전 보정)"]
         AI2["Faster-Whisper STT (구조 요청 발화 분석)"]
         HB["Heartbeat Generator (10Hz /heartbeat)"]
         SLAM["Cartographer SLAM & RViz2 관제"]
     end
 
-    subgraph Network ["로컬 사설 Wi-Fi (연구실 전용 공유기: 192.168.0.x 대역, ROS_DOMAIN_ID=30)"]
+    subgraph Network ["로컬 사설 Wi-Fi (연구실 전용 공유기: 192.168.0.x 대역, ROS_DOMAIN_ID=0)"]
         UDP["초저지연 UDP 멀티캐스트 (지연 시간 1~2ms)"]
     end
 
@@ -59,7 +59,7 @@ flowchart TD
         WIFI_RPI["RPi 4 내장 Wi-Fi (192.168.0.105)"]
         LDS["LDS-01 2D LiDAR (/scan 발행)"]
         CAM["RPi Camera V2 (v4l2_camera 스트리밍)"]
-        MIC["USB 콘덴서 마이크 (16kHz 오디오 수음)"]
+        MIC["AB13X USB 마이크 (plughw:1,0, 48kHz → /audio/raw)"]
         WLOG["Odometry Logger (LIFO 스택: d>=0.3m, th>=25deg)"]
         WDOG["Watchdog Manager (Heartbeat 3.0s & Gas 감시)"]
         BTRK["Autonomous Backtracker (Rotate-then-Translate)"]
@@ -172,20 +172,21 @@ stateDiagram-v2
 
 본 시스템을 위해 구축된 완전한 ROS 2 Humble 패키지 디렉터리 구조는 다음과 같다:
 
-- [package.xml](file:///C:/Users/rjw13/disaster_recovery_ws/src/disaster_recovery/package.xml): ROS 2 Humble 의존성 및 패키지 메타데이터 정의
-- [setup.py](file:///C:/Users/rjw13/disaster_recovery_ws/src/disaster_recovery/setup.py): 콘솔 스크립트 엔트리포인트 및 런치/파라미터 설치 설정
-- [recovery_controller.py](file:///C:/Users/rjw13/disaster_recovery_ws/src/disaster_recovery/disaster_recovery/recovery_controller.py): 온보드 오도메트리 로거, 워치독 감시, 라이다 긴급 제동, LIFO 백트래킹 제어기
-- [aruco_docking.py](file:///C:/Users/rjw13/disaster_recovery_ws/src/disaster_recovery/disaster_recovery/aruco_docking.py): OpenCV solvePnP 기반 ArUco 마커 3D 포즈 추정 및 15cm 정밀 도킹 제어기
-- [host_ai_pipeline.py](file:///C:/Users/rjw13/disaster_recovery_ws/src/disaster_recovery/disaster_recovery/host_ai_pipeline.py): Host PC WSL2 GPU 가속 YOLOv8n 비전 및 Faster-Whisper 오디오 AI 파이프라인
-- [gas_sensor_node.py](file:///C:/Users/rjw13/disaster_recovery_ws/src/disaster_recovery/disaster_recovery/gas_sensor_node.py): ADS1115(I2C)로 MQ-2 전압을 읽어 EMA·기준선 보정 후 `/gas/level` 발행
-- [ads1115_mq2.py](file:///C:/Users/rjw13/disaster_recovery_ws/src/disaster_recovery/disaster_recovery/ads1115_mq2.py): ADS1115 드라이버 및 MQ-2 계산 함수 (ROS 비의존, 단위 테스트 대상)
-- [blackbox_recorder.py](file:///C:/Users/rjw13/disaster_recovery_ws/src/disaster_recovery/disaster_recovery/blackbox_recorder.py): 통신 단절 트리거 시 로컬 MicroSD 영상 및 센서 CSV 무손실 기록 노드
-- [audio_capture_node.py](file:///C:/Users/rjw13/disaster_recovery_ws/src/disaster_recovery/disaster_recovery/audio_capture_node.py): RPi 4 USB 핀마이크 16kHz 오디오 수음 노드 (스텁)
-- [test_ads1115_mq2.py](file:///C:/Users/rjw13/disaster_recovery_ws/src/disaster_recovery/test/test_ads1115_mq2.py): ADS1115/MQ-2 계산 단위 테스트 (8개)
-- [recovery_params.yaml](file:///C:/Users/rjw13/disaster_recovery_ws/src/disaster_recovery/config/recovery_params.yaml): 시스템 운영 임계치 및 PID 게인 파라미터 정의
-- [camera_info_sample.yaml](file:///C:/Users/rjw13/disaster_recovery_ws/src/disaster_recovery/config/camera_info_sample.yaml): RPi 카메라 모듈 V2 정밀 캘리브레이션 매트릭스
-- [robot_onboard.launch.py](file:///C:/Users/rjw13/disaster_recovery_ws/src/disaster_recovery/launch/robot_onboard.launch.py): RPi 4 온보드 전체 생존 노드 일괄 기동 런치
-- [host_station.launch.py](file:///C:/Users/rjw13/disaster_recovery_ws/src/disaster_recovery/launch/host_station.launch.py): Host PC 관제 AI 및 워치독 런치
+- [package.xml](../src/disaster_recovery/package.xml): ROS 2 Humble 의존성 및 패키지 메타데이터 정의
+- [setup.py](../src/disaster_recovery/setup.py): 콘솔 스크립트 엔트리포인트 및 런치/파라미터 설치 설정
+- [recovery_controller.py](../src/disaster_recovery/disaster_recovery/recovery_controller.py): 온보드 오도메트리 로거, 워치독 감시, 라이다 긴급 제동, LIFO 백트래킹 제어기
+- [aruco_docking.py](../src/disaster_recovery/disaster_recovery/aruco_docking.py): OpenCV solvePnP 기반 ArUco 마커 3D 포즈 추정 및 15cm 정밀 도킹 제어기
+- [host_ai_pipeline.py](../src/disaster_recovery/disaster_recovery/host_ai_pipeline.py): Host PC WSL2 GPU 가속 YOLO26n 비전(압축 영상·270° 회전·Zero-Lag 워커·연속 프레임 디바운스) 및 Faster-Whisper 오디오 AI 파이프라인
+- [gas_sensor_node.py](../src/disaster_recovery/disaster_recovery/gas_sensor_node.py): ADS1115(I2C)로 MQ-2 전압을 읽어 EMA·기준선 보정 후 `/gas/level` 발행
+- [ads1115_mq2.py](../src/disaster_recovery/disaster_recovery/ads1115_mq2.py): ADS1115 드라이버 및 MQ-2 계산 함수 (ROS 비의존, 단위 테스트 대상)
+- [blackbox_recorder.py](../src/disaster_recovery/disaster_recovery/blackbox_recorder.py): 통신 단절 트리거 시 로컬 MicroSD 영상 및 센서 CSV 무손실 기록 노드
+- [audio_capture_node.py](../src/disaster_recovery/disaster_recovery/audio_capture_node.py): RPi 4 AB13X USB 마이크 `arecord` 기반 48kHz PCM 캡처 → `/audio/raw` 발행 노드
+- [test_ads1115_mq2.py](../src/disaster_recovery/test/test_ads1115_mq2.py): ADS1115/MQ-2 계산 단위 테스트 (8개)
+- [recovery_params.yaml](../src/disaster_recovery/config/recovery_params.yaml): 시스템 운영 임계치 및 PID 게인 파라미터 정의
+- [camera_info_sample.yaml](../src/disaster_recovery/config/camera_info_sample.yaml): RPi 카메라 모듈 V2 캘리브레이션 예시값 (직접 캘리브레이션 값으로 교체 필요)
+- [robot_onboard.launch.py](../src/disaster_recovery/launch/robot_onboard.launch.py): RPi 4 온보드 전체 생존 노드 일괄 기동 런치
+- [disaster_station.rviz](../src/disaster_recovery/config/disaster_station.rviz): RViz2 관제 레이아웃 (RobotModel + `/scan` + `/map` + `/detection/image`)
+- [host_station.launch.py](../src/disaster_recovery/launch/host_station.launch.py): Host PC 관제 AI 및 워치독 런치 (launch argument로 모델·토픽·회전·임계값 지정, `use_rviz:=true`)
 
 ---
 

@@ -112,7 +112,11 @@ nvidia-smi
 pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 
 # Ultralytics YOLO 및 Faster-Whisper, OpenCV
-pip3 install ultralytics faster-whisper opencv-python numpy sounddevice
+pip3 install ultralytics faster-whisper
+
+# ROS 2 Humble cv_bridge 는 NumPy 1.x 로 빌드되어 있으므로 반드시 버전을 고정한다
+# (NumPy 2.x 설치 시 cv_bridge import 에러 발생)
+pip3 install "numpy==1.26.4" "opencv-python==4.10.0.84"
 ```
 
 ### 4.4 CUDA 가속 무결성 테스트
@@ -135,8 +139,8 @@ Host PC와 Raspberry Pi 4 간 1~2ms 수준의 초저지연 토픽 통신을 보�
 양측 기기의 `~/.bashrc` 최하단에 아래 내용을 동일하게 입력한다:
 
 ```bash
-# DDS 도메인 통일 (30번 채널 격리)
-export ROS_DOMAIN_ID=30
+# DDS 도메인 통일 (TurtleBot3 기본값 0번)
+export ROS_DOMAIN_ID=0
 
 # 로컬호스트 제한 해제 (외부 RPi4 통신 허용)
 export ROS_LOCALHOST_ONLY=0
@@ -162,3 +166,48 @@ export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
    ping 192.168.0.xxx  # RPi 4의 무선 IP
    ```
    평균 지연 시간이 1.0~2.5ms 내외로 유지됨을 확인한다.
+
+---
+
+## 6. (선택) 원격 접속: Tailscale + CycloneDDS 유니캐스트
+
+연구실 공유기에 직접 붙을 수 없는 경우 Tailscale VPN 위에서 ROS 2를 운용할 수 있다. Tailscale 인터페이스(`tailscale0`)는 멀티캐스트를 지원하지 않으므로 CycloneDDS의 **유니캐스트 피어 디스커버리**를 사용한다.
+
+`~/cyclonedds.xml` (Host PC 예시, Peer 주소는 RPi 4의 Tailscale IP):
+
+```xml
+<?xml version="1.0" encoding="UTF-8" ?>
+<CycloneDDS xmlns="https://cdds.io/config">
+    <Domain id="any">
+        <General>
+            <Interfaces>
+                <NetworkInterface name="tailscale0" priority="default" multicast="false" />
+            </Interfaces>
+        </General>
+        <Discovery>
+            <Peers>
+                <Peer address="100.x.y.z"/>   <!-- RPi 4 Tailscale IP -->
+                <Peer address="127.0.0.1"/>
+            </Peers>
+            <ParticipantIndex>auto</ParticipantIndex>
+        </Discovery>
+    </Domain>
+</CycloneDDS>
+```
+
+```bash
+sudo apt install -y ros-humble-rmw-cyclonedds-cpp
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+export CYCLONEDDS_URI=file://$HOME/cyclonedds.xml
+```
+
+RPi 4에도 동일한 파일을 두되 Peer 주소만 Host PC의 Tailscale IP로 바꾼다. 양쪽 RMW 구현체가 반드시 같아야 한다.
+
+| 비교 항목 | Tailscale VPN | 사설 Wi-Fi 직결 (기본 권장) |
+| :--- | :--- | :--- |
+| 경로 | 공용망 경유 (직결 실패 시 DERP 릴레이) | 로컬 공유기 1:1 (LAN) |
+| 지연 | 수십~150 ms, 지터 큼 | 1~3 ms |
+| 암호화 | WireGuard 강제 (RPi CPU 부하) | 없음 (순수 UDP) |
+| 워치독 | 패킷 지연 시 3초 타임아웃 오작동 가능 | 10 Hz Heartbeat 안정 |
+
+> 현장 시험에서는 **사설 Wi-Fi 직결 + Fast DDS(기본값)** 를 권장한다. Tailscale 사용 후에는 `.bashrc`의 `RMW_IMPLEMENTATION`/`CYCLONEDDS_URI` 를 주석 처리해 원래 상태로 되돌린다.

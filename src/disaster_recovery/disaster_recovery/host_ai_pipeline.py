@@ -12,16 +12,20 @@ Description:
 Key Functions:
   1. 10 Hz Watchdog Heartbeat Generator:
      - Regularly emits /heartbeat (std_msgs/Header) to assure the robot of active network connection.
-  2. GPU-Accelerated Vision Pipeline (Ultralytics YOLO):
-     - Ingests /camera/image_raw stream from TurtleBot3 Burger.
-     - Runs YOLOv8n / YOLO26n (FP16 half-precision) on GTX 1050 Ti (device='cuda:0').
-     - Detects survivors ('person', COCO ID 0) and hazardous elements.
-     - Publishes visualized bounding box stream to /detection/image.
-     - Emits /disaster/victim_alert when confidence exceeds threshold.
+  2. GPU-Accelerated Vision Pipeline (Ultralytics YOLO26n):
+     - Ingests /camera/image_raw/compressed (default, JPEG) or /camera/image_raw from TurtleBot3 Burger.
+     - Zero-lag "latest frame only" worker thread: stale frames are dropped instead of queued.
+     - Rotates frames by `rotation_angle` (default 270 deg) because the Pi camera is mounted sideways.
+     - Detects survivors ('person', COCO ID 0) with a person-specific threshold and an
+       N-consecutive-frame debounce filter to suppress single-frame false positives.
+     - Publishes visualized bounding box stream to /detection/image (+ optional OpenCV window).
+     - Emits /disaster/victim_alert when a survivor is confirmed.
   3. Real-Time Audio STT Pipeline (Faster-Whisper):
-     - Consumes audio stream (/audio/data) captured by the onboard USB microphone.
-     - Executes Faster-Whisper (base / tiny with compute_type="float16" or "int8_float16") in a worker thread.
-     - Performs automatic keyword spotting for distress calls ("도와주세요", "살려주세요", "구조", "help", "here").
+     - Consumes raw PCM (/audio/raw, std_msgs/UInt8MultiArray, 48 kHz S16_LE mono) from the
+       onboard USB microphone (audio_capture_node).
+     - 2 s sliding window (50% overlap) -> 3:1 decimation to 16 kHz -> RMS voice-activity gate.
+     - Executes Faster-Whisper (base, compute_type="int8") in a worker thread (Korean).
+     - Performs keyword spotting for distress calls ("도와주세요", "살려주세요", "구조", "help", "here").
      - Emits /disaster/audio_alert upon distress detection.
 =================================================================================================
 """
@@ -37,8 +41,8 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 
-from std_msgs.msg import Header, String, Bool, Float32
-from sensor_msgs.msg import Image
+from std_msgs.msg import Header, String, Bool, Float32, UInt8MultiArray
+from sensor_msgs.msg import Image, CompressedImage
 
 # Import AI Libraries with graceful CPU fallbacks
 try:
@@ -63,21 +67,60 @@ class HostAIPipelineNode(Node):
         # Parameters Configuration
         # -------------------------------------------------------------------------
         self.declare_parameter('heartbeat_rate_hz', 10.0)
-        self.declare_parameter('yolo_model_path', 'yolov8n.pt')
+        self.declare_parameter('yolo_model_path', 'yolo26n.pt')
         self.declare_parameter('whisper_model_size', 'base')
-        self.declare_parameter('confidence_threshold', 0.50)
+        self.declare_parameter('confidence_threshold', 0.40)
+        self.declare_parameter('person_conf_threshold', 0.55)
+        self.declare_parameter('only_person_detection', True)
+        self.declare_parameter('min_consecutive_detections', 2)
         self.declare_parameter('cuda_device', 0)
         self.declare_parameter('sample_rate_hz', 16000)
+        self.declare_parameter('audio_raw_topic', '/audio/raw')
+        self.declare_parameter('audio_sample_rate', 48000)
+        self.declare_parameter('voice_activity_threshold', 0.012)
+        self.declare_parameter('audio_buffer_sec', 2.0)
+        self.declare_parameter('image_topic', '/camera/image_raw/compressed')
+        self.declare_parameter('use_compressed', True)
+        self.declare_parameter('show_window', True)
+        self.declare_parameter('rotation_angle', 270)
 
         self.hb_rate = self.get_parameter('heartbeat_rate_hz').value
         self.model_path = self.get_parameter('yolo_model_path').value
         self.whisper_size = self.get_parameter('whisper_model_size').value
         self.conf_th = self.get_parameter('confidence_threshold').value
+        self.person_conf_th = self.get_parameter('person_conf_threshold').value
+        self.only_person = self.get_parameter('only_person_detection').value
+        self.min_consecutive = self.get_parameter('min_consecutive_detections').value
         self.device_id = self.get_parameter('cuda_device').value
         self.sample_rate = self.get_parameter('sample_rate_hz').value
+        self.audio_raw_topic = self.get_parameter('audio_raw_topic').value
+        self.mic_sample_rate = self.get_parameter('audio_sample_rate').value
+        self.vad_threshold = self.get_parameter('voice_activity_threshold').value
+        self.audio_buffer_sec = self.get_parameter('audio_buffer_sec').value
+        self.image_topic = self.get_parameter('image_topic').value
+        self.use_compressed = self.get_parameter('use_compressed').value
+        self.show_window = self.get_parameter('show_window').value
+        self.rotation_angle = self.get_parameter('rotation_angle').value
 
         self.bridge = CvBridge()
         self.seq_id = 0
+
+        # Debounce counter for person detection
+        self.consecutive_person_count = 0
+        self.fps_time = time.time()
+        self.fps_counter = 0
+        self.current_fps = 0.0
+
+        # Audio PCM streaming buffer & lock
+        self.audio_pcm_buffer = bytearray()
+        self.audio_lock = threading.Lock()
+
+        # Latest-frame zero-lag buffer
+        self.latest_frame = None
+        self.latest_compressed_bytes = None
+        self.frame_lock = threading.Lock()
+        self.new_frame_event = threading.Event()
+        self.vision_thread_running = True
 
         # Distress keywords dictionary for emergency spotter
         self.distress_keywords = [
@@ -105,18 +148,21 @@ class HostAIPipelineNode(Node):
         self.whisper_model = None
         self.audio_queue = queue.Queue(maxsize=100)
         if WHISPER_AVAILABLE:
+            # Note: GTX 1050 Ti (Pascal, Compute 6.1) has no fast FP16 path; INT8 is the most
+            # stable and fastest option on both CUDA and CPU.
+            compute_type = "int8"
             try:
-                compute_type = "float16" if "cuda" in self.device_str else "int8"
                 self.whisper_model = WhisperModel(
                     self.whisper_size,
                     device="cuda" if "cuda" in self.device_str else "cpu",
                     compute_type=compute_type
                 )
-                self.get_logger().info(f"Faster-Whisper ({self.whisper_size}, {compute_type}) initialized.")
+                self.get_logger().info(f"Faster-Whisper ({self.whisper_size}, {compute_type}) initialized successfully on {self.device_str}.")
             except Exception as e:
-                self.get_logger().warn(f"Faster-Whisper CUDA init issue: {e}. Falling back to CPU int8.")
+                self.get_logger().warn(f"Faster-Whisper CUDA init issue: {e}. Falling back to CPU.")
                 try:
                     self.whisper_model = WhisperModel(self.whisper_size, device="cpu", compute_type="int8")
+                    self.get_logger().info("Faster-Whisper CPU fallback initialized.")
                 except Exception as ex:
                     self.get_logger().error(f"Whisper completely unavailable: {ex}")
 
@@ -134,10 +180,24 @@ class HostAIPipelineNode(Node):
             depth=10
         )
 
-        self.sub_image = self.create_subscription(
-            Image, '/camera/image_raw', self.cb_image, qos_best_effort
+        if self.use_compressed or 'compressed' in self.image_topic:
+            self.sub_image = self.create_subscription(
+                CompressedImage, self.image_topic, self.cb_compressed_image, qos_best_effort
+            )
+            self.get_logger().info(f"Subscribing to CompressedImage (Zero-Lag Best Effort): {self.image_topic}")
+        else:
+            self.sub_image = self.create_subscription(
+                Image, self.image_topic, self.cb_image, qos_best_effort
+            )
+            self.get_logger().info(f"Subscribing to Image (Zero-Lag Best Effort): {self.image_topic}")
+
+        # Raw audio PCM byte stream from Raspberry Pi USB Microphone
+        self.sub_audio_raw = self.create_subscription(
+            UInt8MultiArray, self.audio_raw_topic, self.cb_audio_raw, 10
         )
-        # Raw mono audio byte stream
+        self.get_logger().info(f"Subscribing to Raw Audio: {self.audio_raw_topic}")
+
+        # Legacy / fallback text transcription stream
         self.sub_audio = self.create_subscription(
             String, '/audio/transcription_raw', self.cb_audio_text, qos_reliable
         )
@@ -150,6 +210,10 @@ class HostAIPipelineNode(Node):
         # Heartbeat Generation Timer (10 Hz = 0.10s)
         hb_period = 1.0 / self.hb_rate
         self.timer_heartbeat = self.create_timer(hb_period, self.publish_heartbeat)
+
+        # Worker thread for real-time vision inference (zero queue lag)
+        self.vision_thread = threading.Thread(target=self.vision_worker_loop, daemon=True)
+        self.vision_thread.start()
 
         # Worker thread for Whisper STT
         self.audio_thread_running = True
@@ -169,27 +233,76 @@ class HostAIPipelineNode(Node):
         self.pub_heartbeat.publish(msg)
 
     # -----------------------------------------------------------------------------
-    # Vision Inference Callback
+    # Vision Inference Callbacks & Processing (Zero-Lag Worker)
     # -----------------------------------------------------------------------------
+    def rotate_image(self, img):
+        if self.rotation_angle == 90:
+            return cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+        elif self.rotation_angle == 180:
+            return cv2.rotate(img, cv2.ROTATE_180)
+        elif self.rotation_angle == 270:
+            return cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        return img
+
     def cb_image(self, msg: Image):
         try:
             cv_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            with self.frame_lock:
+                self.latest_frame = cv_img
+            self.new_frame_event.set()
         except CvBridgeError as e:
             self.get_logger().error(f"Image conversion error: {e}")
-            return
 
+    def cb_compressed_image(self, msg: CompressedImage):
+        with self.frame_lock:
+            self.latest_compressed_bytes = msg.data
+        self.new_frame_event.set()
+
+    def vision_worker_loop(self):
+        """Dedicated thread to process only the latest frame, preventing network/queue lag."""
+        while self.vision_thread_running:
+            if not self.new_frame_event.wait(timeout=0.1):
+                continue
+            self.new_frame_event.clear()
+
+            with self.frame_lock:
+                raw_bytes = self.latest_compressed_bytes
+                self.latest_compressed_bytes = None
+                frame = self.latest_frame
+                self.latest_frame = None
+
+            if raw_bytes is not None:
+                try:
+                    np_arr = np.frombuffer(raw_bytes, np.uint8)
+                    frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+                except Exception as e:
+                    self.get_logger().error(f"Compressed image decode error: {e}")
+                    continue
+
+            if frame is None:
+                continue
+
+            # 1. Rotate to upright orientation (e.g. 270 degrees)
+            frame = self.rotate_image(frame)
+
+            # 2. Process YOLO and publish
+            self.process_frame(frame)
+
+    def process_frame(self, cv_img):
         if self.yolo_model is None:
             return
 
-        # Perform half-precision inference
-        # Classes: 0 is 'person' in standard COCO dataset
-        results = self.yolo_model(
-            cv_img,
-            conf=self.conf_th,
-            device=self.device_str,
-            half=("cuda" in self.device_str),
-            verbose=False
-        )
+        # Perform inference on GTX 1050 Ti
+        # If only_person is enabled, restrict YOLO detection strictly to class 0 ('person')
+        inference_kwargs = {
+            'conf': self.conf_th,
+            'device': self.device_str,
+            'verbose': False
+        }
+        if self.only_person:
+            inference_kwargs['classes'] = [0]
+
+        results = self.yolo_model(cv_img, **inference_kwargs)
 
         annotated_frame = cv_img.copy()
         person_detected = False
@@ -200,19 +313,44 @@ class HostAIPipelineNode(Node):
             for box in r.boxes:
                 cls_id = int(box.cls[0])
                 conf = float(box.conf[0])
-                if cls_id == 0:  # Person
+                cls_name = self.yolo_model.names.get(cls_id, '')
+
+                # Only trigger if the detected class is strictly 'person' (COCO ID 0)
+                # and confidence meets the human-specific threshold (default 0.55)
+                if (cls_id == 0 or cls_name.lower() == 'person') and conf >= self.person_conf_th:
                     person_detected = True
                     if conf > highest_conf:
                         highest_conf = conf
 
+        # Debounce: Consecutive frame filter to prevent single-frame flickering false positives
         if person_detected:
+            self.consecutive_person_count += 1
+        else:
+            self.consecutive_person_count = 0
+
+        # Only announce and publish SURVIVOR alert when confirmed over consecutive frames
+        if self.consecutive_person_count >= self.min_consecutive:
             alert = String()
             alert.data = f"SURVIVOR_DETECTED|Confidence:{highest_conf:.2f}|Time:{time.time()}"
             self.pub_victim_alert.publish(alert)
             cv2.putText(
-                annotated_frame, "!!! SURVIVOR LOCATED !!!", (30, 50),
+                annotated_frame, f"!!! SURVIVOR LOCATED ({highest_conf*100:.0f}%) !!!", (30, 50),
                 cv2.FONT_HERSHEY_DUPLEX, 1.0, (0, 0, 255), 2
             )
+
+        # Real-time FPS Calculation & Status Overlay
+        self.fps_counter += 1
+        now = time.time()
+        dt = now - self.fps_time
+        if dt >= 1.0:
+            self.current_fps = self.fps_counter / dt
+            self.fps_counter = 0
+            self.fps_time = now
+
+        cv2.putText(
+            annotated_frame, f"FPS: {self.current_fps:.1f} | YOLO26n AI Vision Station",
+            (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 0), 2
+        )
 
         # Publish visualized inference stream for RViz2 / Monitoring UI
         try:
@@ -221,9 +359,52 @@ class HostAIPipelineNode(Node):
         except CvBridgeError:
             pass
 
+        # Dedicated Standalone AI Station Window
+        if self.show_window:
+            win_name = "Disaster Recovery - YOLO26n Vision AI Station"
+            if not hasattr(self, '_window_initialized'):
+                cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
+                cv2.resizeWindow(win_name, 960, 720)
+                self._window_initialized = True
+            cv2.imshow(win_name, annotated_frame)
+            cv2.waitKey(1)
+
     # -----------------------------------------------------------------------------
     # Audio STT Pipeline & Keyword Spotter
     # -----------------------------------------------------------------------------
+    def cb_audio_raw(self, msg: UInt8MultiArray):
+        """Receive 48kHz S16_LE PCM raw audio byte chunk from Raspberry Pi USB mic."""
+        chunk_bytes = bytes(msg.data)
+        if not chunk_bytes:
+            return
+
+        with self.audio_lock:
+            self.audio_pcm_buffer.extend(chunk_bytes)
+            # 48000 Hz, 16-bit Mono (2 bytes/sample) = 96,000 bytes/sec
+            target_bytes = int(self.mic_sample_rate * 2 * self.audio_buffer_sec)
+
+            if len(self.audio_pcm_buffer) >= target_bytes:
+                pcm_window = bytes(self.audio_pcm_buffer[:target_bytes])
+                # 50% overlap sliding window to prevent clipping words
+                step = target_bytes // 2
+                self.audio_pcm_buffer = self.audio_pcm_buffer[step:]
+
+                # Parse signed 16-bit PCM
+                audio_int16 = np.frombuffer(pcm_window, dtype=np.int16)
+
+                # Resample: 48,000 Hz -> 16,000 Hz (exact 3:1 decimation)
+                downsample_factor = max(1, self.mic_sample_rate // self.sample_rate)
+                audio_16k = audio_int16[::downsample_factor]
+
+                # Normalize to float32 [-1.0, 1.0] for Faster-Whisper
+                audio_float = audio_16k.astype(np.float32) / 32768.0
+
+                # Voice Activity Detection based on RMS amplitude
+                rms = float(np.sqrt(np.mean(audio_float ** 2)))
+                if rms >= self.vad_threshold:
+                    if not self.audio_queue.full():
+                        self.audio_queue.put(audio_float)
+
     def cb_audio_text(self, msg: String):
         """Handle pre-transcribed text or direct audio text input."""
         text = msg.data.lower()
@@ -271,7 +452,9 @@ class HostAIPipelineNode(Node):
             self.get_logger().warn(f">>> [EMERGENCY AUDIO ALERT] Matched: {matched} in '{transcript}' <<<")
 
     def destroy_node(self):
+        self.vision_thread_running = False
         self.audio_thread_running = False
+        cv2.destroyAllWindows()
         super().destroy_node()
 
 
