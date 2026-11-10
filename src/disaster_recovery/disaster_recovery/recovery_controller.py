@@ -34,6 +34,7 @@ Key Behaviors:
 
 import math
 import collections
+import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
@@ -57,10 +58,11 @@ class SystemState:
 
 
 class Waypoint:
-    def __init__(self, x: float, y: float, theta: float):
+    def __init__(self, x: float, y: float, theta: float, scan_pts=None):
         self.x = x
         self.y = y
         self.theta = theta
+        self.scan_pts = scan_pts  # Nx2 numpy array of Cartesian laser points in robot frame
 
     def distance_to(self, other_x: float, other_y: float) -> float:
         return math.hypot(self.x - other_x, self.y - other_y)
@@ -80,6 +82,65 @@ def quaternion_to_yaw(qx: float, qy: float, qz: float, qw: float) -> float:
     siny_cosp = 2.0 * (qw * qz + qx * qy)
     cosy_cosp = 1.0 - 2.0 * (qy * qy + qz * qz)
     return math.atan2(siny_cosp, cosy_cosp)
+
+
+def icp_match_2d(src_pts, dst_pts, initial_guess=(0.0, 0.0, 0.0), max_iters=10, inlier_thresh=0.35, min_inliers=15):
+    """
+    Fast 2D Iterative Closest Point algorithm.
+    Finds rigid transformation (dx, dy, dtheta) that aligns src_pts onto dst_pts.
+    """
+    if src_pts is None or dst_pts is None:
+        return 0.0, 0.0, 0.0, False
+    if len(src_pts) < min_inliers or len(dst_pts) < min_inliers:
+        return 0.0, 0.0, 0.0, False
+
+    dx0, dy0, dth0 = initial_guess
+    c0, s0 = math.cos(dth0), math.sin(dth0)
+    R = np.array([[c0, -s0], [s0, c0]], dtype=np.float32)
+    t = np.array([dx0, dy0], dtype=np.float32)
+    cur_pts = (src_pts @ R.T) + t
+
+    for _ in range(max_iters):
+        diff = cur_pts[:, np.newaxis, :] - dst_pts[np.newaxis, :, :]
+        dist_sq = np.sum(diff ** 2, axis=-1)
+        indices = np.argmin(dist_sq, axis=1)
+        min_dists = np.sqrt(dist_sq[np.arange(len(cur_pts)), indices])
+
+        inliers = min_dists < inlier_thresh
+        num_inliers = int(np.sum(inliers))
+        if num_inliers < min_inliers:
+            break
+
+        p_src = cur_pts[inliers]
+        p_dst = dst_pts[indices[inliers]]
+
+        c_src = np.mean(p_src, axis=0)
+        c_dst = np.mean(p_dst, axis=0)
+
+        H = (p_src - c_src).T @ (p_dst - c_dst)
+        U, S, Vt = np.linalg.svd(H)
+        R_step = Vt.T @ U.T
+        if np.linalg.det(R_step) < 0:
+            Vt[-1, :] *= -1
+            R_step = Vt.T @ U.T
+        t_step = c_dst - (c_src @ R_step.T)
+
+        cur_pts = (cur_pts @ R_step.T) + t_step
+        R = R_step @ R
+        t = (t @ R_step.T) + t_step
+
+        if np.linalg.norm(t_step) < 1e-4 and abs(np.arctan2(R_step[1, 0], R_step[0, 0])) < 1e-4:
+            break
+
+    theta = float(np.arctan2(R[1, 0], R[0, 0]))
+    diff = cur_pts[:, np.newaxis, :] - dst_pts[np.newaxis, :, :]
+    dist_sq = np.sum(diff ** 2, axis=-1)
+    min_dists = np.sqrt(np.min(dist_sq, axis=1))
+    inliers = min_dists < inlier_thresh
+    mean_err = float(np.mean(min_dists[inliers])) if np.sum(inliers) >= min_inliers else 99.0
+
+    success = (np.sum(inliers) >= min_inliers) and (mean_err < 0.15)
+    return float(t[0]), float(t[1]), theta, success
 
 
 class RecoveryController(Node):
@@ -105,6 +166,11 @@ class RecoveryController(Node):
         self.declare_parameter('lidar_max_danger_range_m', 0.25)
         self.declare_parameter('lidar_fov_half_deg', 20.0)
         self.declare_parameter('docking_start_distance_m', 0.50)
+        self.declare_parameter('enable_scan_matching', True)
+        self.declare_parameter('scan_match_weight', 0.40)
+        self.declare_parameter('scan_match_max_dist_m', 0.40)
+        self.declare_parameter('use_aruco_docking', True)
+        self.declare_parameter('aruco_docking_timeout_sec', 12.0)
 
         # Retrieve parameters
         self.heartbeat_timeout = self.get_parameter('heartbeat_timeout_sec').value
@@ -123,6 +189,11 @@ class RecoveryController(Node):
         self.lidar_danger_dist = self.get_parameter('lidar_max_danger_range_m').value
         self.lidar_fov = math.radians(self.get_parameter('lidar_fov_half_deg').value)
         self.docking_dist_th = self.get_parameter('docking_start_distance_m').value
+        self.enable_scan_matching = self.get_parameter('enable_scan_matching').value
+        self.scan_match_weight = self.get_parameter('scan_match_weight').value
+        self.scan_match_max_dist = self.get_parameter('scan_match_max_dist_m').value
+        self.use_aruco_docking = self.get_parameter('use_aruco_docking').value
+        self.aruco_timeout = self.get_parameter('aruco_docking_timeout_sec').value
 
         # -------------------------------------------------------------------------
         # Internal State Variables
@@ -135,6 +206,12 @@ class RecoveryController(Node):
         self.current_y = 0.0
         self.current_theta = 0.0
         self.odom_initialized = False
+
+        # LiDAR Scan Matching State
+        self.latest_scan_pts = None
+        self.start_scan_pts = None
+        self.scan_match_count = 0
+        self.aruco_start_time = None
 
         # Waypoint Logging Stack (LIFO: Last-In, First-Out)
         self.waypoint_stack = collections.deque()
@@ -213,7 +290,7 @@ class RecoveryController(Node):
         self.current_theta = quaternion_to_yaw(ori.x, ori.y, ori.z, ori.w)
 
         if not self.odom_initialized:
-            self.start_pose = Waypoint(self.current_x, self.current_y, self.current_theta)
+            self.start_pose = Waypoint(self.current_x, self.current_y, self.current_theta, scan_pts=self.latest_scan_pts)
             self.last_logged_x = self.current_x
             self.last_logged_y = self.current_y
             self.last_logged_theta = self.current_theta
@@ -228,14 +305,15 @@ class RecoveryController(Node):
             delta_angle = abs(normalize_angle(self.current_theta - self.last_logged_theta))
 
             if delta_dist >= self.log_dist_th or delta_angle >= self.log_angle_th:
-                wp = Waypoint(self.current_x, self.current_y, self.current_theta)
+                wp = Waypoint(self.current_x, self.current_y, self.current_theta, scan_pts=self.latest_scan_pts)
                 self.waypoint_stack.append(wp)
                 self.last_logged_x = self.current_x
                 self.last_logged_y = self.current_y
                 self.last_logged_theta = self.current_theta
                 self.get_logger().info(
                     f"[ODOM LOGGER] Recorded Waypoint #{len(self.waypoint_stack)}: "
-                    f"x={self.current_x:.2f}, y={self.current_y:.2f}, th={math.degrees(self.current_theta):.1f}°"
+                    f"x={self.current_x:.2f}, y={self.current_y:.2f}, th={math.degrees(self.current_theta):.1f}° "
+                    f"(Scan Points: {len(self.latest_scan_pts) if self.latest_scan_pts is not None else 0})"
                 )
 
     def cb_heartbeat(self, msg: Header):
@@ -250,30 +328,36 @@ class RecoveryController(Node):
 
     def cb_scan(self, msg: LaserScan):
         """
-        Scan LIDAR data for emergency obstacle avoidance.
-        Evaluates forward sector +/-20 degrees for distances between 0.12m and 0.25m.
+        1. Fast vectorized obstacle detection within forward +/- lidar_fov.
+        2. Cartesian point extraction for 2D LiDAR Scan Matching odometry correction.
         """
         if not msg.ranges:
             return
 
-        total_points = len(msg.ranges)
-        angle_inc = msg.angle_increment
-        detected = False
+        ranges = np.array(msg.ranges, dtype=np.float32)
+        angles = msg.angle_min + np.arange(len(ranges)) * msg.angle_increment
 
-        for i, dist in enumerate(msg.ranges):
-            if math.isnan(dist) or math.isinf(dist):
-                continue
+        # 1. Forward obstacle check
+        norm_angles = np.array([normalize_angle(a) for a in angles], dtype=np.float32)
+        fwd_mask = (np.abs(norm_angles) <= self.lidar_fov) & \
+                   (ranges >= self.lidar_min_dist) & (ranges <= self.lidar_danger_dist) & \
+                   np.isfinite(ranges)
+        self.obstacle_detected = bool(np.any(fwd_mask))
 
-            # Calculate beam angle relative to robot forward (+x)
-            beam_angle = normalize_angle(msg.angle_min + i * angle_inc)
+        # 2. Extract 2D Cartesian scan points (downsample step=2 for fast ~180 points)
+        sub_ranges = ranges[::2]
+        sub_angles = norm_angles[::2]
+        valid_mask = (sub_ranges >= self.lidar_min_dist) & (sub_ranges <= 3.5) & np.isfinite(sub_ranges)
 
-            # Check if within forward +/- 20 degrees
-            if abs(beam_angle) <= self.lidar_fov:
-                if self.lidar_min_dist <= dist <= self.lidar_danger_dist:
-                    detected = True
-                    break
+        if np.sum(valid_mask) >= 20:
+            r_valid = sub_ranges[valid_mask]
+            a_valid = sub_angles[valid_mask]
+            self.latest_scan_pts = np.column_stack((r_valid * np.cos(a_valid), r_valid * np.sin(a_valid))).astype(np.float32)
 
-        self.obstacle_detected = detected
+            if self.start_scan_pts is None and self.odom_initialized:
+                self.start_scan_pts = self.latest_scan_pts
+                if self.start_pose and self.start_pose.scan_pts is None:
+                    self.start_pose.scan_pts = self.latest_scan_pts
 
     def cb_remote_teleop(self, msg: Twist):
         # Forward remote teleop to robot motors ONLY in normal teleop mode
@@ -367,6 +451,9 @@ class RecoveryController(Node):
             return
 
         # 5. Method A Backtracking Logic: Rotate-then-Translate
+        if self.state in [SystemState.BACKTRACKING_ROTATE, SystemState.BACKTRACKING_TRANSLATE]:
+            self.perform_scan_matching_correction()
+
         if self.state == SystemState.BACKTRACKING_ROTATE:
             if self.active_target_wp is None:
                 self.select_next_waypoint()
@@ -426,6 +513,12 @@ class RecoveryController(Node):
         # 6. Handover to ArUco Visual Docking
         elif self.state == SystemState.HANDOVER_TO_ARUCO:
             self.stop_robot()
+            if not self.use_aruco_docking:
+                self.get_logger().info("ArUco docking disabled (use_aruco_docking=False). MISSION_COMPLETE at base camp.")
+                self.state = SystemState.MISSION_COMPLETE
+                return
+
+            self.aruco_start_time = self.get_clock().now()
             trigger_msg = Bool()
             trigger_msg.data = True
             self.pub_dock_trigger.publish(trigger_msg)
@@ -433,11 +526,80 @@ class RecoveryController(Node):
             self.state = SystemState.ARUCO_DOCKING
 
         elif self.state == SystemState.ARUCO_DOCKING:
-            # aruco_docking node commands /cmd_vel directly.
-            pass
+            # Backup safety timeout in case aruco node or camera stalls
+            if self.aruco_start_time is not None:
+                elapsed = (now - self.aruco_start_time).nanoseconds / 1e9
+                if elapsed > self.aruco_timeout:
+                    self.get_logger().warn(
+                        f"[RECOVERY TIMEOUT] ArUco docking exceeded backup timeout ({elapsed:.1f}s > {self.aruco_timeout}s). "
+                        "Marking MISSION_COMPLETE at current location."
+                    )
+                    self.stop_robot()
+                    self.state = SystemState.MISSION_COMPLETE
 
         elif self.state == SystemState.MISSION_COMPLETE:
             self.stop_robot()
+
+    def perform_scan_matching_correction(self):
+        """
+        Refines (self.current_x, self.current_y, self.current_theta) using 2D LiDAR scan matching.
+        Eliminates accumulated wheel odometry slip during backtracking.
+        """
+        if not self.enable_scan_matching or self.latest_scan_pts is None or self.active_target_wp is None:
+            return
+
+        ref_pts = self.active_target_wp.scan_pts
+        if ref_pts is None:
+            if self.start_pose and self.start_scan_pts is not None:
+                dist_orig = math.hypot(self.start_pose.x - self.current_x, self.start_pose.y - self.current_y)
+                if dist_orig <= self.docking_dist_th:
+                    ref_pts = self.start_scan_pts
+
+        if ref_pts is None:
+            return
+
+        dist_to_wp = math.hypot(self.active_target_wp.x - self.current_x, self.active_target_wp.y - self.current_y)
+        if dist_to_wp > self.scan_match_max_dist:
+            return
+
+        # Estimate initial guess in target WP frame
+        dx_world = self.current_x - self.active_target_wp.x
+        dy_world = self.current_y - self.active_target_wp.y
+        wp_th = self.active_target_wp.theta
+        c_th, s_th = math.cos(wp_th), math.sin(wp_th)
+        dx_guess = -(c_th * dx_world + s_th * dy_world)
+        dy_guess = -(-s_th * dx_world + c_th * dy_world)
+        dth_guess = normalize_angle(wp_th - self.current_theta)
+
+        dx_rel, dy_rel, dth_rel, ok = icp_match_2d(
+            self.latest_scan_pts, ref_pts,
+            initial_guess=(dx_guess, dy_guess, dth_guess),
+            max_iters=10, inlier_thresh=0.35, min_inliers=15
+        )
+
+        if ok:
+            # Reconstruct measured robot world pose
+            x_meas = self.active_target_wp.x - (c_th * dx_rel - s_th * dy_rel)
+            y_meas = self.active_target_wp.y - (s_th * dx_rel + c_th * dy_rel)
+            th_meas = normalize_angle(wp_th - dth_rel)
+
+            # Complementary filter fusion
+            alpha = self.scan_match_weight
+            corr_x = (1.0 - alpha) * self.current_x + alpha * x_meas
+            corr_y = (1.0 - alpha) * self.current_y + alpha * y_meas
+            corr_th = normalize_angle(self.current_theta + alpha * normalize_angle(th_meas - self.current_theta))
+
+            # Outlier rejection on correction step (< 0.20m max sudden jump)
+            if math.hypot(corr_x - self.current_x, corr_y - self.current_y) < 0.20:
+                self.current_x = corr_x
+                self.current_y = corr_y
+                self.current_theta = corr_th
+                self.scan_match_count += 1
+                if self.scan_match_count % 15 == 1:
+                    self.get_logger().info(
+                        f"[LIDAR SCAN MATCH] Odometry drift compensated: "
+                        f"Pose=({self.current_x:.2f}, {self.current_y:.2f}, {math.degrees(self.current_theta):.1f}°)"
+                    )
 
     def check_proximity_or_next_waypoint(self):
         """Check if robot is within 50cm of origin, or fetch next backtrack waypoint."""

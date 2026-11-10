@@ -16,6 +16,11 @@ recovery_controller:
     lidar_max_danger_range_m: 0.25
     lidar_fov_half_deg: 20.0
     docking_start_distance_m: 0.50
+    enable_scan_matching: true        # 2D LiDAR Scan Matching odometry drift compensation
+    scan_match_weight: 0.40           # Complementary filter fusion weight (0.0=pure odom, 1.0=pure lidar)
+    scan_match_max_dist_m: 0.40       # Max distance to WP to trigger ICP matching
+    use_aruco_docking: true           # If false, completes mission directly upon reaching base camp
+    aruco_docking_timeout_sec: 12.0   # Backup timeout to force MISSION_COMPLETE if docking stalls
 
 gas_sensor_node:
   ros__parameters:
@@ -48,6 +53,7 @@ aruco_docking:
     max_linear_speed: 0.08
     max_angular_speed: 0.35
     search_angular_speed: 0.20
+    search_timeout_sec: 10.0          # Stop search and complete mission after 10s if marker absent
     camera_rotation_deg: 270       # Pi camera mounted sideways (same as host rotation_angle)
 
 audio_capture_node:

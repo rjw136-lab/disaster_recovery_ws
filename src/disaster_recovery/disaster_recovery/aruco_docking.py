@@ -62,6 +62,7 @@ class ArUcoDockingNode(Node):
         self.declare_parameter('max_linear_speed', 0.08)       # Creep speed for precision
         self.declare_parameter('max_angular_speed', 0.35)
         self.declare_parameter('search_angular_speed', 0.20)
+        self.declare_parameter('search_timeout_sec', 10.0)     # Fallback timeout if marker absent
         self.declare_parameter('camera_rotation_deg', 0)       # 0/90/180/270 (cv2.rotate convention)
 
         self.marker_id = self.get_parameter('marker_id').value
@@ -76,6 +77,7 @@ class ArUcoDockingNode(Node):
         self.v_max = self.get_parameter('max_linear_speed').value
         self.w_max = self.get_parameter('max_angular_speed').value
         self.w_search = self.get_parameter('search_angular_speed').value
+        self.search_timeout = float(self.get_parameter('search_timeout_sec').value)
         self.camera_rotation = int(self.get_parameter('camera_rotation_deg').value) % 360
 
         # Rotation mapping raw-sensor camera coordinates -> upright camera coordinates.
@@ -144,6 +146,7 @@ class ArUcoDockingNode(Node):
         # -------------------------------------------------------------------------
         self.docking_active = False
         self.docking_complete = False
+        self.dock_trigger_time = None
         self.consecutive_aligned_frames = 0
         self.required_aligned_frames = 10
         self.last_seen_time = self.get_clock().now()
@@ -185,6 +188,7 @@ class ArUcoDockingNode(Node):
     def cb_trigger(self, msg: Bool):
         if msg.data and not self.docking_complete:
             self.docking_active = True
+            self.dock_trigger_time = self.get_clock().now()
             self.get_logger().info(">>> Received Docking Trigger! Beginning Visual Servoing. <<<")
 
     def cb_camera_info(self, msg: CameraInfo):
@@ -258,7 +262,24 @@ class ArUcoDockingNode(Node):
                 cv2.drawFrameAxes(cv_image, cam_mat, dist_coeff, rvec, tvec, 0.05)
                 info_text = f"X:{tx:.3f}m Z:{tz:.3f}m Yaw:{math.degrees(yaw):.1f}deg"
         else:
-            # Marker not found in frame: Perform active search sweep
+            # Marker not found in frame: Check active search timeout
+            if self.dock_trigger_time is not None:
+                elapsed_search = (self.get_clock().now() - self.dock_trigger_time).nanoseconds / 1e9
+                if elapsed_search >= self.search_timeout:
+                    self.get_logger().warn(
+                        f"[ARUCO TIMEOUT] ArUco marker ID {self.marker_id} not detected within {elapsed_search:.1f}s. "
+                        f"Finalizing mission at current pose (Fallback base camp arrival)."
+                    )
+                    self.stop_robot()
+                    self.docking_complete = True
+                    self.docking_active = False
+
+                    complete_msg = Bool()
+                    complete_msg.data = True
+                    self.pub_complete.publish(complete_msg)
+                    return
+
+            # Perform active search sweep
             self.execute_search_sweep()
 
         # Publish debug visualization image (rotated upright for human viewing)
