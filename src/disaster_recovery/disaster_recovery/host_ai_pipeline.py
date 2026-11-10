@@ -69,6 +69,9 @@ class HostAIPipelineNode(Node):
         self.declare_parameter('heartbeat_rate_hz', 10.0)
         self.declare_parameter('yolo_model_path', 'yolo26n.pt')
         self.declare_parameter('whisper_model_size', 'base')
+        self.declare_parameter('whisper_device', 'cpu')
+        self.declare_parameter('whisper_compute_type', 'int8')
+        self.declare_parameter('whisper_cpu_threads', 4)
         self.declare_parameter('confidence_threshold', 0.40)
         self.declare_parameter('person_conf_threshold', 0.55)
         self.declare_parameter('only_person_detection', True)
@@ -87,6 +90,9 @@ class HostAIPipelineNode(Node):
         self.hb_rate = self.get_parameter('heartbeat_rate_hz').value
         self.model_path = self.get_parameter('yolo_model_path').value
         self.whisper_size = self.get_parameter('whisper_model_size').value
+        self.whisper_device = self.get_parameter('whisper_device').value
+        self.whisper_compute_type = self.get_parameter('whisper_compute_type').value
+        self.whisper_cpu_threads = self.get_parameter('whisper_cpu_threads').value
         self.conf_th = self.get_parameter('confidence_threshold').value
         self.person_conf_th = self.get_parameter('person_conf_threshold').value
         self.only_person = self.get_parameter('only_person_detection').value
@@ -148,21 +154,24 @@ class HostAIPipelineNode(Node):
         self.whisper_model = None
         self.audio_queue = queue.Queue(maxsize=100)
         if WHISPER_AVAILABLE:
-            # Note: GTX 1050 Ti (Pascal, Compute 6.1) has no fast FP16 path; INT8 is the most
-            # stable and fastest option on both CUDA and CPU.
-            compute_type = "int8"
+            # CPU INT8 acceleration (AVX2 on i7-8700) is prioritized to completely preserve 
+            # the 4GB VRAM on GTX 1050 Ti for YOLO26n and RViz2.
             try:
                 self.whisper_model = WhisperModel(
                     self.whisper_size,
-                    device="cuda" if "cuda" in self.device_str else "cpu",
-                    compute_type=compute_type
+                    device=self.whisper_device,
+                    compute_type=self.whisper_compute_type,
+                    cpu_threads=self.whisper_cpu_threads
                 )
-                self.get_logger().info(f"Faster-Whisper ({self.whisper_size}, {compute_type}) initialized successfully on {self.device_str}.")
+                self.get_logger().info(
+                    f"Faster-Whisper ({self.whisper_size}, {self.whisper_compute_type}) initialized "
+                    f"successfully on {self.whisper_device} ({self.whisper_cpu_threads} CPU threads, VRAM protected)."
+                )
             except Exception as e:
-                self.get_logger().warn(f"Faster-Whisper CUDA init issue: {e}. Falling back to CPU.")
+                self.get_logger().warn(f"Faster-Whisper on {self.whisper_device} failed: {e}. Falling back to CPU int8.")
                 try:
-                    self.whisper_model = WhisperModel(self.whisper_size, device="cpu", compute_type="int8")
-                    self.get_logger().info("Faster-Whisper CPU fallback initialized.")
+                    self.whisper_model = WhisperModel(self.whisper_size, device="cpu", compute_type="int8", cpu_threads=4)
+                    self.get_logger().info("Faster-Whisper CPU default fallback initialized.")
                 except Exception as ex:
                     self.get_logger().error(f"Whisper completely unavailable: {ex}")
 

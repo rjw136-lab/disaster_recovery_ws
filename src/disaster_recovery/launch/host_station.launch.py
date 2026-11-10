@@ -78,6 +78,21 @@ def generate_launch_description():
             description='Rotate camera image (0, 90, 180, 270)'
         ),
         DeclareLaunchArgument(
+            'whisper_model_size',
+            default_value='base',
+            description='Faster-Whisper model size (tiny, base, small)'
+        ),
+        DeclareLaunchArgument(
+            'whisper_device',
+            default_value='cpu',
+            description='Compute device for Faster-Whisper (cpu or cuda; cpu recommended for GTX 1050 Ti VRAM protection)'
+        ),
+        DeclareLaunchArgument(
+            'whisper_compute_type',
+            default_value='int8',
+            description='Quantization compute type for Faster-Whisper on CPU (int8, float32)'
+        ),
+        DeclareLaunchArgument(
             'use_rviz',
             default_value='false',
             description='Also launch RViz2 with config/disaster_station.rviz'
@@ -99,7 +114,9 @@ def generate_launch_description():
                 'only_person_detection': LaunchConfiguration('only_person_detection'),
                 'min_consecutive_detections': LaunchConfiguration('min_consecutive_detections'),
                 'cuda_device': LaunchConfiguration('cuda_device'),
-                'whisper_model_size': 'base',
+                'whisper_model_size': LaunchConfiguration('whisper_model_size'),
+                'whisper_device': LaunchConfiguration('whisper_device'),
+                'whisper_compute_type': LaunchConfiguration('whisper_compute_type'),
             }],
             emulate_tty=True
         ),

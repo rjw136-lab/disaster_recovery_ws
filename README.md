@@ -297,9 +297,18 @@ source install/setup.bash
 
 ## ▶ 실행
 
+### ⚡ 원터치 통합 실행 (추천)
+
+```bash
+# Host PC 터미널에서 실행 (RPi 4 원격 브링업 + Host AI 파이프라인 + SLAM + 텔레옵 통합)
+python3 scripts/host/start.py   # 또는 PATH 등록 시 start.py
+```
+
+### 단계별 수동 실행
+
 | # | 기기 | 명령 |
 | :-: | :--- | :--- |
-| 1 | RPi 4 | `ros2 launch turtlebot3_bringup robot.launch.py` |
+| 1 | RPi 4 | `ros2 launch turtlebot3_bringup robot.launch.py` (또는 `bash scripts/rpi/start_all.sh`) |
 | 2 | RPi 4 | `ros2 run camera_ros camera_node --ros-args -p width:=640 -p height:=480 -p format:=BGR888` (또는 `bash scripts/rpi/start_camera.sh`) |
 | 3 | RPi 4 | `ros2 launch disaster_recovery robot_onboard.launch.py` |
 | 4 | Host | `ros2 launch disaster_recovery host_station.launch.py` (RViz 동시 실행: `use_rviz:=true`) |
@@ -332,6 +341,9 @@ ros2 run rviz2 rviz2 -d $(ros2 pkg prefix disaster_recovery)/share/disaster_reco
 | `only_person_detection` | `true` | COCO class 0(person)만 추론 |
 | `min_consecutive_detections` | `2` | 알림 발행에 필요한 연속 탐지 프레임 수 |
 | `cuda_device` | `0` | GPU 번호 |
+| `whisper_model_size` | `base` | Faster-Whisper 모델 크기 (tiny/base/small) |
+| `whisper_device` | `cpu` | Whisper 연산 디바이스 (`cpu`/`cuda`. GTX 1050 Ti VRAM 보호를 위해 CPU 권장) |
+| `whisper_compute_type` | `int8` | Whisper CPU 양자화 가속 타입 (`int8` AVX2 권장) |
 | `use_rviz` | `false` | `disaster_station.rviz`로 RViz2 동시 실행 |
 
 예) 원본 영상 + 회전 없음 + 창 끄기:
