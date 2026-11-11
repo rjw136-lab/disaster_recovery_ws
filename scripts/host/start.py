@@ -305,11 +305,13 @@ class RobotManager:
         if not self.ssh_client:
             return False
         try:
+            # Use bracket regex trick to exclude SSH wrapper/pgrep process itself
             stdin, stdout, stderr = self.ssh_client.exec_command(
-                "pgrep -f 'turtlebot3_node|recovery_controller' || true"
+                "pgrep -f '[t]urtlebot3_ros|[t]urtlebot3_node|[r]ecovery_controller' || true"
             )
             out = stdout.read().decode().strip()
-            return len(out) > 0
+            pids = [p for p in out.split() if p.isdigit()]
+            return len(pids) > 0
         except Exception:
             return False
 
@@ -327,15 +329,20 @@ class RobotManager:
 
         log_info("로봇에서 Bringup + camera_ros + 재난 복귀 노드를 통합 실행합니다...")
         start_cmd = (
-            "nohup bash -c 'source /opt/ros/humble/setup.bash; "
-            "if [ -f ~/.bashrc ]; then source ~/.bashrc; fi; "
+            "nohup bash -c '"
+            "export TURTLEBOT3_MODEL=burger; "
+            "export LDS_MODEL=LDS-01; "
+            "export ROS_DOMAIN_ID=0; "
+            "export ROS_LOCALHOST_ONLY=0; "
+            "source /opt/ros/humble/setup.bash; "
+            "if [ -f ~/disaster_recovery_ws/install/setup.bash ]; then source ~/disaster_recovery_ws/install/setup.bash; fi; "
             "bash ~/disaster_recovery_ws/scripts/rpi/start_all.sh' > /tmp/robot_bringup.log 2>&1 &"
         )
         self.ssh_client.exec_command(start_cmd)
 
         # Wait for robot nodes to appear
-        log_info("로봇 온보드 센서 및 노드 초기화 대기 중 (약 5초)...")
-        for i in range(8):
+        log_info("로봇 온보드 센서 및 노드 초기화 대기 중 (약 7초)...")
+        for i in range(12):
             time.sleep(1)
             if self.is_robot_running():
                 log_ok("로봇 온보드 통합 런칭 완료! (모터, LDS-01 라이다, 카메라, 워치독 활성화)")
@@ -350,7 +357,7 @@ class RobotManager:
         try:
             log_info("로봇 온보드 노드 정리 명령 전송 중...")
             stop_cmd = (
-                "pkill -f 'camera_node|camera_ros|robot.launch|turtlebot3_node|hlds_laser|"
+                "pkill -f 'camera_node|camera_ros|robot.launch|turtlebot3_node|turtlebot3_ros|hlds_laser|"
                 "robot_state_publisher|recovery_controller|aruco_docking|audio_capture_node|"
                 "gas_sensor_node|blackbox_recorder' 2>/dev/null || true"
             )
@@ -446,7 +453,7 @@ class HostProcessManager:
 
         # Clean any remaining ROS lingering processes
         subprocess.call(
-            "pkill -f 'host_ai_pipeline|cartographer_node|rviz2|teleop_twist_keyboard' 2>/dev/null || true",
+            "pkill -f 'host_ai_pipeline|cartographer_node|rviz2|teleop_twist_keyboard|wasd_teleop' 2>/dev/null || true",
             shell=True
         )
         log_ok("Host PC 노드 전체 정리 완료.")
@@ -490,22 +497,25 @@ def run_default_mode(robot_mgr, pm, args):
     # 3. Guide & Teleop Launch
     teleop_banner = f"""
 {Colors.GREEN}{Colors.BOLD}========================================================================================
-  🎮  텔레옵(Teleoperation) 원격 조종 제어판이 활성화되었습니다!
+  🎮  WASD 직관 텔레옵(Teleoperation) 원격 조종 제어판 활성화!
 ========================================================================================{Colors.RESET}
   조종 키 안내:
-      {Colors.BOLD}u    i    o{Colors.RESET}   : 좌회전 전진 / 직진 전진 / 우회전 전진
-      {Colors.BOLD}j    k    l{Colors.RESET}   : 제자리 좌회전 / 정지 / 제자리 우회전
-      {Colors.BOLD}m    ,    .{Colors.RESET}   : 좌회전 후진 / 직진 후진 / 우회전 후진
-      
-      {Colors.CYAN}w / x{Colors.RESET}     : 선속도(Linear Speed) 10% 증가 / 감소
-      {Colors.CYAN}a / d{Colors.RESET}     : 각속도(Angular Speed) 10% 증가 / 감소
-      {Colors.RED}Space / k{Colors.RESET} : 긴급 정지 (Emergency Stop)
-      {Colors.YELLOW}Ctrl + C{Colors.RESET}  : 전체 재난구조 시스템 안전 종료
+        {Colors.BOLD}[ W ] / [ ↑ ]{Colors.RESET} : 직진 전진 (Linear X)
+  {Colors.BOLD}[ A ] / [ ← ]{Colors.RESET}     {Colors.BOLD}[ D ] / [ → ]{Colors.RESET} : 좌회전 / 우회전 (제자리 선회)
+        {Colors.BOLD}[ S ] / [ ↓ ]{Colors.RESET} : 직진 후진
 
-  {Colors.BOLD}💡 안내:{Colors.RESET}
-  - 텔레옵은 워치독 게이트웨이인 {Colors.CYAN}/cmd_vel_remote{Colors.RESET} 로 안전하게 리매핑되어 있습니다.
+  특수 조작:
+      {Colors.BOLD}[ Q ] / [ E ]{Colors.RESET}         : 전진 좌회전 / 전진 우회전 (곡선 주행)
+      {Colors.RED}{Colors.BOLD}[ Space ] / [ K ]{Colors.RESET}     : 즉시 긴급 정지 (Emergency Stop)
+      {Colors.CYAN}[ + ] / [ - ]{Colors.RESET}         : 주행 선속도 ±0.02 m/s 조절
+      {Colors.CYAN}[ ] ] / [ [ ]{Colors.RESET}         : 선회 각속도 ±0.10 rad/s 조절
+      {Colors.YELLOW}[ C ]{Colors.RESET}                 : 크루즈 모드 (ON: 키 떼도 주행 유지 / OFF: 키 떼면 자동 감속)
+      {Colors.YELLOW}Ctrl + C{Colors.RESET}              : 전체 재난구조 시스템 안전 종료
+
+  {Colors.BOLD}💡 안전 및 시스템 상태:{Colors.RESET}
+  - 텔레옵은 워치독 게이트웨이인 {Colors.CYAN}/cmd_vel_remote{Colors.RESET} 로 안전하게 송출됩니다.
   - Heartbeat(10Hz)가 지속 송출되는 동안만 수동 주행이 허용됩니다.
-  - OpenCV 영상 창 및 Cartographer 2D SLAM 지도 창이 함께 실행 중입니다.
+  - OpenCV 영상 창 및 Cartographer 2D SLAM 지도 창이 백그라운드 구동 중입니다.
 {Colors.GREEN}========================================================================================{Colors.RESET}
 """
     print(teleop_banner)
@@ -520,10 +530,18 @@ def run_default_mode(robot_mgr, pm, args):
         return
 
     # Run Teleop in foreground so terminal catches arrow/letter keys
-    teleop_cmd = (
-        f"bash -c 'source {ROS_SETUP_SCRIPT} && "
-        f"ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -r cmd_vel:=/cmd_vel_remote'"
-    )
+    wasd_script = "/home/lab/wasd_teleop.py"
+    if args.legacy_teleop or not os.path.exists(wasd_script):
+        teleop_cmd = (
+            f"bash -c 'source {ROS_SETUP_SCRIPT} && "
+            f"ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -r cmd_vel:=/cmd_vel_remote'"
+        )
+    else:
+        teleop_cmd = (
+            f"bash -c 'source {ROS_SETUP_SCRIPT} && "
+            f"python3 {wasd_script} topic:=/cmd_vel_remote'"
+        )
+
     try:
         subprocess.run(teleop_cmd, shell=True)
     except KeyboardInterrupt:
@@ -541,10 +559,17 @@ def run_tmux_mode(robot_mgr, args):
     subprocess.call(f"tmux kill-session -t {session_name} 2>/dev/null || true", shell=True)
 
     # Pane 0: Teleoperation (top)
-    teleop_cmd = (
-        f"source {ROS_SETUP_SCRIPT} && "
-        f"ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -r cmd_vel:=/cmd_vel_remote"
-    )
+    wasd_script = "/home/lab/wasd_teleop.py"
+    if args.legacy_teleop or not os.path.exists(wasd_script):
+        teleop_cmd = (
+            f"source {ROS_SETUP_SCRIPT} && "
+            f"ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -r cmd_vel:=/cmd_vel_remote"
+        )
+    else:
+        teleop_cmd = (
+            f"source {ROS_SETUP_SCRIPT} && "
+            f"python3 {wasd_script} topic:=/cmd_vel_remote"
+        )
     subprocess.call(f"tmux new-session -d -s {session_name} -n 'Mission_Control' '{teleop_cmd}'", shell=True)
 
     # Split horizontally for logs
@@ -589,7 +614,7 @@ def stop_all_system(robot_ip=None):
 
     # 1. Host cleanup
     subprocess.call(
-        "pkill -f 'host_ai_pipeline|cartographer_node|rviz2|teleop_twist_keyboard' 2>/dev/null || true",
+        "pkill -f 'host_ai_pipeline|cartographer_node|rviz2|teleop_twist_keyboard|wasd_teleop' 2>/dev/null || true",
         shell=True
     )
     subprocess.call("tmux kill-session -t disaster_station 2>/dev/null || true", shell=True)
@@ -637,6 +662,7 @@ def main():
     parser.add_argument("--robot-only", action="store_true", help="Launch only Robot onboard nodes via SSH")
     parser.add_argument("--no-cartographer", action="store_true", help="Disable Cartographer SLAM")
     parser.add_argument("--no-teleop", action="store_true", help="Disable foreground Teleop")
+    parser.add_argument("--legacy-teleop", action="store_true", help="Use traditional teleop_twist_keyboard instead of WASD")
     parser.add_argument("--robot-ip", type=str, default=None, help="Target Robot IP address (e.g. 192.168.0.135)")
     parser.add_argument("--robot-user", type=str, default=DEFAULT_ROBOT_USER, help="Robot SSH username (default: lab)")
     parser.add_argument("--robot-pass", type=str, default=None, help="Robot SSH password")

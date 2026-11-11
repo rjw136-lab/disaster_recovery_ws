@@ -34,7 +34,10 @@ from disaster_recovery.ads1115_mq2 import (
 try:
     from smbus2 import SMBus
 except ImportError:
-    from smbus import SMBus  # apt: python3-smbus
+    try:
+        from smbus import SMBus  # apt: python3-smbus
+    except ImportError:
+        SMBus = None
 
 
 class GasSensorNode(Node):
@@ -92,6 +95,13 @@ class GasSensorNode(Node):
             + ("" if self.rs_air is None else f", fixed Rs_air={self.rs_air:.2f}kΩ"))
 
     def open_adc(self):
+        if SMBus is None:
+            self.get_logger().warn(
+                "smbus/smbus2 library not installed. MQ-2 Gas sensing is deactivated.",
+                throttle_duration_sec=10.0
+            )
+            self.adc = None
+            return False
         try:
             if self.bus is not None:
                 self.bus.close()
@@ -99,7 +109,7 @@ class GasSensorNode(Node):
             self.adc = ADS1115(self.bus, **self.adc_args)
             self.adc.start()
             return True
-        except OSError as e:
+        except (OSError, Exception) as e:
             self.get_logger().error(f"ADS1115 open failed: {e}", throttle_duration_sec=5.0)
             self.adc = None
             return False

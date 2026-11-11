@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 # TurtleBot3 Bringup + camera_ros + 재난 복귀 전체 노드 통합 구동 스크립트
 
+# 핵심 ROS 2 환경변수 강제 설정 (SSH Non-interactive 쉘에서도 누락 방지)
+export TURTLEBOT3_MODEL=${TURTLEBOT3_MODEL:-burger}
+export LDS_MODEL=${LDS_MODEL:-LDS-01}
+export ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+export ROS_LOCALHOST_ONLY=${ROS_LOCALHOST_ONLY:-0}
+
 source /opt/ros/humble/setup.bash
 if [ -f "$HOME/.bashrc" ]; then
     source "$HOME/.bashrc"
 fi
 
 # 기존 프로세스 정리
-pkill -f 'camera_node|camera_ros|robot.launch|turtlebot3_node|hlds_laser|robot_state_publisher|recovery_controller|aruco_docking' 2>/dev/null || true
+pkill -f 'camera_node|camera_ros|robot.launch|turtlebot3_node|turtlebot3_ros|hlds_laser|robot_state_publisher|recovery_controller|aruco_docking|audio_capture_node|gas_sensor_node|blackbox_recorder' 2>/dev/null || true
 sleep 1
 
 echo "============================================================"
@@ -34,7 +40,7 @@ echo "============================================================"
 cleanup() {
     echo -e "\n🛑 종료 신호 감지. 로봇과 센서 프로세스를 모두 정리합니다..."
     kill $CAM_PID $BRINGUP_PID 2>/dev/null || true
-    pkill -f 'camera_node|camera_ros|robot.launch|turtlebot3_node|hlds_laser|robot_state_publisher|recovery_controller|aruco_docking|audio_capture_node' 2>/dev/null || true
+    pkill -f 'camera_node|camera_ros|robot.launch|turtlebot3_node|turtlebot3_ros|hlds_laser|robot_state_publisher|recovery_controller|aruco_docking|audio_capture_node|gas_sensor_node|blackbox_recorder' 2>/dev/null || true
     echo "✅ 모든 프로세스가 깔끔하게 종료되었습니다."
     exit 0
 }
