@@ -3,7 +3,7 @@
 =================================================================================================
 Project: Disaster Recovery TurtleBot3 Burger System
 Script : sim.py (One-Touch Gazebo Simulation Cockpit, SLAM Mapping & Odometry Verification)
-Author : Autonomous Systems Laboratory / Jong Woo Ro
+Author : Kyungpook National University / Jong Woo Ro
 Usage  : 
     sim.py                     # Standard Mode (Gazebo World + SLAM Mapping + RViz + Teleop)
     sim.py --house             # Run in TurtleBot3 House World (Rooms & Corridors)
@@ -206,12 +206,14 @@ class GazeboSimulationRunner:
   • [ Space ]         : 긴급 제동 (정지)
   • {Colors.BG_RED}{Colors.WHITE}[ H ]{Colors.RESET}{Colors.BOLD}             : 통신 단절(Heartbeat DROP) 트리거 (오도메트리 복귀 테스트!){Colors.RESET}
   • {Colors.BG_GREEN}{Colors.WHITE}[ R ]{Colors.RESET}{Colors.BOLD}             : 통신 복구(Heartbeat RESUME){Colors.RESET}
+  • {Colors.BG_BLUE}{Colors.WHITE}[ O ]{Colors.RESET}{Colors.BOLD}             : 붕괴 잔해(Debris) 투입 / 제거 토글 (신규 장애물 테스트){Colors.RESET}
   • [ Q ] 또는 Ctrl+C : 시뮬레이션 정상 종료
 
-{Colors.YELLOW}👉 [테스트 방법]:
-   1. [W],[A],[S],[D]로 로봇을 벽/장애물 사이로 5~10m 운전하세요 (RViz2에서 실시간 지도가 그려집니다).
-   2. 원하는 위치에서 [ H ] 키를 누르면 통신 단절이 발생합니다.
-   3. 3초 후 로봇이 자율 복귀 모드로 전환되어, 실시간 2D 라이다 스캔 매칭(ICP)으로 오도메트리 오차를 보정하며 원점 (0, 0)으로 복귀합니다.{Colors.RESET}
+{Colors.YELLOW}👉 [테스트 시나리오]:
+   1. [W],[A],[S],[D]로 로봇을 5~10m 전진 운전합니다 (RViz2에서 실시간 지도가 그려집니다).
+   2. [ O ] 키를 누르면 로봇이 지나온 복귀 경로에 붉은색 붕괴 잔해(Debris)가 낙하 스폰됩니다.
+   3. [ H ] 키를 누르면 통신 단절이 발생하고 3초 후 자율복귀가 발동합니다.
+   4. 장애물 접근 시 TD3 국소 회피 제어기가 부드러운 우회 기동을 수행하고, 2D ICP가 슬립을 리셋하여 원점으로 복귀합니다.{Colors.RESET}
 """)
 
         if not self.no_teleop:
@@ -257,6 +259,9 @@ class GazeboSimulationRunner:
         import rclpy
         from rclpy.node import Node
         from geometry_msgs.msg import Twist
+        from nav_msgs.msg import Odometry
+        from std_msgs.msg import String
+        import math
 
         try:
             rclpy.init()
@@ -265,6 +270,40 @@ class GazeboSimulationRunner:
 
         teleop_node = Node('sim_teleop_controller')
         pub_cmd = teleop_node.create_publisher(Twist, '/cmd_vel_remote', 10)
+
+        # Odometry and path tracking for obstacle placement
+        cur_x = 0.0
+        cur_y = 0.0
+        cur_yaw = 0.0
+        path_history = []
+        obstacle_spawned = False
+        last_known_state = ""
+
+        def cb_odom(msg: Odometry):
+            nonlocal cur_x, cur_y, cur_yaw
+            pos = msg.pose.pose.position
+            ori = msg.pose.pose.orientation
+            cur_x = pos.x
+            cur_y = pos.y
+            siny_cosp = 2.0 * (ori.w * ori.z + ori.x * ori.y)
+            cosy_cosp = 1.0 - 2.0 * (ori.y * ori.y + ori.z * ori.z)
+            cur_yaw = math.atan2(siny_cosp, cosy_cosp)
+            if not path_history or math.hypot(cur_x - path_history[-1][0], cur_y - path_history[-1][1]) >= 0.35:
+                path_history.append((cur_x, cur_y))
+
+        def cb_status(msg: String):
+            nonlocal last_known_state
+            raw = msg.data
+            parts = raw.split('|')
+            st = parts[0].replace("STATE:SystemState.", "").replace("STATE:", "").strip()
+            if st != last_known_state:
+                arrow = f"{last_known_state} ➔ " if last_known_state else ""
+                sys.stdout.write(f"\r\n>>> {Colors.CYAN}{Colors.BOLD}[상태 전이]{Colors.RESET} {arrow}{Colors.YELLOW}{Colors.BOLD}{st}{Colors.RESET}\r\n")
+                sys.stdout.flush()
+                last_known_state = st
+
+        teleop_node.create_subscription(Odometry, '/odom', cb_odom, 5)
+        teleop_node.create_subscription(String, '/recovery/status', cb_status, 5)
 
         speed_lin = 0.16
         speed_ang = 0.70
@@ -317,6 +356,32 @@ class GazeboSimulationRunner:
                         self.heartbeat_active = True
                         sys.stdout.write(f"\r\n>>> [HEARTBEAT] 통신 강제 복구 (ACTIVE) <<<\r\n")
                         sys.stdout.flush()
+                    elif key in ['o', 'O']:
+                        sdf_path = "/home/lab/disaster_recovery_ws/src/disaster_recovery/config/debris_obstacle.sdf"
+                        if not obstacle_spawned:
+                            if len(path_history) >= 2:
+                                obs_x, obs_y = path_history[-2]
+                            else:
+                                obs_x = cur_x - 0.75 * math.cos(cur_yaw)
+                                obs_y = cur_y - 0.75 * math.sin(cur_yaw)
+
+                            spawn_cmd = (
+                                "source /opt/ros/humble/setup.bash && "
+                                f"ros2 run gazebo_ros spawn_entity.py -entity disaster_debris -file {sdf_path} -x {obs_x:.2f} -y {obs_y:.2f} -z 0.225"
+                            )
+                            subprocess.Popen(f"bash -c '{spawn_cmd}'", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            obstacle_spawned = True
+                            sys.stdout.write(f"\r\n>>> {Colors.BG_RED}{Colors.WHITE}[OBSTACLE]{Colors.RESET} {Colors.RED}{Colors.BOLD}⚠️ 붕괴 잔해(Debris) 투입! 위치: ({obs_x:.2f}, {obs_y:.2f}) - 복귀 경로 폐쇄!{Colors.RESET}\r\n")
+                            sys.stdout.flush()
+                        else:
+                            del_cmd = (
+                                "source /opt/ros/humble/setup.bash && "
+                                "ros2 service call /delete_entity gazebo_msgs/srv/DeleteEntity \"{name: 'disaster_debris'}\""
+                            )
+                            subprocess.Popen(f"bash -c '{del_cmd}'", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            obstacle_spawned = False
+                            sys.stdout.write(f"\r\n>>> {Colors.BG_GREEN}{Colors.WHITE}[OBSTACLE]{Colors.RESET} {Colors.GREEN}{Colors.BOLD}🧹 붕괴 잔해 제거 완료 - 복귀 경로 개방!{Colors.RESET}\r\n")
+                            sys.stdout.flush()
                     elif key in ['q', 'Q', '\x03']: # Ctrl+C
                         break
                 rclpy.spin_once(teleop_node, timeout_sec=0.01)

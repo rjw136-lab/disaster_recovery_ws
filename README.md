@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/disaster_recovery_social_preview.png" alt="Disaster Recovery TurtleBot3 Burger" width="100%">
+</p>
+
 # 🚨 Disaster Recovery TurtleBot3
 
 **통신 단절 적응형 실내 재난 탐사 및 자율 복귀 로봇 시스템 (TurtleBot3 Burger · ROS 2 Humble)**

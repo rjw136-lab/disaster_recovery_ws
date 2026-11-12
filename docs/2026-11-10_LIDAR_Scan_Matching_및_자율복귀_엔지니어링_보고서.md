@@ -2,7 +2,7 @@
 
 - **문서 제목:** 통신 단절 적응형 재난 복귀 로봇: 온보드 2D 라이다 스캔 매칭(ICP) 오도메트리 보정 및 ArUco 도킹 타임아웃 안전장치 구축 보고서
 - **작성 일자:** 2026년 11월 10일
-- **작성자 / 엔지니어:** 노종우 (Jong Woo Ro) / Autonomous Systems Laboratory
+- **작성자 / 엔지니어:** 노종우 (Jong Woo Ro) / Kyungpook National University
 - **대상 플랫폼:** TurtleBot3 Burger (Raspberry Pi 4 + OpenCR 1.0 + LDS-01 LiDAR + Pi Camera)
 - **관제 스테이션:** Windows 11 WSL2 (i7-8700 CPU, GTX 1050 Ti GPU, ROS 2 Humble)
 - **저장 위치:** `C:\Users\lab\OneDrive - 경북대학교\바탕 화면\docs\2026-11-10_LIDAR_Scan_Matching_및_자율복귀_엔지니어링_보고서.md`

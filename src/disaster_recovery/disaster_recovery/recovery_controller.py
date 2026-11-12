@@ -3,7 +3,7 @@
 =================================================================================================
 Project: Disaster Recovery TurtleBot3 Burger System
 Node: recovery_controller.py
-Author: Autonomous Systems Laboratory / Modified for Jong Woo Ro
+Author: Kyungpook National University / Jong Woo Ro
 
 Description:
   Unified Fail-Safe, Odometry Logger, Watchdog, Obstacle Avoidance, and Autonomous Waypoint
@@ -32,6 +32,7 @@ Key Behaviors:
 =================================================================================================
 """
 
+import os
 import math
 import collections
 import numpy as np
@@ -44,6 +45,11 @@ from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Header, Float32, Bool, String
 
+from disaster_recovery.td3_policy import (
+    TD3LocalAvoidancePolicy,
+    extract_state_vector
+)
+
 
 class SystemState:
     INIT = 'INIT'
@@ -51,6 +57,7 @@ class SystemState:
     EMERGENCY_STOP = 'EMERGENCY_STOP'
     BACKTRACKING_ROTATE = 'BACKTRACKING_ROTATE'
     BACKTRACKING_TRANSLATE = 'BACKTRACKING_TRANSLATE'
+    LOCAL_TD3_AVOIDANCE = 'LOCAL_TD3_AVOIDANCE'
     OBSTACLE_HOLD = 'OBSTACLE_HOLD'
     HANDOVER_TO_ARUCO = 'HANDOVER_TO_ARUCO'
     ARUCO_DOCKING = 'ARUCO_DOCKING'
@@ -171,6 +178,10 @@ class RecoveryController(Node):
         self.declare_parameter('scan_match_max_dist_m', 0.40)
         self.declare_parameter('use_aruco_docking', True)
         self.declare_parameter('aruco_docking_timeout_sec', 12.0)
+        self.declare_parameter('enable_td3_avoidance', True)
+        self.declare_parameter('td3_model_path', '')
+        self.declare_parameter('td3_clearance_dist_m', 0.38)
+        self.declare_parameter('td3_max_avoid_steps', 150)
 
         # Retrieve parameters
         self.heartbeat_timeout = self.get_parameter('heartbeat_timeout_sec').value
@@ -194,12 +205,47 @@ class RecoveryController(Node):
         self.scan_match_max_dist = self.get_parameter('scan_match_max_dist_m').value
         self.use_aruco_docking = self.get_parameter('use_aruco_docking').value
         self.aruco_timeout = self.get_parameter('aruco_docking_timeout_sec').value
+        self.enable_td3_avoidance = self.get_parameter('enable_td3_avoidance').value
+        self.td3_model_path = self.get_parameter('td3_model_path').value
+        self.td3_clearance_dist = self.get_parameter('td3_clearance_dist_m').value
+        self.td3_max_avoid_steps = self.get_parameter('td3_max_avoid_steps').value
 
         # -------------------------------------------------------------------------
         # Internal State Variables
         # -------------------------------------------------------------------------
         self.state = SystemState.INIT
         self.previous_state = SystemState.INIT
+
+        # TD3 Local Reactive Avoidance Variables
+        self.latest_raw_ranges = []
+        self.last_cmd_v = 0.0
+        self.last_cmd_w = 0.0
+        self.td3_avoid_step = 0
+
+        # Initialize TD3 Local Avoidance Policy (Layer 2)
+        if self.enable_td3_avoidance:
+            model_path = self.td3_model_path
+            if not model_path or not os.path.exists(model_path):
+                candidates = [
+                    "/home/lab/disaster_recovery_ws/src/disaster_recovery/config/recovery_td3.onnx",
+                    "/home/lab/disaster_recovery_ws/install/disaster_recovery/share/disaster_recovery/config/recovery_td3.onnx",
+                    "/home/lab/disaster_recovery_ws/src/disaster_recovery/config/recovery_td3.pth",
+                ]
+                for c in candidates:
+                    if os.path.exists(c):
+                        model_path = c
+                        break
+            self.td3_policy = TD3LocalAvoidancePolicy(
+                model_path=model_path,
+                max_v=self.v_max,
+                min_v=0.03,
+                max_w=self.w_max
+            )
+            self.get_logger().info(
+                f"[TD3] Local Reactive Avoidance active (Engine: {self.td3_policy.model_type.upper()})"
+            )
+        else:
+            self.td3_policy = None
 
         # Robot Odometry State
         self.current_x = 0.0
@@ -349,6 +395,7 @@ class RecoveryController(Node):
         if not msg.ranges:
             return
 
+        self.latest_raw_ranges = list(msg.ranges)
         ranges = np.array(msg.ranges, dtype=np.float32)
         angles = msg.angle_min + np.arange(len(ranges)) * msg.angle_increment
 
@@ -449,20 +496,92 @@ class RecoveryController(Node):
         # 4. Obstacle Hold Check during Backtracking
         if self.state in [SystemState.BACKTRACKING_ROTATE, SystemState.BACKTRACKING_TRANSLATE]:
             if self.obstacle_detected:
-                self.stop_robot()
-                self.previous_state = self.state
-                self.state = SystemState.OBSTACLE_HOLD
-                self.get_logger().warn(
-                    f"[LIDAR SAFETY] Obstacle detected within {self.lidar_danger_dist}m! Pausing backtracking."
-                )
+                if self.enable_td3_avoidance and self.td3_policy is not None:
+                    self.previous_state = self.state
+                    self.state = SystemState.LOCAL_TD3_AVOIDANCE
+                    self.td3_avoid_step = 0
+                    self.get_logger().warn(
+                        f"[HIERARCHICAL RECOVERY] Obstacle detected within {self.lidar_danger_dist}m! "
+                        f"Engaging Layer 2: TD3 Local Reactive Avoidance."
+                    )
+                else:
+                    self.stop_robot()
+                    self.previous_state = self.state
+                    self.state = SystemState.OBSTACLE_HOLD
+                    self.get_logger().warn(
+                        f"[LIDAR SAFETY] Obstacle detected within {self.lidar_danger_dist}m! Pausing backtracking (Baseline C)."
+                    )
                 return
 
-        # State: OBSTACLE_HOLD
+        # State: OBSTACLE_HOLD (Baseline C)
         if self.state == SystemState.OBSTACLE_HOLD:
             self.stop_robot()
             if not self.obstacle_detected:
                 self.get_logger().info("[LIDAR SAFETY] Obstacle cleared. Resuming backtracking.")
                 self.state = self.previous_state
+            return
+
+        # State: LOCAL_TD3_AVOIDANCE (Next-Gen Layer 2)
+        if self.state == SystemState.LOCAL_TD3_AVOIDANCE:
+            self.td3_avoid_step += 1
+
+            if self.active_target_wp is None:
+                self.select_next_waypoint()
+                if self.active_target_wp is None:
+                    self.state = SystemState.HANDOVER_TO_ARUCO
+                    return
+
+            dx = self.active_target_wp.x - self.current_x
+            dy = self.active_target_wp.y - self.current_y
+            dist_to_wp = math.hypot(dx, dy)
+
+            # Condition 1: Waypoint reached during bypass maneuver
+            if dist_to_wp <= self.wp_reach_radius:
+                self.get_logger().info(
+                    f"[TD3 AVOIDANCE] Target WP reached ({dist_to_wp:.2f}m <= {self.wp_reach_radius}m)! "
+                    f"Applying Layer 3 ICP Drift Reset."
+                )
+                self.perform_scan_matching_correction()
+                self.check_proximity_or_next_waypoint()
+                return
+
+            # Condition 2: Obstacle bypassed and line-of-sight clear
+            if self.td3_avoid_step >= 6 and (not self.obstacle_detected):
+                self.get_logger().info(
+                    f"[TD3 AVOIDANCE] Obstacle bypassed after {self.td3_avoid_step} steps! "
+                    f"Engaging Layer 3: 2D ICP Drift Reset & returning to breadcrumbs."
+                )
+                self.stop_robot()
+                self.perform_scan_matching_correction()
+                self.state = SystemState.BACKTRACKING_ROTATE
+                return
+
+            # Condition 3: Avoidance maneuver timeout
+            if self.td3_avoid_step > self.td3_max_avoid_steps:
+                self.get_logger().warn(
+                    f"[TD3 AVOIDANCE] Maneuver timed out ({self.td3_avoid_step} steps). "
+                    f"Pausing in OBSTACLE_HOLD for safety."
+                )
+                self.stop_robot()
+                self.state = SystemState.OBSTACLE_HOLD
+                return
+
+            # Execute TD3 inference
+            state_vec = extract_state_vector(
+                self.latest_raw_ranges,
+                self.current_x, self.current_y, self.current_theta,
+                self.active_target_wp.x, self.active_target_wp.y,
+                self.last_cmd_v, self.last_cmd_w,
+                max_v=self.v_max, max_w=self.w_max
+            )
+            v_cmd, w_cmd = self.td3_policy.predict(state_vec)
+
+            cmd = Twist()
+            cmd.linear.x = max(0.03, min(self.v_max, float(v_cmd)))
+            cmd.angular.z = max(-self.w_max, min(self.w_max, float(w_cmd)))
+            self.last_cmd_v = cmd.linear.x
+            self.last_cmd_w = cmd.angular.z
+            self.pub_cmd_vel.publish(cmd)
             return
 
         # 5. Method A Backtracking Logic: Rotate-then-Translate
@@ -667,8 +786,12 @@ class RecoveryController(Node):
         self.pub_blackbox_trigger.publish(bb_msg)
 
     def stop_robot(self):
-        stop_cmd = Twist()
-        self.pub_cmd_vel.publish(stop_cmd)
+        try:
+            if rclpy.ok():
+                stop_cmd = Twist()
+                self.pub_cmd_vel.publish(stop_cmd)
+        except Exception:
+            pass
 
 
 def main(args=None):
@@ -676,12 +799,13 @@ def main(args=None):
     node = RecoveryController()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
-        node.get_logger().info("Recovery Controller stopping due to KeyboardInterrupt.")
+    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
+        pass
     finally:
         node.stop_robot()
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

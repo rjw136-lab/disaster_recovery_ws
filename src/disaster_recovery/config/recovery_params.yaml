@@ -22,6 +22,12 @@ recovery_controller:
     use_aruco_docking: true           # If false, completes mission directly upon reaching base camp
     aruco_docking_timeout_sec: 12.0   # Backup timeout to force MISSION_COMPLETE if docking stalls
 
+    # Next-Gen Layer 2: TD3 Local Reactive Avoidance
+    enable_td3_avoidance: true        # If false, falls back to Baseline C (OBSTACLE_HOLD)
+    td3_model_path: "/home/lab/disaster_recovery_ws/src/disaster_recovery/config/recovery_td3.onnx"
+    td3_clearance_dist_m: 0.38        # Obstacle bypass clearance threshold
+    td3_max_avoid_steps: 150          # 15s avoidance timeout at 10Hz before safe hold
+
 gas_sensor_node:
   ros__parameters:
     i2c_bus: 1

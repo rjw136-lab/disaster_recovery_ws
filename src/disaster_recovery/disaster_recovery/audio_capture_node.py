@@ -3,7 +3,7 @@
 =================================================================================================
 Project: Disaster Recovery TurtleBot3 Burger System
 Node: audio_capture_node.py
-Author: Autonomous Systems Laboratory / Modified for Jong Woo Ro
+Author: Kyungpook National University / Jong Woo Ro
 
 Description:
   Onboard Audio Ingestion Node for Raspberry Pi 4.

@@ -3,7 +3,7 @@
 =================================================================================================
 Project: Disaster Recovery TurtleBot3 Burger System
 Script : start.py (One-Touch Master Launcher & Supervisor)
-Author : Autonomous Systems Laboratory / Jong Woo Ro
+Author : Kyungpook National University / Jong Woo Ro
 Usage  : 
     start.py                # Standard Mode (AI + SLAM/RViz background, Teleop in foreground)
     start.py --tmux         # Cockpit Mode (Tmux multi-pane dashboard)

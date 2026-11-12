@@ -3,7 +3,7 @@
 =================================================================================================
 Project: Disaster Recovery TurtleBot3 Burger System
 Script : wasd_teleop.py (Intuitive WASD & Arrow Keys Teleoperation Controller)
-Author : Autonomous Systems Laboratory / Jong Woo Ro
+Author : Kyungpook National University / Jong Woo Ro
 
 Description:
   Intuitive, responsive, game-style keyboard teleoperation node for TurtleBot3 Burger.
