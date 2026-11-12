@@ -115,6 +115,10 @@ class GazeboSimulationRunner:
         subprocess.call("killall -9 gzserver gzclient cartographer_node occupancy_grid_node recovery_controller 2>/dev/null || true", shell=True)
         time.sleep(1.0)
 
+        os.makedirs("/tmp/disaster_recovery", exist_ok=True)
+        self.log_gz = open("/tmp/disaster_recovery/gazebo.log", "w")
+        self.log_carto = open("/tmp/disaster_recovery/cartographer.log", "w")
+
         # 2. Start Gazebo World
         print(f"{Colors.MAGENTA}{Colors.BOLD}▶ [1/5] Gazebo 3D 시뮬레이션 환경 기동 중... (맵: {self.world}){Colors.RESET}")
         if self.world in ["house", "turtlebot3_house"]:
@@ -127,11 +131,13 @@ class GazeboSimulationRunner:
         p_gazebo = subprocess.Popen(
             f"bash -c 'source /opt/ros/humble/setup.bash && {launch_cmd}'",
             shell=True,
+            stdout=self.log_gz,
+            stderr=subprocess.STDOUT,
             preexec_fn=os.setsid
         )
         self.processes.append(p_gazebo)
 
-        print(f"{Colors.CYAN}[INFO] Gazebo 물리 엔진 및 로봇 스폰 대기 중 (6초)...{Colors.RESET}")
+        print(f"{Colors.CYAN}[INFO] Gazebo 물리 엔진 및 로봇 스폰 대기 중 (6초)... (로그: /tmp/disaster_recovery/gazebo.log){Colors.RESET}")
         time.sleep(6)
 
         # 3. Start Cartographer SLAM (Mapping + RViz2)
@@ -144,10 +150,12 @@ class GazeboSimulationRunner:
             p_carto = subprocess.Popen(
                 f"bash -c '{carto_cmd}'",
                 shell=True,
+                stdout=self.log_carto,
+                stderr=subprocess.STDOUT,
                 preexec_fn=os.setsid
             )
             self.processes.append(p_carto)
-            print(f"{Colors.CYAN}[INFO] SLAM 맵핑 노드 및 RViz2 렌더링 대기 중 (3초)...{Colors.RESET}")
+            print(f"{Colors.CYAN}[INFO] SLAM 맵핑 노드 및 RViz2 렌더링 대기 중 (3초)... (로그: /tmp/disaster_recovery/cartographer.log){Colors.RESET}")
             time.sleep(3)
 
         # 4. Start Recovery Controller Node
@@ -265,11 +273,23 @@ class GazeboSimulationRunner:
         old_settings = termios.tcgetattr(fd)
 
         try:
-            tty.setraw(sys.stdin.fileno())
+            tty.setcbreak(sys.stdin.fileno())
             while self.running:
                 rlist, _, _ = select.select([sys.stdin], [], [], 0.05)
                 if rlist:
-                    key = sys.stdin.read(1)
+                    ch = sys.stdin.read(1)
+                    key = ch
+                    if ch == '\x1b':
+                        r2, _, _ = select.select([sys.stdin], [], [], 0.02)
+                        if r2 and sys.stdin.read(1) == '[':
+                            r3, _, _ = select.select([sys.stdin], [], [], 0.02)
+                            if r3:
+                                code = sys.stdin.read(1)
+                                if code == 'A': key = 'w'
+                                elif code == 'B': key = 's'
+                                elif code == 'C': key = 'd'
+                                elif code == 'D': key = 'a'
+
                     twist = Twist()
 
                     if key in ['w', 'W']:
