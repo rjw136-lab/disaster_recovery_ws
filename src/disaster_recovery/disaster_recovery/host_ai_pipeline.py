@@ -3,7 +3,7 @@
 =================================================================================================
 Project: Disaster Recovery TurtleBot3 Burger System
 Node: host_ai_pipeline.py
-Author: Autonomous Systems Laboratory / Modified for Jongwoo Noh
+Author: Autonomous Systems Laboratory / Modified for Jong Woo Ro
 
 Description:
   Host PC High-Performance AI and Supervision Station Node.

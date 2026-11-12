@@ -16,7 +16,7 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='Jongwoo Noh',
+    maintainer='Jong Woo Ro',
     maintainer_email='rjw13@knu.ac.kr',
     description='Autonomous Disaster Recovery and Waypoint Backtracking System for TurtleBot3 Burger',
     license='Apache-2.0',

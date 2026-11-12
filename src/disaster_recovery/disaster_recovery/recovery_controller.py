@@ -3,7 +3,7 @@
 =================================================================================================
 Project: Disaster Recovery TurtleBot3 Burger System
 Node: recovery_controller.py
-Author: Autonomous Systems Laboratory / Modified for Jongwoo Noh
+Author: Autonomous Systems Laboratory / Modified for Jong Woo Ro
 
 Description:
   Unified Fail-Safe, Odometry Logger, Watchdog, Obstacle Avoidance, and Autonomous Waypoint

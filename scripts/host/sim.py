@@ -3,7 +3,7 @@
 =================================================================================================
 Project: Disaster Recovery TurtleBot3 Burger System
 Script : sim.py (One-Touch Gazebo Simulation Cockpit, SLAM Mapping & Odometry Verification)
-Author : Autonomous Systems Laboratory / Jongwoo Noh
+Author : Autonomous Systems Laboratory / Jong Woo Ro
 Usage  : 
     sim.py                     # Standard Mode (Gazebo World + SLAM Mapping + RViz + Teleop)
     sim.py --house             # Run in TurtleBot3 House World (Rooms & Corridors)

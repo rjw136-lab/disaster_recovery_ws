@@ -8,7 +8,7 @@
     Operates under communication loss (watchdog heartbeat timeout) and hazardous gas detection,
     enabling fully onboard dead-reckoning backtracking and precision ArUco docking.
   </description>
-  <maintainer email="rjw13@knu.ac.kr">Jongwoo Noh</maintainer>
+  <maintainer email="rjw13@knu.ac.kr">Jong Woo Ro</maintainer>
   <license>Apache-2.0</license>
 
   <depend>rclpy</depend>

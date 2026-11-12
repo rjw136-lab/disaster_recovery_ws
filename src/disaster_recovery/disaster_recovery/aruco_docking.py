@@ -3,7 +3,7 @@
 =================================================================================================
 Project: Disaster Recovery TurtleBot3 Burger System
 Node: aruco_docking.py
-Author: Autonomous Systems Laboratory / Modified for Jongwoo Noh
+Author: Autonomous Systems Laboratory / Modified for Jong Woo Ro
 
 Description:
   Precision Visual Docking Node using OpenCV solvePnP on ArUco Marker (ID: 0, 10x10 cm).
