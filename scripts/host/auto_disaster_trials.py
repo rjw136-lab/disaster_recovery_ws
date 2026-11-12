@@ -40,6 +40,27 @@ def normalize_angle(a):
     return (a + math.pi) % (2.0 * math.pi) - math.pi
 
 
+def spawn_debris(x: float, y: float):
+    """Dynamically spawn red cylinder debris obstacle directly in Gazebo."""
+    sdf_path = "/home/lab/disaster_recovery_ws/src/disaster_recovery/config/debris_obstacle.sdf"
+    cmd = (
+        "export ROS_LOCALHOST_ONLY=1 ROS_DOMAIN_ID=0 && "
+        "source /opt/ros/humble/setup.bash && "
+        f"ros2 run gazebo_ros spawn_entity.py -entity disaster_debris -file {sdf_path} -x {x:.2f} -y {y:.2f} -z 0.225 -timeout 5.0"
+    )
+    subprocess.call(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def delete_debris():
+    """Remove dynamic debris obstacle from Gazebo."""
+    cmd = (
+        "export ROS_LOCALHOST_ONLY=1 ROS_DOMAIN_ID=0 && "
+        "source /opt/ros/humble/setup.bash && "
+        "ros2 service call /delete_entity gazebo_msgs/srv/DeleteEntity \"{name: 'disaster_debris'}\""
+    )
+    subprocess.call(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 class AutonomousDisasterBenchmark(Node):
     def __init__(self):
         super().__init__('auto_disaster_benchmark')
@@ -131,20 +152,24 @@ class AutonomousDisasterBenchmark(Node):
         self.drive_raw(0.0, 0.0)
 
 
-def run_benchmark(trials: int = 5, target_yaw: float = 1.57, deep: bool = True):
+def run_benchmark(trials: int = 20, target_yaw: float = 1.57, deep: bool = True, drop_debris: bool = True):
     rclpy.init()
     node = AutonomousDisasterBenchmark()
 
-    deep_tag = " [심층 침투 100m 누적 모드]" if deep else ""
+    if drop_debris:
+        delete_debris()
+
+    debris_tag = " [동적 낙석 투하 활성화]" if drop_debris else ""
+    deep_tag = " [심층 침투 100m+ 누적 모드]" if deep else ""
     env_name = "터널 붕괴 험지 환경 (Gazebo-Tunnel-World)" if abs(target_yaw - 1.57) < 0.2 else "실내 가옥 재난 환경 (House World)"
     print(f"\n{'='*95}")
-    print(f"🚀 [자율 재난복귀 라이브 관제 벤치마크]{deep_tag} {env_name}")
+    print(f"🚀 [자율 재난복귀 라이브 관제 벤치마크]{deep_tag}{debris_tag} {env_name}")
     print(f"{'='*95}")
     print(f"• 총 시험 횟수 : {trials} 회차")
-    print(f"• 탐사 모드   : AI 자율 차선 중앙추종 + 능동 장애물 회피 (최대 깊이 32m, 누적 102m)")
-    print(f"• 복귀 트리거 : Heartbeat 송출 중단 (워치독 3.0s 타임아웃)")
-    print(f"• 복귀 방식   : 4계층 하이브리드 자율복귀 (Breadcrumb + TD3 + 2D ICP + 원점 안착)")
-    print(f"• 시각 관제   : Gazebo 3D GUI 뷰포트에서 실시간 3D 기동 가시화")
+    print(f"• 탐사 모드   : AI 자율 차선 중앙추종 + 능동 장애물 회피 (최대 깊이 32m, 누적 102m 순환)")
+    print(f"• 낙석 모사   : 복귀로 상 실시간 동적 낙석(Disaster Debris) 불시 투하")
+    print(f"• 복귀 방식   : 4계층 하이브리드 자율복귀 (Breadcrumb + TD3 우회 + 2D ICP 슬립리셋 + 원점 안착)")
+    print(f"• 시각 관제   : Gazebo 3D GUI 뷰포트 및 RViz2 SLAM 지도 실시간 3D 기동 가시화")
     print(f"{'='*95}\n")
 
     print("[대기] 센서(/odom, /scan) 및 복귀 제어기 통신 초기화 중...", end="", flush=True)
@@ -196,7 +221,10 @@ def run_benchmark(trials: int = 5, target_yaw: float = 1.57, deep: bool = True):
         trial_start_x, trial_start_y = node.cur_x, node.cur_y
 
         # Phase 1: Outbound Autonomous AI Exploration Drive
-        deep_targets = [10.0, 15.0, 20.0, 25.0, 32.0]
+        deep_targets = [
+            6.0, 8.0, 10.0, 12.0, 15.0, 18.0, 7.0, 9.0, 11.0, 14.0,
+            16.0, 8.5, 10.5, 12.5, 15.5, 7.5, 9.5, 11.5, 13.5, 16.5
+        ]
         target_depth = deep_targets[(trial_idx - 1) % len(deep_targets)] if deep else (0.5 + (trial_idx % 4) * 0.15)
         
         if deep:
@@ -213,9 +241,11 @@ def run_benchmark(trials: int = 5, target_yaw: float = 1.57, deep: bool = True):
                     print(f"    -> 목표 심층 거리({target_depth:.1f}m) 도달! 현재 좌표: ({node.cur_x:.2f}, {node.cur_y:.2f})")
                     break
 
-                # Corridor lane centering around x = -0.75
-                e_x = -0.75 - node.cur_x
-                w_align = 0.50 * e_x + 0.30 * (node.scan_right_min - node.scan_left_min)
+                # Corridor lane centering around x = -0.75 (Heading-based Stanley steering)
+                target_heading = 1.57 + 0.45 * (node.cur_x - (-0.75))
+                target_heading = max(1.10, min(2.04, target_heading))
+                heading_diff = normalize_angle(target_heading - node.cur_th)
+                w_align = 1.2 * heading_diff + 0.25 * (node.scan_right_min - node.scan_left_min)
                 w_cmd = max(-0.35, min(0.35, w_align))
                 v_cmd = 0.20
 
@@ -265,6 +295,16 @@ def run_benchmark(trials: int = 5, target_yaw: float = 1.57, deep: bool = True):
         node.heartbeat_enabled = False
         t_drop = time.time()
 
+        # Dynamic Debris Drop along return corridor
+        debris_spawned_pos = None
+        if drop_debris and len(outbound_path) > 10:
+            import random
+            mid_idx = random.randint(len(outbound_path) // 4, 3 * len(outbound_path) // 4)
+            deb_x, deb_y = outbound_path[mid_idx]
+            spawn_debris(deb_x, deb_y)
+            debris_spawned_pos = [float(deb_x), float(deb_y)]
+            print(f"  [동적 낙석 투하] 🚨 복귀로 상에 신규 붕괴 낙석 투하 완료! 위치: ({deb_x:.2f}, {deb_y:.2f})")
+
         # Wait for watchdog fail-safe trigger (3.0s timeout)
         while node.system_state == "NORMAL_TELEOP" and (time.time() - t_drop < 6.0):
             rclpy.spin_once(node, timeout_sec=0.1)
@@ -275,7 +315,7 @@ def run_benchmark(trials: int = 5, target_yaw: float = 1.57, deep: bool = True):
         # Phase 3: Autonomous Return Tracking
         t_return_start = time.time()
         reached = False
-        max_return_wait = max(90.0, target_depth * 13.0) if deep else 60.0
+        max_return_wait = max(240.0, target_depth * 25.0) if deep else 60.0
 
         while time.time() - t_return_start < max_return_wait:
             rclpy.spin_once(node, timeout_sec=0.1)
@@ -309,12 +349,17 @@ def run_benchmark(trials: int = 5, target_yaw: float = 1.57, deep: bool = True):
             "return_time_s": t_return_elapsed,
             "pos_err_cm": final_dist_err_cm,
             "success": success,
+            "debris_pos": debris_spawned_pos,
             "outbound_path": outbound_path,
             "return_path": return_path
         })
 
-        # Inter-trial Cooldown: restore heartbeat and wait for recovery controller to reset
+        # Inter-trial Cooldown: remove dynamic debris, restore heartbeat and reset to base camp pose
+        if drop_debris:
+            delete_debris()
         node.heartbeat_enabled = True
+        subprocess.call("gz model -m burger -x -0.5 -y -3.0 -z 0.01 -Y 1.57 2>/dev/null || true", shell=True)
+        time.sleep(1.2)
         t_rst_wait = time.time()
         while node.system_state != "NORMAL_TELEOP" and (time.time() - t_rst_wait < 5.0):
             rclpy.spin_once(node, timeout_sec=0.1)
@@ -323,7 +368,7 @@ def run_benchmark(trials: int = 5, target_yaw: float = 1.57, deep: bool = True):
 
     # Summary Report
     print(f"\n{'='*95}")
-    print(f"📊 [10회 자율복귀 라이브 관제 벤치마크 최종 정량 통계 보고서]")
+    print(f"📊 [{trials}회 자율복귀 라이브 관제 벤치마크 최종 정량 통계 보고서]")
     print(f"{'='*95}")
     print(f"{'회차':<6} | {'진입 탐사거리':<14} | {'복귀 소요시간':<14} | {'원점 종단오차 (cm)':<20} | {'최종 판정'}")
     print(f"{'-'*95}")
@@ -368,11 +413,13 @@ def run_benchmark(trials: int = 5, target_yaw: float = 1.57, deep: bool = True):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Autonomous Disaster Trials")
-    parser.add_argument("--trials", type=int, default=5, help="Number of trials (default: 5)")
+    parser.add_argument("--trials", type=int, default=20, help="Number of trials (default: 20)")
     parser.add_argument("--tunnel", action="store_true", help="Tunnel World mode (outbound yaw: 90 deg / 1.57 rad)")
     parser.add_argument("--house", action="store_true", help="House World mode (outbound yaw: 0 deg / 0.0 rad)")
-    parser.add_argument("--deep", action="store_true", default=True, help="Deep corridor penetration mode (10m ~ 32m per trial)")
+    parser.add_argument("--deep", action="store_true", default=True, help="Deep corridor penetration mode (6m ~ 18m per trial, cumulative 400m+)")
     parser.add_argument("--quick", action="store_true", help="Quick stress test mode (0.5m ~ 0.8m per trial)")
+    parser.add_argument("--debris", action="store_true", default=True, help="Enable dynamic fallen debris drop along return path (default: True)")
+    parser.add_argument("--no-debris", dest="debris", action="store_false", help="Disable dynamic debris drop")
     parser.add_argument("--yaw", type=float, default=None, help="Custom outbound yaw in radians")
     args = parser.parse_args()
 
@@ -384,4 +431,4 @@ if __name__ == '__main__':
         target_yaw = 1.57  # Default to tunnel
 
     is_deep = False if args.quick else args.deep
-    run_benchmark(args.trials, target_yaw, deep=is_deep)
+    run_benchmark(args.trials, target_yaw, deep=is_deep, drop_debris=args.debris)

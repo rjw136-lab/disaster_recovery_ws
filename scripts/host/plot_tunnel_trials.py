@@ -50,12 +50,17 @@ def plot_benchmark(json_path="/tmp/tunnel_trials_result.json", output_path="/hom
         if len(out_pts) > 0:
             ax_traj.scatter(out_pts[-1, 0], out_pts[-1, 1], marker='^', color='red', s=45, zorder=5)
 
+        deb_pt = t.get("debris_pos")
+        if deb_pt:
+            circle_deb = patches.Circle((deb_pt[0], deb_pt[1]), 0.18, facecolor='crimson', edgecolor='black', alpha=0.75, zorder=6, label="Fallen Debris Obstacle" if idx == 0 else None)
+            ax_traj.add_patch(circle_deb)
+
     # Base camp anchor and tolerance circles
     ax_traj.scatter(base_x, base_y, marker='*', s=260, color='gold', edgecolor='black', linewidth=1.5, zorder=10, label=f"Base Camp Anchor ({base_x:.2f}, {base_y:.2f})")
     circle_pass = patches.Circle((base_x, base_y), 0.25, fill=False, edgecolor='green', linestyle=':', linewidth=2.0, label="Pass Margin (< 25 cm)")
     ax_traj.add_patch(circle_pass)
 
-    ax_traj.set_title("10-Trial Autonomous Disaster Tunnel Trajectories\n(Dashed: Outbound Exploration | Solid: 4-Layer Backtracking Return)", fontsize=13, fontweight='bold', pad=12)
+    ax_traj.set_title(f"{len(trials)}-Trial Autonomous Deep Tunnel Trajectories (Dynamic Debris Drop & TD3 Bypass)\n(Dashed: Outbound Exploration | Solid: 4-Layer Backtracking Return | Crimson: Fallen Debris)", fontsize=12, fontweight='bold', pad=12)
     ax_traj.set_xlabel("X Position (meters)", fontsize=11)
     ax_traj.set_ylabel("Y Position (meters - Tunnel Depth)", fontsize=11)
     ax_traj.grid(True, linestyle='--', alpha=0.5)

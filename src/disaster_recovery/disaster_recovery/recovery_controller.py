@@ -610,11 +610,13 @@ class RecoveryController(Node):
             # Condition 3: Avoidance maneuver timeout
             if self.td3_avoid_step > self.td3_max_avoid_steps:
                 self.get_logger().warn(
-                    f"[TD3 AVOIDANCE] Maneuver timed out ({self.td3_avoid_step} steps). "
-                    f"Pausing in OBSTACLE_HOLD for safety."
+                    f"[TD3 AVOIDANCE] Maneuver reached step budget ({self.td3_avoid_step} steps). "
+                    f"Advancing WP and resuming backtrack."
                 )
                 self.stop_robot()
-                self.state = SystemState.OBSTACLE_HOLD
+                self.perform_scan_matching_correction()
+                self.check_proximity_or_next_waypoint()
+                self.state = SystemState.BACKTRACKING_ROTATE
                 return
 
             # Execute TD3 inference

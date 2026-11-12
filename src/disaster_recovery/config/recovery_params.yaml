@@ -26,7 +26,7 @@ recovery_controller:
     enable_td3_avoidance: true        # If false, falls back to Baseline C (OBSTACLE_HOLD)
     td3_model_path: "/home/lab/disaster_recovery_ws/src/disaster_recovery/config/recovery_td3.onnx"
     td3_clearance_dist_m: 0.38        # Obstacle bypass clearance threshold
-    td3_max_avoid_steps: 150          # 15s avoidance timeout at 10Hz before safe hold
+    td3_max_avoid_steps: 250          # 25s avoidance timeout at 10Hz before advancing WP
 
 gas_sensor_node:
   ros__parameters:
