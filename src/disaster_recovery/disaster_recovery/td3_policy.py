@@ -46,7 +46,7 @@ if TORCH_AVAILABLE:
         Residual TD3 Actor Network mu(s | theta) with Differentiable Control Barrier Prior:
         Combines a 28->128->128->2 MLP policy network with an embedded Control Barrier / VFH
         safety prior directly inside the computation graph so that the exported ONNX model
-        guarantees both optimal RL trajectory smoothness and 100% collision-free obstacle bypass.
+        provides balanced trajectory smoothness alongside control barrier-bounded clearance.
         """
         def __init__(self, state_dim=28, action_dim=2, max_v=0.15, min_v=0.03, max_w=0.60):
             super(TD3Actor, self).__init__()

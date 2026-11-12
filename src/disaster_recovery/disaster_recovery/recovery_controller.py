@@ -7,7 +7,7 @@ Author: Kyungpook National University / Jong Woo Ro
 
 Description:
   Unified Fail-Safe, Odometry Logger, Watchdog, Obstacle Avoidance, and Autonomous Waypoint
-  Backtracking State Machine for TurtleBot3 Burger. Operates 100% onboard Raspberry Pi 4.
+  Backtracking State Machine for TurtleBot3 Burger. Operates onboard Raspberry Pi 4 without external compute.
 
 Key Behaviors:
   1. Normal Exploration Mode:
