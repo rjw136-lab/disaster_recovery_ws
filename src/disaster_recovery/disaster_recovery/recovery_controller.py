@@ -447,10 +447,32 @@ class RecoveryController(Node):
         now = self.get_clock().now()
         dt_heartbeat = (now - self.last_heartbeat_time).nanoseconds / 1e9
 
-        # Publish Diagnostic Status String
+        # Publish Diagnostic Status String with ICP Corrected Pose
         status_msg = String()
-        status_msg.data = f"STATE:{self.state}|FAULTS:{self.fault_reason}|STACK:{len(self.waypoint_stack)}"
+        status_msg.data = f"STATE:{self.state}|FAULTS:{self.fault_reason}|STACK:{len(self.waypoint_stack)}|POSE:{self.current_x:.3f},{self.current_y:.3f},{self.current_theta:.3f}"
         self.pub_system_status.publish(status_msg)
+
+        # 0. Global Link Restoration Check
+        # If heartbeat is restored and healthy (<0.5s) for > 1.2s, reset controller to NORMAL_TELEOP
+        if self.state not in [SystemState.NORMAL_TELEOP, SystemState.INIT]:
+            if dt_heartbeat < 0.5:
+                if not hasattr(self, '_link_restored_timer') or self._link_restored_timer is None:
+                    self._link_restored_timer = now
+                elif (now - self._link_restored_timer).nanoseconds / 1e9 > 1.2:
+                    self.state = SystemState.NORMAL_TELEOP
+                    self.waypoint_stack.clear()
+                    if self.start_pose is not None:
+                        self.waypoint_stack.append(self.start_pose)
+                    self.last_logged_x = self.current_x
+                    self.last_logged_y = self.current_y
+                    self.last_logged_theta = self.current_theta
+                    self.fault_reason = "NONE"
+                    self.active_target_wp = None
+                    self.aruco_docking_complete = False
+                    self._link_restored_timer = None
+                    self.get_logger().info(">>> Heartbeat link restored! Controller reset to NORMAL_TELEOP mode. <<<")
+            else:
+                self._link_restored_timer = None
 
         # 1. State: INIT
         if self.state == SystemState.INIT:
@@ -487,6 +509,11 @@ class RecoveryController(Node):
         # 3. State: EMERGENCY_STOP
         if self.state == SystemState.EMERGENCY_STOP:
             self.stop_robot()
+            # Discard any waypoints in the stack that are already within reach radius of current position
+            while len(self.waypoint_stack) > 1 and self.waypoint_stack[-1].distance_to(self.current_x, self.current_y) <= self.wp_reach_radius:
+                discarded = self.waypoint_stack.pop()
+                self.get_logger().info(f"Skipping already-reached WP ({discarded.x:.2f}, {discarded.y:.2f})")
+
             # Verify and pop immediate closest or current waypoint
             if not self.waypoint_stack:
                 self.get_logger().warn("Waypoint stack is empty at emergency stop! Directly requesting ArUco docking.")
@@ -619,6 +646,17 @@ class RecoveryController(Node):
 
             dx = self.active_target_wp.x - self.current_x
             dy = self.active_target_wp.y - self.current_y
+            dist_to_wp = math.hypot(dx, dy)
+
+            # Skip rotation and advance immediately if waypoint is already reached within reach radius
+            if dist_to_wp <= self.wp_reach_radius:
+                self.get_logger().info(
+                    f"Target WP ({self.active_target_wp.x:.2f}, {self.active_target_wp.y:.2f}) reached "
+                    f"({dist_to_wp:.2f}m <= {self.wp_reach_radius}m). Advancing to next WP."
+                )
+                self.check_proximity_or_next_waypoint()
+                return
+
             target_heading = math.atan2(dy, dx)
             heading_diff = normalize_angle(target_heading - self.current_theta)
 
@@ -697,6 +735,25 @@ class RecoveryController(Node):
 
         elif self.state == SystemState.MISSION_COMPLETE:
             self.stop_robot()
+            # If heartbeat is healthy and active, reset state back to NORMAL_TELEOP for continuous trials
+            if dt_heartbeat < 0.5:
+                if not hasattr(self, '_complete_reset_timer'):
+                    self._complete_reset_timer = now
+                elif (now - self._complete_reset_timer).nanoseconds / 1e9 > 1.5:
+                    self.state = SystemState.NORMAL_TELEOP
+                    self.waypoint_stack.clear()
+                    if self.start_pose is not None:
+                        self.waypoint_stack.append(self.start_pose)
+                    self.last_logged_x = self.current_x
+                    self.last_logged_y = self.current_y
+                    self.last_logged_theta = self.current_theta
+                    self.fault_reason = "NONE"
+                    self.aruco_docking_complete = False
+                    del self._complete_reset_timer
+                    self.get_logger().info(">>> Heartbeat restored. Reset to NORMAL_TELEOP for next exploration trial! <<<")
+            else:
+                if hasattr(self, '_complete_reset_timer'):
+                    del self._complete_reset_timer
 
     def perform_scan_matching_correction(self):
         """
@@ -771,15 +828,23 @@ class RecoveryController(Node):
                     )
 
     def check_proximity_or_next_waypoint(self):
-        """Check if robot is within 50cm of origin, or fetch next backtrack waypoint."""
+        """Check if robot is within origin, or fetch next backtrack waypoint."""
         if self.start_pose:
             dist_to_origin = math.hypot(self.start_pose.x - self.current_x, self.start_pose.y - self.current_y)
-            if dist_to_origin <= self.docking_dist_th:
+            if self.use_aruco_docking and dist_to_origin <= self.docking_dist_th:
                 self.get_logger().info(
                     f"Robot arrived within docking perimeter ({dist_to_origin:.2f}m <= {self.docking_dist_th}m). "
                     f"Switching to ArUco Visual Docking."
                 )
                 self.state = SystemState.HANDOVER_TO_ARUCO
+                return
+            elif not self.use_aruco_docking and dist_to_origin <= self.wp_reach_radius:
+                self.get_logger().info(
+                    f"Robot arrived at base camp origin ({dist_to_origin:.2f}m <= {self.wp_reach_radius}m). "
+                    f"MISSION_COMPLETE."
+                )
+                self.stop_robot()
+                self.state = SystemState.MISSION_COMPLETE
                 return
 
         if len(self.waypoint_stack) > 0:
@@ -790,15 +855,25 @@ class RecoveryController(Node):
             )
             self.state = SystemState.BACKTRACKING_ROTATE
         else:
-            self.get_logger().info("All backtracked waypoints exhausted. Initiating ArUco Visual Docking.")
-            self.state = SystemState.HANDOVER_TO_ARUCO
+            if not self.use_aruco_docking and self.start_pose and math.hypot(self.start_pose.x - self.current_x, self.start_pose.y - self.current_y) > self.wp_reach_radius:
+                self.active_target_wp = self.start_pose
+                self.state = SystemState.BACKTRACKING_ROTATE
+            else:
+                self.get_logger().info("All backtracked waypoints exhausted. Mission complete.")
+                self.stop_robot()
+                self.state = SystemState.MISSION_COMPLETE if not self.use_aruco_docking else SystemState.HANDOVER_TO_ARUCO
 
     def select_next_waypoint(self):
         if len(self.waypoint_stack) > 0:
             self.active_target_wp = self.waypoint_stack.pop()
             self.state = SystemState.BACKTRACKING_ROTATE
         else:
-            self.state = SystemState.HANDOVER_TO_ARUCO
+            if not self.use_aruco_docking and self.start_pose and math.hypot(self.start_pose.x - self.current_x, self.start_pose.y - self.current_y) > self.wp_reach_radius:
+                self.active_target_wp = self.start_pose
+                self.state = SystemState.BACKTRACKING_ROTATE
+            else:
+                self.stop_robot()
+                self.state = SystemState.MISSION_COMPLETE if not self.use_aruco_docking else SystemState.HANDOVER_TO_ARUCO
 
     def trigger_emergency_transition(self):
         self.stop_robot()

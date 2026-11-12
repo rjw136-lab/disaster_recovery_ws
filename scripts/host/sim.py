@@ -136,12 +136,18 @@ class GazeboSimulationRunner:
         gui_flag = "gui:=false" if self.headless else "gui:=true"
         disaster_world = "/home/lab/disaster_recovery_ws/src/disaster_recovery/worlds/disaster_world.world"
         disaster_house_world = "/home/lab/disaster_recovery_ws/src/disaster_recovery/worlds/disaster_house_world.world"
-        if self.world in ["house", "turtlebot3_house"]:
-            launch_cmd = f"ros2 launch turtlebot3_gazebo turtlebot3_house.launch.py x_pose:=-2.0 y_pose:=-0.5 world:={disaster_house_world} {gui_flag}"
+        disaster_maze_world = "/home/lab/disaster_recovery_ws/src/disaster_recovery/worlds/disaster_maze_world.world"
+        disaster_tunnel_world = "/home/lab/disaster_recovery_ws/src/disaster_recovery/worlds/disaster_tunnel_world.world"
+        if self.world in ["tunnel", "gazebo_tunnel", "tunnel_world"]:
+            launch_cmd = f"ros2 launch disaster_recovery disaster_world.launch.py x_pose:=-0.5 y_pose:=-3.0 yaw_pose:=1.57 world:={disaster_tunnel_world} {gui_flag}"
+        elif self.world in ["house", "turtlebot3_house"]:
+            launch_cmd = f"ros2 launch disaster_recovery disaster_world.launch.py x_pose:=-2.0 y_pose:=-0.5 yaw_pose:=0.0 world:={disaster_house_world} {gui_flag}"
+        elif self.world in ["maze", "turtlebot3_maze", "stage4"]:
+            launch_cmd = f"ros2 launch disaster_recovery disaster_world.launch.py x_pose:=0.0 y_pose:=0.0 yaw_pose:=0.0 world:={disaster_maze_world} {gui_flag}"
         elif self.world in ["empty", "empty_world"]:
             launch_cmd = f"ros2 launch turtlebot3_gazebo empty_world.launch.py {gui_flag}"
         else:
-            launch_cmd = f"ros2 launch turtlebot3_gazebo turtlebot3_world.launch.py x_pose:=-2.0 y_pose:=-0.5 world:={disaster_world} {gui_flag}"
+            launch_cmd = f"ros2 launch disaster_recovery disaster_world.launch.py x_pose:=-2.0 y_pose:=-0.5 yaw_pose:=0.0 world:={disaster_world} {gui_flag}"
 
         net_env = "export ROS_LOCALHOST_ONLY=1 GAZEBO_IP=127.0.0.1 GAZEBO_MASTER_URI=http://127.0.0.1:11345 "
         if self.software:
@@ -161,7 +167,7 @@ class GazeboSimulationRunner:
             )
 
         p_gazebo = subprocess.Popen(
-            f"bash -c '{env_prefix}source /opt/ros/humble/setup.bash && {launch_cmd}'",
+            f"bash -c '{env_prefix}source /opt/ros/humble/setup.bash && source /home/lab/disaster_recovery_ws/install/setup.bash && {launch_cmd}'",
             shell=True,
             stdout=self.log_gz,
             stderr=subprocess.STDOUT,
@@ -191,13 +197,14 @@ class GazeboSimulationRunner:
             time.sleep(3)
 
         # 4. Start Recovery Controller Node
-        print(f"\n{Colors.MAGENTA}{Colors.BOLD}▶ [3/5] 재난 복귀 제어기 (recovery_controller) 기동 중...{Colors.RESET}")
+        use_aruco_str = "true" if self.use_yolo else "false"
+        print(f"\n{Colors.MAGENTA}{Colors.BOLD}▶ [3/5] 재난 복귀 제어기 (recovery_controller) 기동 중... (ArUco 도킹: {use_aruco_str}){Colors.RESET}")
         recovery_cmd = (
             "source /opt/ros/humble/setup.bash && "
             "source /home/lab/disaster_recovery_ws/install/setup.bash && "
             "ros2 run disaster_recovery recovery_controller "
             "--ros-args --params-file /home/lab/disaster_recovery_ws/src/disaster_recovery/config/recovery_params.yaml "
-            "-p use_sim_time:=true"
+            f"-p use_sim_time:=true -p use_aruco_docking:={use_aruco_str}"
         )
         p_recovery = subprocess.Popen(
             f"bash -c '{recovery_cmd}'",
@@ -224,11 +231,13 @@ class GazeboSimulationRunner:
             )
             self.processes.append(p_yolo)
             time.sleep(2.0)
-        else:
+        elif not self.no_teleop:
             # Standalone Heartbeat Publisher Thread (10Hz)
             print(f"\n{Colors.MAGENTA}{Colors.BOLD}▶ [4/5] 관제국 Heartbeat (10Hz) 활성화...{Colors.RESET}")
             self.hb_thread = threading.Thread(target=self._heartbeat_worker, daemon=True)
             self.hb_thread.start()
+        else:
+            print(f"\n{Colors.MAGENTA}{Colors.BOLD}▶ [4/5] 관제국 Heartbeat 대기 (외부 제어기/자율 벤치마크 모드)...{Colors.RESET}")
 
         # 6. Interactive Cockpit & WASD Teleop
         print(f"\n{Colors.MAGENTA}{Colors.BOLD}▶ [5/5] 대화형 시뮬레이션 콘솔 준비 완료!{Colors.RESET}")
@@ -437,8 +446,10 @@ class GazeboSimulationRunner:
 
 def main():
     parser = argparse.ArgumentParser(description="Disaster Recovery TurtleBot3 Gazebo Simulator")
-    parser.add_argument("--world", type=str, default="world", help="World name (world, house, empty)")
+    parser.add_argument("--world", type=str, default="world", help="World name (world, house, maze, tunnel, empty)")
     parser.add_argument("--house", action="store_true", help="Shortcut for --world house (Corridors & Rooms)")
+    parser.add_argument("--maze", action="store_true", help="Shortcut for --world maze (Complex Inner Walls & Obstacles)")
+    parser.add_argument("--tunnel", action="store_true", help="Shortcut for --world tunnel (Subterranean Tunnel & Rubble)")
     parser.add_argument("--yolo", action="store_true", help="Launch YOLO26n Vision AI detection window")
     parser.add_argument("--no-slam", action="store_true", help="Disable Cartographer SLAM mapping & RViz")
     parser.add_argument("--no-teleop", action="store_true", help="Disable embedded keyboard teleop")
@@ -452,7 +463,14 @@ def main():
         stop_all_sim()
         return
 
-    world = "house" if args.house else args.world
+    if args.tunnel:
+        world = "tunnel"
+    elif args.maze:
+        world = "maze"
+    elif args.house:
+        world = "house"
+    else:
+        world = args.world
     use_slam = not args.no_slam
 
     runner = GazeboSimulationRunner(
