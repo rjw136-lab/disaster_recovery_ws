@@ -58,6 +58,7 @@ class SystemState:
     EMERGENCY_STOP = 'EMERGENCY_STOP'
     BACKTRACKING_ROTATE = 'BACKTRACKING_ROTATE'
     BACKTRACKING_TRANSLATE = 'BACKTRACKING_TRANSLATE'
+    BACKTRACKING_HYBRID = 'BACKTRACKING_HYBRID'
     LOCAL_TD3_AVOIDANCE = 'LOCAL_TD3_AVOIDANCE'
     OBSTACLE_HOLD = 'OBSTACLE_HOLD'
     HANDOVER_TO_ARUCO = 'HANDOVER_TO_ARUCO'
@@ -183,6 +184,8 @@ class RecoveryController(Node):
         self.declare_parameter('td3_model_path', '')
         self.declare_parameter('td3_clearance_dist_m', 0.38)
         self.declare_parameter('td3_max_avoid_steps', 150)
+        self.declare_parameter('enable_hybrid_tracking', True)
+        self.declare_parameter('lookahead_dist_m', 0.45)
 
         # Retrieve parameters
         self.heartbeat_timeout = self.get_parameter('heartbeat_timeout_sec').value
@@ -210,6 +213,8 @@ class RecoveryController(Node):
         self.td3_model_path = self.get_parameter('td3_model_path').value
         self.td3_clearance_dist = self.get_parameter('td3_clearance_dist_m').value
         self.td3_max_avoid_steps = self.get_parameter('td3_max_avoid_steps').value
+        self.enable_hybrid = self.get_parameter('enable_hybrid_tracking').value
+        self.lookahead_dist = self.get_parameter('lookahead_dist_m').value
 
         # -------------------------------------------------------------------------
         # Internal State Variables
@@ -514,17 +519,26 @@ class RecoveryController(Node):
                 discarded = self.waypoint_stack.pop()
                 self.get_logger().info(f"Skipping already-reached WP ({discarded.x:.2f}, {discarded.y:.2f})")
 
-            # Verify and pop immediate closest or current waypoint
+            # Verify and select immediate backtrack waypoint
             if not self.waypoint_stack:
                 self.get_logger().warn("Waypoint stack is empty at emergency stop! Directly requesting ArUco docking.")
                 self.state = SystemState.HANDOVER_TO_ARUCO
             else:
-                self.active_target_wp = self.waypoint_stack.pop()
+                self.active_target_wp = self.waypoint_stack[-1]
+                dx = self.active_target_wp.x - self.current_x
+                dy = self.active_target_wp.y - self.current_y
+                target_heading = math.atan2(dy, dx)
+                heading_diff = abs(normalize_angle(target_heading - self.current_theta))
+
+                if heading_diff > self.heading_tol:
+                    self.state = SystemState.BACKTRACKING_ROTATE
+                else:
+                    self.state = SystemState.BACKTRACKING_HYBRID if self.enable_hybrid else SystemState.BACKTRACKING_TRANSLATE
+
                 self.get_logger().info(
                     f"Selected initial backtrack WP: ({self.active_target_wp.x:.2f}, {self.active_target_wp.y:.2f}). "
-                    f"Remaining in stack: {len(self.waypoint_stack)}"
+                    f"Remaining in stack: {len(self.waypoint_stack)} | Initial state: {self.state}"
                 )
-                self.state = SystemState.BACKTRACKING_ROTATE
             return
 
         # 4. Obstacle Hold / TD3 Bypass Check during Backtracking
@@ -637,8 +651,8 @@ class RecoveryController(Node):
             self.pub_cmd_vel.publish(cmd)
             return
 
-        # 5. Method A Backtracking Logic: Rotate-then-Translate
-        if self.state in [SystemState.BACKTRACKING_ROTATE, SystemState.BACKTRACKING_TRANSLATE]:
+        # 5. Method A Backtracking Logic: Rotate-then-Translate or Continuous Hybrid
+        if self.state in [SystemState.BACKTRACKING_ROTATE, SystemState.BACKTRACKING_TRANSLATE, SystemState.BACKTRACKING_HYBRID]:
             self.perform_scan_matching_correction()
 
         if self.state == SystemState.BACKTRACKING_ROTATE:
@@ -673,8 +687,12 @@ class RecoveryController(Node):
             else:
                 # Target heading aligned
                 self.stop_robot()
-                self.state = SystemState.BACKTRACKING_TRANSLATE
-                self.get_logger().info("Heading aligned. Transitioning to BACKTRACKING_TRANSLATE.")
+                if self.enable_hybrid:
+                    self.state = SystemState.BACKTRACKING_HYBRID
+                    self.get_logger().info("Heading aligned. Transitioning to BACKTRACKING_HYBRID (Continuous Pure Pursuit + Residual RL).")
+                else:
+                    self.state = SystemState.BACKTRACKING_TRANSLATE
+                    self.get_logger().info("Heading aligned. Transitioning to BACKTRACKING_TRANSLATE.")
 
         elif self.state == SystemState.BACKTRACKING_TRANSLATE:
             if self.active_target_wp is None:
@@ -707,6 +725,118 @@ class RecoveryController(Node):
                     f"Reached Waypoint ({self.active_target_wp.x:.2f}, {self.active_target_wp.y:.2f})."
                 )
                 self.check_proximity_or_next_waypoint()
+
+        elif self.state == SystemState.BACKTRACKING_HYBRID:
+            # 1. Base Camp Arrival & Proximity Check
+            dist_to_origin = 999.0
+            if self.start_pose:
+                dist_to_origin = math.hypot(self.start_pose.x - self.current_x, self.start_pose.y - self.current_y)
+
+            # Terminal arrival: if within reach radius of base camp (<= wp_reach_radius), mission complete!
+            if dist_to_origin <= self.wp_reach_radius:
+                self.stop_robot()
+                self.get_logger().info(
+                    f">>> [HYBRID RECOVERY] Base camp origin reached (dist={dist_to_origin*100.0:.1f}cm <= {self.wp_reach_radius*100.0:.1f}cm). MISSION_COMPLETE! <<<"
+                )
+                self.state = SystemState.MISSION_COMPLETE
+                return
+
+            # Check ArUco visual docking handover
+            if self.use_aruco_docking and dist_to_origin <= self.docking_dist_th:
+                self.stop_robot()
+                self.get_logger().info(
+                    f"[HYBRID RECOVERY] Within docking perimeter ({dist_to_origin:.2f}m). Handing over to ArUco."
+                )
+                self.state = SystemState.HANDOVER_TO_ARUCO
+                return
+
+            # 2. Prune waypoints that have already been passed or are within 0.22m
+            while len(self.waypoint_stack) > 0:
+                top_wp = self.waypoint_stack[-1]
+                d = top_wp.distance_to(self.current_x, self.current_y)
+                dx_wp = top_wp.x - self.current_x
+                dy_wp = top_wp.y - self.current_y
+                forward_proj = dx_wp * math.cos(self.current_theta) + dy_wp * math.sin(self.current_theta)
+                # If waypoint is closer than 0.22m or behind the robot, prune it
+                if d < 0.22 or forward_proj < -0.05:
+                    self.waypoint_stack.pop()
+                else:
+                    break
+
+            # 3. Target Waypoint Selection (Lookahead Pure Pursuit)
+            target_wp = None
+            if len(self.waypoint_stack) > 0:
+                for wp in reversed(self.waypoint_stack):
+                    if wp.distance_to(self.current_x, self.current_y) >= self.lookahead_dist:
+                        target_wp = wp
+                        break
+                if target_wp is None:
+                    target_wp = self.waypoint_stack[-1]
+            elif self.start_pose:
+                target_wp = self.start_pose
+
+            if target_wp is None:
+                self.stop_robot()
+                self.state = SystemState.MISSION_COMPLETE
+                return
+
+            self.active_target_wp = target_wp
+
+            dx = target_wp.x - self.current_x
+            dy = target_wp.y - self.current_y
+            dist_to_target = math.hypot(dx, dy)
+            target_heading = math.atan2(dy, dx)
+            alpha = normalize_angle(target_heading - self.current_theta)
+
+            # If heading diverged substantially (> 70 deg), re-align with quick pivot
+            if abs(alpha) > 1.22:
+                self.stop_robot()
+                self.state = SystemState.BACKTRACKING_ROTATE
+                return
+
+            # 4. Pure Pursuit Curvature and Regulated Velocity
+            L_d = max(0.25, min(self.lookahead_dist, dist_to_target))
+            curvature = 2.0 * math.sin(alpha) / L_d
+            w_pp = self.v_max * curvature
+            w_pp = max(-self.w_max, min(self.w_max, w_pp))
+
+            # Regulated speed: slow down gracefully on curves
+            v_regulated = self.v_max / (1.0 + 1.8 * abs(curvature))
+            v_regulated = max(0.08, min(self.v_max, v_regulated))
+
+            # 5. Continuous Residual RL (TD3) Obstacle Avoidance & Wall Repulsion
+            if self.enable_td3_avoidance and self.td3_policy is not None and len(self.latest_raw_ranges) > 0:
+                state_vec = extract_state_vector(
+                    self.latest_raw_ranges,
+                    self.current_x, self.current_y, self.current_theta,
+                    target_wp.x, target_wp.y,
+                    self.last_cmd_v, self.last_cmd_w,
+                    max_v=self.v_max, max_w=self.w_max
+                )
+                v_td3, w_td3 = self.td3_policy.predict(state_vec)
+
+                if self.td3_obstacle_detected:
+                    # Obstacle nearby: RL obstacle avoidance takes dominance
+                    w_blend = 0.85 * w_td3 + 0.15 * w_pp
+                    v_blend = min(v_regulated, max(0.05, float(v_td3)))
+                else:
+                    # Clear corridor: Pure Pursuit line tracking with smooth RL wall repulsion & slip residual
+                    w_blend = 0.55 * w_pp + 0.45 * w_td3
+                    v_blend = v_regulated
+            else:
+                w_blend = w_pp
+                v_blend = v_regulated
+
+            # 6. Proportional Deceleration when approaching base camp
+            if dist_to_origin <= self.docking_dist_th:
+                v_blend = max(0.04, min(v_blend, 0.40 * dist_to_origin))
+
+            cmd = Twist()
+            cmd.linear.x = max(0.04, min(self.v_max, float(v_blend)))
+            cmd.angular.z = max(-self.w_max, min(self.w_max, float(w_blend)))
+            self.last_cmd_v = cmd.linear.x
+            self.last_cmd_w = cmd.angular.z
+            self.pub_cmd_vel.publish(cmd)
 
         # 6. Handover to ArUco Visual Docking
         elif self.state == SystemState.HANDOVER_TO_ARUCO:
@@ -855,7 +985,14 @@ class RecoveryController(Node):
                 f"Next backtrack WP: ({self.active_target_wp.x:.2f}, {self.active_target_wp.y:.2f}). "
                 f"Remaining stack size: {len(self.waypoint_stack)}"
             )
-            self.state = SystemState.BACKTRACKING_ROTATE
+            dx = self.active_target_wp.x - self.current_x
+            dy = self.active_target_wp.y - self.current_y
+            target_heading = math.atan2(dy, dx)
+            heading_diff = abs(normalize_angle(target_heading - self.current_theta))
+            if heading_diff > self.heading_tol:
+                self.state = SystemState.BACKTRACKING_ROTATE
+            else:
+                self.state = SystemState.BACKTRACKING_HYBRID if self.enable_hybrid else SystemState.BACKTRACKING_TRANSLATE
         else:
             if not self.use_aruco_docking and self.start_pose and math.hypot(self.start_pose.x - self.current_x, self.start_pose.y - self.current_y) > self.wp_reach_radius:
                 self.active_target_wp = self.start_pose
@@ -868,7 +1005,14 @@ class RecoveryController(Node):
     def select_next_waypoint(self):
         if len(self.waypoint_stack) > 0:
             self.active_target_wp = self.waypoint_stack.pop()
-            self.state = SystemState.BACKTRACKING_ROTATE
+            dx = self.active_target_wp.x - self.current_x
+            dy = self.active_target_wp.y - self.current_y
+            target_heading = math.atan2(dy, dx)
+            heading_diff = abs(normalize_angle(target_heading - self.current_theta))
+            if heading_diff > self.heading_tol:
+                self.state = SystemState.BACKTRACKING_ROTATE
+            else:
+                self.state = SystemState.BACKTRACKING_HYBRID if self.enable_hybrid else SystemState.BACKTRACKING_TRANSLATE
         else:
             if not self.use_aruco_docking and self.start_pose and math.hypot(self.start_pose.x - self.current_x, self.start_pose.y - self.current_y) > self.wp_reach_radius:
                 self.active_target_wp = self.start_pose

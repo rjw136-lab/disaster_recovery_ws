@@ -109,3 +109,36 @@ def test_td3_onnx_inference_and_latency():
     assert 0.03 <= v <= 0.15
     assert -0.60 <= w <= 0.60
     assert avg_ms < 1.5
+
+
+def test_hybrid_pure_pursuit_curvature_and_blending():
+    """Verify Pure Pursuit curvature calculation, speed regulation, and TD3 action blending."""
+    lookahead_dist = 0.45
+    v_max = 0.20
+    w_max = 0.65
+
+    # Case 1: Straight line target directly ahead (alpha = 0)
+    alpha = 0.0
+    curvature = 2.0 * math.sin(alpha) / lookahead_dist
+    w_pp = v_max * curvature
+    v_reg = v_max / (1.0 + 1.8 * abs(curvature))
+    assert abs(w_pp) < 1e-4
+    assert abs(v_reg - 0.20) < 1e-4
+
+    # Case 2: 30 deg curve to left
+    alpha = math.radians(30.0)
+    curvature = 2.0 * math.sin(alpha) / lookahead_dist
+    w_pp = v_max * curvature
+    v_reg = v_max / (1.0 + 1.8 * abs(curvature))
+    assert w_pp > 0.15
+    assert v_reg < 0.20  # Automatic regulation slows down on curves
+
+    # Case 3: Blend with TD3 obstacle avoidance output
+    v_td3 = 0.10
+    w_td3 = 0.40
+    # In obstacle zone: RL dominance
+    w_blend_obs = 0.85 * w_td3 + 0.15 * w_pp
+    assert abs(w_blend_obs - (0.85 * 0.40 + 0.15 * w_pp)) < 1e-4
+    # In clear zone: tracking dominance
+    w_blend_clear = 0.55 * w_pp + 0.45 * w_td3
+    assert abs(w_blend_clear - (0.55 * w_pp + 0.45 * 0.40)) < 1e-4
