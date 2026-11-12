@@ -123,8 +123,17 @@ def plot_benchmark(json_path="/tmp/tunnel_trials_result.json", output_path="/hom
 
     try:
         import subprocess
-        cmd = f'cmd.exe /c "copy /Y C:\\Users\\lab\\Desktop\\tunnel_disaster_benchmark_trajectories.png \\"C:\\Users\\lab\\OneDrive - 경북대학교\\바탕 화면\\tunnel_disaster_benchmark_trajectories.png\\""'
-        subprocess.call(cmd, shell=True)
+        bat_content = (
+            '@echo off\r\n'
+            'copy /Y "C:\\Users\\lab\\Desktop\\tunnel_disaster_benchmark_trajectories.png" '
+            '"C:\\Users\\lab\\OneDrive - 경북대학교\\바탕 화면\\tunnel_disaster_benchmark_trajectories.png" > nul\r\n'
+        )
+        bat_path = "/mnt/c/Users/lab/copy_plots.bat"
+        with open(bat_path, "wb") as f:
+            f.write(bat_content.encode("cp949"))
+        subprocess.run(["cmd.exe", "/c", "C:\\Users\\lab\\copy_plots.bat"], stdin=subprocess.DEVNULL, timeout=5)
+        if os.path.exists(bat_path):
+            os.remove(bat_path)
         print(f"[성공] OneDrive 바탕화면에 그래프 복사 완료: {onedrive_win}")
     except Exception as e:
         print(f"[경고] OneDrive 바탕화면 복사 실패: {e}")

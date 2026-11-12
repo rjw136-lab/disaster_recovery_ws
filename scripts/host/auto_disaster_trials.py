@@ -131,19 +131,20 @@ class AutonomousDisasterBenchmark(Node):
         self.drive_raw(0.0, 0.0)
 
 
-def run_benchmark(trials: int = 10, target_yaw: float = 1.57):
+def run_benchmark(trials: int = 5, target_yaw: float = 1.57, deep: bool = True):
     rclpy.init()
     node = AutonomousDisasterBenchmark()
 
+    deep_tag = " [심층 침투 100m 누적 모드]" if deep else ""
     env_name = "터널 붕괴 험지 환경 (Gazebo-Tunnel-World)" if abs(target_yaw - 1.57) < 0.2 else "실내 가옥 재난 환경 (House World)"
     print(f"\n{'='*95}")
-    print(f"🚀 [자율 10회 재난복귀 라이브 관제 벤치마크] {env_name}")
+    print(f"🚀 [자율 재난복귀 라이브 관제 벤치마크]{deep_tag} {env_name}")
     print(f"{'='*95}")
     print(f"• 총 시험 횟수 : {trials} 회차")
-    print(f"• 탐사 모드   : AI 자율 원격 조종 (전진 + 굴절 코너 + 장애물 능동 회피)")
+    print(f"• 탐사 모드   : AI 자율 차선 중앙추종 + 능동 장애물 회피 (최대 깊이 32m, 누적 102m)")
     print(f"• 복귀 트리거 : Heartbeat 송출 중단 (워치독 3.0s 타임아웃)")
-    print(f"• 복귀 방식   : 4계층 하이브리드 자율복귀 (Breadcrumb + TD3 + 2D ICP + 베이스캠프 안착)")
-    print(f"• 실시간 화면 : Gazebo 3D 뷰포트 및 RViz2 관제창에 로봇 기동 전과정 가시화")
+    print(f"• 복귀 방식   : 4계층 하이브리드 자율복귀 (Breadcrumb + TD3 + 2D ICP + 원점 안착)")
+    print(f"• 시각 관제   : Gazebo 3D GUI 뷰포트에서 실시간 3D 기동 가시화")
     print(f"{'='*95}\n")
 
     print("[대기] 센서(/odom, /scan) 및 복귀 제어기 통신 초기화 중...", end="", flush=True)
@@ -195,31 +196,59 @@ def run_benchmark(trials: int = 10, target_yaw: float = 1.57):
         trial_start_x, trial_start_y = node.cur_x, node.cur_y
 
         # Phase 1: Outbound Autonomous AI Exploration Drive
-        explore_duration = 6.0 + (trial_idx % 4) * 1.3
-        print(f"  [1단계: 탐사 진입] AI 자율 원격 조종으로 터널 안쪽 진입 중 ({explore_duration:.1f}초)...")
-        t_exp_start = time.time()
-        while time.time() - t_exp_start < explore_duration:
-            t_rel = time.time() - t_exp_start
-            rclpy.spin_once(node, timeout_sec=0.03)
-            outbound_path.append([float(node.cur_x), float(node.cur_y)])
+        deep_targets = [10.0, 15.0, 20.0, 25.0, 32.0]
+        target_depth = deep_targets[(trial_idx - 1) % len(deep_targets)] if deep else (0.5 + (trial_idx % 4) * 0.15)
+        
+        if deep:
+            print(f"  [1단계: 터널 심층 침투] 목표 전진 거리: {target_depth:.1f} m (원점 기준 목표 깊이: y={base_camp_y + target_depth:.1f}m)...")
+            t_exp_start = time.time()
+            max_exp_time = target_depth / 0.12 + 15.0
 
-            # Base speed
-            v_cmd = 0.16
-            # Diverse steering pattern per trial
-            if trial_idx % 3 == 1:
-                w_cmd = 0.16 * math.sin(t_rel * 1.0)
-            elif trial_idx % 3 == 2:
-                w_cmd = 0.12 * math.cos(t_rel * 0.8)
-            else:
-                w_cmd = -0.15 * math.sin(t_rel * 0.9)
+            while time.time() - t_exp_start < max_exp_time:
+                rclpy.spin_once(node, timeout_sec=0.03)
+                outbound_path.append([float(node.cur_x), float(node.cur_y)])
 
-            # LiDAR reactive collision avoidance during teleop
-            if node.scan_front_min < 0.32:
-                v_cmd = 0.05
-                w_cmd = 0.38 if node.scan_left_min > node.scan_right_min else -0.38
+                cur_depth = node.cur_y - base_camp_y
+                if cur_depth >= target_depth:
+                    print(f"    -> 목표 심층 거리({target_depth:.1f}m) 도달! 현재 좌표: ({node.cur_x:.2f}, {node.cur_y:.2f})")
+                    break
 
-            node.drive_raw(v_cmd, w_cmd)
-            time.sleep(0.05)
+                # Corridor lane centering around x = -0.75
+                e_x = -0.75 - node.cur_x
+                w_align = 0.50 * e_x + 0.30 * (node.scan_right_min - node.scan_left_min)
+                w_cmd = max(-0.35, min(0.35, w_align))
+                v_cmd = 0.20
+
+                # Front collision avoidance
+                if node.scan_front_min < 0.45:
+                    v_cmd = 0.08
+                    w_cmd = 0.45 if node.scan_left_min > node.scan_right_min else -0.45
+
+                node.drive_raw(v_cmd, w_cmd)
+                time.sleep(0.05)
+        else:
+            explore_duration = 6.0 + (trial_idx % 4) * 1.3
+            print(f"  [1단계: 탐사 진입] AI 자율 원격 조종으로 터널 안쪽 진입 중 ({explore_duration:.1f}초)...")
+            t_exp_start = time.time()
+            while time.time() - t_exp_start < explore_duration:
+                t_rel = time.time() - t_exp_start
+                rclpy.spin_once(node, timeout_sec=0.03)
+                outbound_path.append([float(node.cur_x), float(node.cur_y)])
+
+                v_cmd = 0.16
+                if trial_idx % 3 == 1:
+                    w_cmd = 0.16 * math.sin(t_rel * 1.0)
+                elif trial_idx % 3 == 2:
+                    w_cmd = 0.12 * math.cos(t_rel * 0.8)
+                else:
+                    w_cmd = -0.15 * math.sin(t_rel * 0.9)
+
+                if node.scan_front_min < 0.32:
+                    v_cmd = 0.05
+                    w_cmd = 0.38 if node.scan_left_min > node.scan_right_min else -0.38
+
+                node.drive_raw(v_cmd, w_cmd)
+                time.sleep(0.05)
 
         node.stop_drive()
         for _ in range(8):
@@ -246,7 +275,7 @@ def run_benchmark(trials: int = 10, target_yaw: float = 1.57):
         # Phase 3: Autonomous Return Tracking
         t_return_start = time.time()
         reached = False
-        max_return_wait = 60.0  # seconds
+        max_return_wait = max(90.0, target_depth * 13.0) if deep else 60.0
 
         while time.time() - t_return_start < max_return_wait:
             rclpy.spin_once(node, timeout_sec=0.1)
@@ -339,9 +368,11 @@ def run_benchmark(trials: int = 10, target_yaw: float = 1.57):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Autonomous Disaster Trials")
-    parser.add_argument("--trials", type=int, default=10, help="Number of trials (default: 10)")
+    parser.add_argument("--trials", type=int, default=5, help="Number of trials (default: 5)")
     parser.add_argument("--tunnel", action="store_true", help="Tunnel World mode (outbound yaw: 90 deg / 1.57 rad)")
     parser.add_argument("--house", action="store_true", help="House World mode (outbound yaw: 0 deg / 0.0 rad)")
+    parser.add_argument("--deep", action="store_true", default=True, help="Deep corridor penetration mode (10m ~ 32m per trial)")
+    parser.add_argument("--quick", action="store_true", help="Quick stress test mode (0.5m ~ 0.8m per trial)")
     parser.add_argument("--yaw", type=float, default=None, help="Custom outbound yaw in radians")
     args = parser.parse_args()
 
@@ -352,4 +383,5 @@ if __name__ == '__main__':
     else:
         target_yaw = 1.57  # Default to tunnel
 
-    run_benchmark(args.trials, target_yaw)
+    is_deep = False if args.quick else args.deep
+    run_benchmark(args.trials, target_yaw, deep=is_deep)
