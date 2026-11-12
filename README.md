@@ -265,7 +265,7 @@ python3 scripts/host/verify_hybrid_recovery.py --trials 50
 <p align="center">
   <img src="docs/images/turtlebot3_3dprinted_shell.jpg" alt="TurtleBot3 Burger 3D-Printed Custom Shell" width="60%">
   <br>
-  <em>▲ 3D 프린팅 맞춤형 보호 외피(Outer Shell) 및 센서 마운팅 하드웨어 구상도 (추후 제작 예정)</em>
+  <em>▲ 3D 프린팅 맞춤형 보호 외피(Outer Shell) 및 센서 마운팅 하드웨어 구상도</em>
 </p>
 
 | 구분 | 사양 |
