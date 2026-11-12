@@ -47,7 +47,8 @@ from std_msgs.msg import Header, Float32, Bool, String
 
 from disaster_recovery.td3_policy import (
     TD3LocalAvoidancePolicy,
-    extract_state_vector
+    extract_state_vector,
+    check_line_of_sight_clear
 )
 
 
@@ -283,6 +284,7 @@ class RecoveryController(Node):
 
         # Sensor & Obstacle Flags
         self.obstacle_detected = False
+        self.td3_obstacle_detected = False
         self.active_target_wp = None
         self.aruco_docking_complete = False
 
@@ -406,6 +408,11 @@ class RecoveryController(Node):
                    np.isfinite(ranges)
         self.obstacle_detected = bool(np.any(fwd_mask))
 
+        td3_mask = (np.abs(norm_angles) <= self.lidar_fov) & \
+                   (ranges >= self.lidar_min_dist) & (ranges <= self.td3_clearance_dist) & \
+                   np.isfinite(ranges)
+        self.td3_obstacle_detected = bool(np.any(td3_mask))
+
         # 2. Extract 2D Cartesian scan points (downsample step=2 for fast ~180 points)
         sub_ranges = ranges[::2]
         sub_angles = norm_angles[::2]
@@ -493,24 +500,34 @@ class RecoveryController(Node):
                 self.state = SystemState.BACKTRACKING_ROTATE
             return
 
-        # 4. Obstacle Hold Check during Backtracking
+        # 4. Obstacle Hold / TD3 Bypass Check during Backtracking
         if self.state in [SystemState.BACKTRACKING_ROTATE, SystemState.BACKTRACKING_TRANSLATE]:
-            if self.obstacle_detected:
-                if self.enable_td3_avoidance and self.td3_policy is not None:
-                    self.previous_state = self.state
-                    self.state = SystemState.LOCAL_TD3_AVOIDANCE
-                    self.td3_avoid_step = 0
-                    self.get_logger().warn(
-                        f"[HIERARCHICAL RECOVERY] Obstacle detected within {self.lidar_danger_dist}m! "
-                        f"Engaging Layer 2: TD3 Local Reactive Avoidance."
-                    )
-                else:
-                    self.stop_robot()
-                    self.previous_state = self.state
-                    self.state = SystemState.OBSTACLE_HOLD
-                    self.get_logger().warn(
-                        f"[LIDAR SAFETY] Obstacle detected within {self.lidar_danger_dist}m! Pausing backtracking (Baseline C)."
-                    )
+            if self.enable_td3_avoidance and self.td3_policy is not None and self.td3_obstacle_detected:
+                self.previous_state = self.state
+                self.state = SystemState.LOCAL_TD3_AVOIDANCE
+                self.td3_avoid_step = 0
+
+                # Skip any waypoint in the stack that sits inside/too close to the fallen obstacle
+                while (
+                    self.active_target_wp is not None
+                    and self.active_target_wp.distance_to(self.current_x, self.current_y) < 1.05
+                    and len(self.waypoint_stack) > 0
+                ):
+                    self.active_target_wp = self.waypoint_stack.pop()
+
+                self.get_logger().warn(
+                    f"[HIERARCHICAL RECOVERY] Obstacle detected within {self.td3_clearance_dist}m! "
+                    f"Engaging Layer 2: TD3 Local Reactive Avoidance -> Target WP: "
+                    f"({self.active_target_wp.x:.2f}, {self.active_target_wp.y:.2f})"
+                )
+                return
+            elif self.obstacle_detected:
+                self.stop_robot()
+                self.previous_state = self.state
+                self.state = SystemState.OBSTACLE_HOLD
+                self.get_logger().warn(
+                    f"[LIDAR SAFETY] Obstacle detected within {self.lidar_danger_dist}m! Pausing backtracking (Baseline C)."
+                )
                 return
 
         # State: OBSTACLE_HOLD (Baseline C)
@@ -524,6 +541,7 @@ class RecoveryController(Node):
         # State: LOCAL_TD3_AVOIDANCE (Next-Gen Layer 2)
         if self.state == SystemState.LOCAL_TD3_AVOIDANCE:
             self.td3_avoid_step += 1
+            self.perform_scan_matching_correction()
 
             if self.active_target_wp is None:
                 self.select_next_waypoint()
@@ -536,17 +554,23 @@ class RecoveryController(Node):
             dist_to_wp = math.hypot(dx, dy)
 
             # Condition 1: Waypoint reached during bypass maneuver
-            if dist_to_wp <= self.wp_reach_radius:
+            if dist_to_wp <= self.wp_reach_radius * 1.5:
                 self.get_logger().info(
-                    f"[TD3 AVOIDANCE] Target WP reached ({dist_to_wp:.2f}m <= {self.wp_reach_radius}m)! "
+                    f"[TD3 AVOIDANCE] Target WP reached ({dist_to_wp:.2f}m)! "
                     f"Applying Layer 3 ICP Drift Reset."
                 )
                 self.perform_scan_matching_correction()
                 self.check_proximity_or_next_waypoint()
                 return
 
-            # Condition 2: Obstacle bypassed and line-of-sight clear
-            if self.td3_avoid_step >= 6 and (not self.obstacle_detected):
+            # Condition 2: Obstacle bypassed and line-of-sight to post-obstacle WP clear
+            los_clear = check_line_of_sight_clear(
+                self.latest_raw_ranges,
+                self.current_x, self.current_y, self.current_theta,
+                self.active_target_wp.x, self.active_target_wp.y,
+                clearance_dist=self.td3_clearance_dist
+            )
+            if self.td3_avoid_step >= 10 and (not self.obstacle_detected) and los_clear:
                 self.get_logger().info(
                     f"[TD3 AVOIDANCE] Obstacle bypassed after {self.td3_avoid_step} steps! "
                     f"Engaging Layer 3: 2D ICP Drift Reset & returning to breadcrumbs."

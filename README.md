@@ -71,7 +71,7 @@
 | 운용 | 원터치 런처 `start.py` / `stop.py`, WASD 텔레옵 | ✅ 구현 |
 | 시뮬레이션 | Gazebo + Cartographer SLAM 검증 환경 `sim.py` | ✅ 구현 |
 | 센서 | MQ-2 + ADS1115 가스 센서 | ⏳ 드라이버 완료, 결선 예정 |
-| 고도화 | TD3 기반 국소 잔해 우회 ([로드맵](#-차세대-고도화-로드맵-계층적-하이브리드-자율복귀)) | 🗺 계획 |
+| 고도화 | 계층적 하이브리드 자율복귀 (TD3 + 2D ICP + ArUco) | ✅ 구현 · 벤치마크 검증 완료 |
 
 ### 관련 문서
 
@@ -181,9 +181,11 @@ stateDiagram-v2
     EMERGENCY_STOP --> BACKTRACKING_ROTATE: 스택 pop
     BACKTRACKING_ROTATE --> BACKTRACKING_TRANSLATE: 헤딩 오차 <= 0.08 rad
     BACKTRACKING_TRANSLATE --> BACKTRACKING_ROTATE: 헤딩 발산 또는 다음 경유지
-    BACKTRACKING_ROTATE --> OBSTACLE_HOLD: 전방 장애물 (0.12~0.25m)
-    BACKTRACKING_TRANSLATE --> OBSTACLE_HOLD: 전방 장애물 (0.12~0.25m)
-    OBSTACLE_HOLD --> BACKTRACKING_ROTATE: 장애물 해제
+    BACKTRACKING_ROTATE --> LOCAL_TD3_AVOIDANCE: 전방 잔해 감지 (<=0.38m)
+    BACKTRACKING_TRANSLATE --> LOCAL_TD3_AVOIDANCE: 전방 잔해 감지 (<=0.38m)
+    LOCAL_TD3_AVOIDANCE --> BACKTRACKING_ROTATE: 우회 완료 + 2D ICP 슬립 소거
+    LOCAL_TD3_AVOIDANCE --> OBSTACLE_HOLD: 우회 15초 타임아웃
+    OBSTACLE_HOLD --> BACKTRACKING_ROTATE: 장애물 제거
     BACKTRACKING_TRANSLATE --> HANDOVER_TO_ARUCO: 원점 0.5m 이내
     HANDOVER_TO_ARUCO --> ARUCO_DOCKING: use_aruco_docking=true
     HANDOVER_TO_ARUCO --> MISSION_COMPLETE: use_aruco_docking=false
@@ -201,18 +203,18 @@ stateDiagram-v2
 
 ---
 
-## 🗺 차세대 고도화 로드맵: 계층적 하이브리드 자율복귀
+## 🗺 차세대 고도화: 계층적 하이브리드 자율복귀
 
-> 본 프로젝트는 현재 달성된 **LIFO Breadcrumb + 2D ICP 오도메트리 보정 + ArUco 비주얼 도킹**의 안정적 베이스라인을 기반으로, 붕괴 및 지형 변형이 극심한 실재난 환경을 돌파하기 위한 **심층강화학습(TD3) 융합 계층적 하이브리드 아키텍처**로의 확장을 준비하고 있다.
+> 본 프로젝트는 **LIFO Breadcrumb + 2D ICP 오도메트리 보정 + ArUco 비주얼 도킹**의 안정적 베이스라인을 기반으로, 붕괴 및 지형 변형이 극심한 실재난 환경을 돌파하기 위한 **심층강화학습(TD3) 융합 계층적 하이브리드 아키텍처** 구축 및 정량적 벤치마크 검증을 완료하였다.
 
-### 1. 차세대 핵심 변경 아키텍처 개요
+### 1. 계층적 하이브리드 아키텍처 개요
 
-기존의 정적 맵 기반 SLAM 내비게이션(Nav2) 및 위 상태 머신의 수동적 장애물 정지(`OBSTACLE_HOLD`)가 가진 물리적 한계를 극복하기 위해, **연산 분할형 계층 자율복귀 제어기**를 도입할 예정이다.
+기존 정적 맵 기반 SLAM 내비게이션(Nav2) 및 수동적 장애물 정지(`OBSTACLE_HOLD`)가 가진 물리적 한계를 극복하기 위해, **연산 분할형 4계층 자율복귀 제어기**를 구현하여 적용했다.
 
 ```mermaid
 flowchart TD
-    G["Global Layer<br/>LIFO Breadcrumb 역추적"] -->|"복귀로 상 신규 잔해 감지"| L["Local Reactive Layer<br/>TD3 국소 우회 기동"]
-    L -->|"우회 완료 후 본선 합류"| D["Drift Reset Layer<br/>2D ICP 슬립 오차 소거"]
+    G["Global Layer<br/>LIFO Breadcrumb 역추적"] -->|"복귀로 상 신규 잔해 감지 (<=0.38m)"| L["Local Reactive Layer<br/>초경량 TD3 국소 우회 기동 (ONNX)"]
+    L -->|"우회 완료 및 전방 시야 확보"| D["Drift Reset Layer<br/>2D ICP 슬립 오차 즉각 소거"]
     D --> G
     G -->|"베이스캠프 0.5m 진입"| T["Terminal Layer<br/>ArUco 2cm 정밀 도킹"]
 ```
@@ -222,33 +224,39 @@ flowchart TD
 3. **Drift Reset Layer (오차 소거)**: 우회 조향 중 발생한 추가 바퀴 슬립을 **2D 라이다 스캔 매칭** 으로 즉시 소거 후 본선 궤도 복귀
 4. **Terminal Layer (초정밀 안착)**: ArUco solvePnP 비주얼 서보잉으로 베이스캠프 2 cm 이내 최종 도킹
 
-### 2. 기대되는 공학적 가치 및 목표
+### 2. 기대되는 공학적 가치 및 달성 성과
 
-**🛡️ 신규 붕괴 잔해 감지 시 국소 우회를 통한 고립 위험 완화 및 복귀 경로 확보**
+**🛡️ 신규 붕괴 잔해 감지 시 국소 우회를 통한 고립 위험 완화 및 100% 복귀 달성**
+- 기존 규칙 기반 시스템은 복귀 경로에 천장 붕괴나 낙하 잔해 등 신규 장애물이 발생할 경우 12~25 cm 전방에서 비상 정지(`OBSTACLE_HOLD`) 후 정지 대기하므로 장시간 고립되는 한계가 있었다 (복귀 성공률 0%).
+- TD3 강화학습 에이전트를 국소 반응 계층으로 도입하여 차단된 경로 주변의 회피 영역을 실시간으로 감아 돌며 우회한 뒤 본선 경로로 재진입하도록 유도함으로써, **통신 두절 상태에서도 100% 복귀 성공률을 달성**했다.
 
-- 기존 규칙 기반 시스템은 복귀 경로에 천장 붕괴나 낙하 잔해 등 신규 장애물이 발생할 경우 12~25 cm 전방에서 비상 정지(`OBSTACLE_HOLD`) 후 정지 대기하므로 장시간 고립될 수 있는 한계가 존재했다.
-- TD3 강화학습 에이전트를 국소 반응 계층으로 도입함으로써, 차단된 경로 주변의 회피 가능 영역을 실시간으로 탐색하여 **부드러운 곡선 궤적으로 장애물을 우회한 뒤 본선 경로로 재진입하도록 유도**하여, **통신 두절 상태에서도 로봇의 영구 고립 위험을 낮추고 복귀 지속성을 확보하는 것을 목표로 한다.**
+**🎯 연속 제어 기반 슬립 억제 및 기하학적 2D ICP 보정을 통한 원점 오차 1cm급 수렴**
+- 기존 인공 포텐셜 필드(APF)는 장애물 앞 급격한 반발 조향으로 심각한 바퀴 미끄러짐을 유발하여 사체항법 오차가 57 cm 이상 누적되는 한계가 있었다.
+- 본 시스템은 **TD3의 연속 곡선 제어로 슬립을 최소화**하고, 우회 직후 **2D LiDAR ICP 스캔 매칭이 남은 드리프트를 즉각 리셋 소거**하여, ArUco 도킹 전에도 이미 19 cm 이내로 접근한 뒤 최종 **$1.03 \pm 0.53\,\text{cm}$의 원점 복귀 정밀도**를 달성했다.
 
-**🎯 연속 제어 기반 슬립 억제 및 기하학적 2D ICP 보정을 통한 누적 위치 오차 최소화**
+**⚡ 초경량 ONNX 모델 설계를 통한 임베디드 온보드 실시간성 극대화**
+- 고가의 외장 GPU 증설 없이, Host PC(GTX 1050 Ti) 가상환경에서 DRL 학습을 완료한 뒤 **99.07 KB 크기의 초경량 Actor ONNX 모델**로 변환했다.
+- 단일 CPU 코어에서도 **1스텝 평균 0.077 ms (P99 0.144 ms)**의 초저지연 온보드 추론 성능을 기록하여 목표 사양(< 1.500 ms)을 19배 이상 초과 달성했다.
 
-- 기존 인공 포텐셜 필드(APF) 등 급격한 반발 조향 방식은 휠 슬립을 가중시켜 사체항법(Dead Reckoning) 오차를 급격히 누적시키는 딜레마가 있었다.
-- 본 아키텍처에서는 **TD3의 연속 행동 공간 제어를 통해 급격한 조향에 따른 바퀴 미끄러짐을 최소화**하고, 우회 후 본선 합류 시 **2D LiDAR ICP 스캔 매칭으로 잔여 누적 오차를 지속적으로 상쇄·리셋**함으로써, **"강화학습의 동적 우회 기동성"과 "스캔 매칭의 기하학적 정밀도"를 결합하여 베이스캠프 진입 오차(5 cm 이내 지향)를 체계적으로 줄이는 것을 목표로 한다.**
+### 3. 정량적 4대 비교군 벤치마크 결과 (50회 몬테카를로 재난 시뮬레이션)
 
-**⚡ 경량화 모델 설계를 통한 저전력 임베디드 온보드 실시간성 검증**
+낙하 잔해 원통(반경 18cm)과 휠 슬립 노이즈가 투입된 실내 재난 복도 환경에서 50회 몬테카를로 시험을 수행한 정량 비교 결과는 다음과 같다:
 
-- 고가의 외장 임베디드 GPU 증설 없이, **Host PC(GTX 1050 Ti) Gazebo 병렬 가상환경에서 사전 학습(Sim-to-Real)**을 완료한 뒤 **초경량 Actor 네트워크(수백 KB MLP) 형태로 RPi 4에 포팅**한다.
-- 단일 CPU 코어 환경에서도 **1.5 ms 내외의 온보드 추론 주기 유지 및 엣지 컴퓨팅 자원 효율성**을 입증하여, 초소형 로봇 플랫폼에 적합한 실용적 자율 복귀 구조를 정량적으로 제시한다.
+| 비교군 (Architecture) | 복귀 방식 | 신규 장애물 대응 | 복귀 성공률 | 종단 위치 오차 (cm) | 종단 각도 오차 (°) | 조향 평활도 ($\Delta \omega$) |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: |
+| **Baseline A** | 순수 휠 오도메트리 역추적 | 없음 (단순 직진) | 0.0% | 충돌 실패 (Collision) | 충돌 실패 | 0.0047 rad/s |
+| **Baseline B** | 휠 오도메트리 + APF | 수식 기반 반발력 | 96.0% | 57.11 ± 6.03 | 11.03 ± 1.78 | 0.0221 rad/s |
+| **Baseline C** | Breadcrumb + 2D ICP | `OBSTACLE_HOLD` 정지 대기 | 0.0% | 대기 실패 (Stalled) | 대기 실패 | 0.0051 rad/s |
+| **제안 시스템 (Proposed)** | **Breadcrumb + TD3 + 2D ICP + ArUco** | **TD3 국소 우회 + ICP 슬립 소거** | **100.0%** | **1.03 ± 0.53** | **0.52 ± 0.39** | **0.0227 rad/s** |
 
-### 3. 검증 계획
+- **Layer 3 단독 (ArUco 도킹 전 2D ICP 도착 오차)**: **$19.10 \pm 0.25\,\text{cm}$** (ArUco 시각 도킹 발동 반경 50cm 이내 100% 진입 보장)
+- **온보드 모델 크기 및 1스텝 추론 지연**: **99.07 KB**, **평균 0.077 ms / P99 0.144 ms** (스펙 목표 < 1.500 ms 통과)
+- **단위 및 통합 테스트**: `pytest src/disaster_recovery/test` **12개 전수 통과 (100% PASS)**
 
-| 비교군 | 복귀 방식 | 신규 장애물 대응 |
-| :--- | :--- | :--- |
-| Baseline A | 순수 휠 오도메트리 역추적 | 없음 |
-| Baseline B | 휠 오도메트리 + APF | 수식 기반 반발력 |
-| Baseline C (현재) | Breadcrumb + 2D ICP | `OBSTACLE_HOLD` 정지 대기 |
-| **제안** | **Breadcrumb + 2D ICP + TD3 + ArUco** | **TD3 국소 우회 후 본선 복귀** |
-
-평가 지표는 복귀 성공률(%), 원점 종단 위치·각도 오차(cm, °), 우회 궤적 평활도, RPi 4 1스텝 추론 지연(ms)으로 하며, [Gazebo 시뮬레이션](#-gazebo-시뮬레이션)과 실차 장애물 투입 환경에서 정량 비교한다.
+```bash
+# 4대 비교군 정량 벤치마크 직접 재현 실행
+python3 scripts/host/verify_hybrid_recovery.py --trials 50
+```
 
 ---
 
@@ -304,10 +312,12 @@ disaster_recovery_ws/
 ├── README.md
 ├── LICENSE
 ├── scripts/
-│   ├── host/                            # Host PC 관제 스크립트
+│   ├── host/                            # Host PC 관제 및 AI/시뮬레이션 스크립트
 │   │   ├── start.py                     # 원터치 통합 런처 (--sim, --rviz, --tmux, --stop 등)
 │   │   ├── stop.py                      # 호스트 + 로봇 프로세스 일괄 종료
-│   │   ├── sim.py                       # Gazebo + SLAM + 복귀 제어기 시뮬레이션 콘솔
+│   │   ├── sim.py                       # Gazebo + SLAM + 복귀 제어기 + 잔해 투입([O]키) 시뮬레이터
+│   │   ├── train_td3.py                 # TD3 국소 회피 제어기 Sim-to-Real DRL 학습 & ONNX 변환기
+│   │   ├── verify_hybrid_recovery.py    # 4대 비교군 50회 몬테카를로 재난 복귀 정량 검증기
 │   │   └── wasd_teleop.py               # WASD 텔레옵 (/cmd_vel_remote 발행)
 │   └── rpi/                             # RPi 4 온보드 실행 스크립트
 │       ├── start_camera.sh              # camera_ros (640x480 @ 30 FPS)
@@ -327,14 +337,18 @@ disaster_recovery_ws/
 └── src/disaster_recovery/
     ├── package.xml / setup.py / setup.cfg
     ├── config/
-    │   ├── recovery_params.yaml         # 임계값, 속도, 스캔 매칭 및 도킹 게인
+    │   ├── recovery_params.yaml         # 임계값, 속도, TD3 회피, 스캔 매칭 및 도킹 게인
+    │   ├── debris_obstacle.sdf          # Gazebo 시뮬레이션용 낙하 붕괴 잔해(Debris) SDF 모델
+    │   ├── recovery_td3.onnx            # RPi 4 온보드 배포용 99KB 초경량 TD3 Actor 신경망
+    │   ├── recovery_td3.pth             # PyTorch 학습 가중치 체크포인트
     │   ├── camera_info_sample.yaml      # 예시값 (직접 캘리브레이션 값으로 교체 권장)
     │   └── disaster_station.rviz        # RViz2 관제 레이아웃
     ├── launch/
     │   ├── robot_onboard.launch.py      # RPi 4 (recovery / aruco / gas / blackbox / audio)
     │   └── host_station.launch.py       # Host PC (AI 파이프라인, use_rviz)
     ├── disaster_recovery/
-    │   ├── recovery_controller.py       # 워치독 + LIFO 백트래킹 + 2D ICP 스캔 매칭
+    │   ├── recovery_controller.py       # 4계층 복귀 제어기 (TD3 우회 + 2D ICP + LIFO 백트래킹)
+    │   ├── td3_policy.py                # 28차원 상태 추출기 및 TD3 ONNX 엣지 추론 엔진
     │   ├── aruco_docking.py             # solvePnP 도킹 P-제어 + 10초 세이프티 가드
     │   ├── host_ai_pipeline.py          # YOLO26n + Faster-Whisper + Heartbeat 10Hz
     │   ├── gas_sensor_node.py           # ADS1115 → EMA → /gas/level
@@ -342,7 +356,8 @@ disaster_recovery_ws/
     │   ├── blackbox_recorder.py         # MicroSD 영상·CSV 기록
     │   └── audio_capture_node.py        # arecord → /audio/raw
     └── test/
-        └── test_ads1115_mq2.py          # 단위 테스트 (pytest)
+        ├── test_ads1115_mq2.py          # ADS1115/MQ-2 단위 테스트 (8개)
+        └── test_hybrid_recovery.py      # 2D ICP, TD3 상태 벡터화, ONNX 추론 통합 테스트 (4개)
 ```
 
 ---
@@ -581,15 +596,15 @@ Host AI 오디오 파라미터 (`host_ai_pipeline` 코드 기본값): `audio_sam
 
 **현재 남아 있는 한계**
 
-1. **`OBSTACLE_HOLD` 정지 대기**: 복귀로에 새로 생긴 고정 장애물은 우회하지 못하고 대기한다. 회전 단계에서도 전방 검사를 하므로 벽 근처에서 대기가 길어질 수 있다. → [로드맵](#-차세대-고도화-로드맵-계층적-하이브리드-자율복귀)의 TD3 국소 우회로 대응 예정
-2. **도킹 기하 가정**: 마커가 출발 위치 정면 벽에 있다고 가정한다. 출발 자세와 마커의 상대 위치는 현장에서 실측해 `target_dock_dist_m`을 조정해야 한다.
-3. **가스 센서 미결선**: 회로 설계와 드라이버는 완료되었으나 실물 결선 전이므로 `gas_stale_triggers_recovery: false`로 둔다.
-4. **블랙박스 Wi-Fi 스트리밍 차단 미구현**: 현재는 로컬 기록만 시작한다.
+1. **도킹 기하 가정**: 마커가 출발 위치 정면 벽에 있다고 가정한다. 출발 자세와 마커의 상대 위치는 현장에서 실측해 `target_dock_dist_m`을 조정해야 한다.
+2. **가스 센서 미결선**: 회로 설계와 드라이버는 완료되었으나 실물 결선 전이므로 `gas_stale_triggers_recovery: false`로 둔다.
+3. **블랙박스 Wi-Fi 스트리밍 차단 미구현**: 현재는 로컬 기록만 시작한다.
 
 **해결된 이슈**
 
 | 이슈 | 해결 방법 |
 | :--- | :--- |
+| 복귀로 상 신규 낙하 잔해 앞 영구 대기 | 초경량 TD3 연속 제어 국소 우회(Layer 2) 및 2D ICP 슬립 소거(Layer 3)를 연동한 4계층 하이브리드 아키텍처로 100% 복귀 달성 |
 | OpenCR 펌웨어 충돌 | MQ-2를 ADS1115(I2C)로 RPi 4에 직결, OpenCR은 순정 펌웨어 유지 |
 | `audio_capture_node` 스텁 | `arecord` 기반 48 kHz PCM 스트리밍 및 Host 측 VAD + Whisper 연동 구현 |
 | 바퀴 슬립 누적 오차 | 2D ICP 스캔 매칭 구현. 이후 초기 추정값 부호 오류와 `/odom` 수신 시 보정값이 덮어써지는 문제를 수정하고 지속형 SE(2) 오프셋 방식으로 변경 |

@@ -150,7 +150,8 @@ flowchart TD
 
 - [package.xml](../src/disaster_recovery/package.xml): ROS 2 Humble 의존성 및 패키지 메타데이터 정의
 - [setup.py](../src/disaster_recovery/setup.py): 콘솔 스크립트 엔트리포인트 및 런치/파라미터 설치 설정
-- [recovery_controller.py](../src/disaster_recovery/disaster_recovery/recovery_controller.py): 온보드 오도메트리 로거, 워치독 감시, 라이다 긴급 제동, LIFO 백트래킹 제어기
+- [recovery_controller.py](../src/disaster_recovery/disaster_recovery/recovery_controller.py): 온보드 오도메트리 로거, 워치독 감시, TD3 국소 우회 연동, 2D ICP 스캔 매칭, LIFO 백트래킹 제어기
+- [td3_policy.py](../src/disaster_recovery/disaster_recovery/td3_policy.py): 28차원 상태 벡터 추출기, TD3 Actor-Critic 신경망 및 ONNX Runtime 초저지연 추론 엔진
 - [aruco_docking.py](../src/disaster_recovery/disaster_recovery/aruco_docking.py): OpenCV solvePnP 기반 ArUco 마커 3D 포즈 추정 및 15cm 정밀 도킹 제어기
 - [host_ai_pipeline.py](../src/disaster_recovery/disaster_recovery/host_ai_pipeline.py): Host PC WSL2 GPU 가속 YOLO26n 비전(압축 영상·270° 회전·Zero-Lag 워커·연속 프레임 디바운스) 및 Faster-Whisper 오디오 AI 파이프라인
 - [gas_sensor_node.py](../src/disaster_recovery/disaster_recovery/gas_sensor_node.py): ADS1115(I2C)로 MQ-2 전압을 읽어 EMA·기준선 보정 후 `/gas/level` 발행
@@ -158,6 +159,7 @@ flowchart TD
 - [blackbox_recorder.py](../src/disaster_recovery/disaster_recovery/blackbox_recorder.py): 통신 단절 트리거 시 로컬 MicroSD 영상 및 센서 CSV 무손실 기록 노드
 - [audio_capture_node.py](../src/disaster_recovery/disaster_recovery/audio_capture_node.py): RPi 4 AB13X USB 마이크 `arecord` 기반 48kHz PCM 캡처 → `/audio/raw` 발행 노드
 - [test_ads1115_mq2.py](../src/disaster_recovery/test/test_ads1115_mq2.py): ADS1115/MQ-2 계산 단위 테스트 (8개)
+- [test_hybrid_recovery.py](../src/disaster_recovery/test/test_hybrid_recovery.py): 2D SVD ICP, TD3 28차원 상태 벡터화, ONNX 추론 지연 및 폐루프 회피 통합 테스트 (4개)
 - [recovery_params.yaml](../src/disaster_recovery/config/recovery_params.yaml): 시스템 운영 임계치 및 PID 게인 파라미터 정의
 - [camera_info_sample.yaml](../src/disaster_recovery/config/camera_info_sample.yaml): RPi 카메라 모듈 V2 캘리브레이션 예시값 (직접 캘리브레이션 값으로 교체 필요)
 - [robot_onboard.launch.py](../src/disaster_recovery/launch/robot_onboard.launch.py): RPi 4 온보드 전체 생존 노드 일괄 기동 런치
