@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/disaster_recovery_social_preview.png" alt="Disaster Recovery TurtleBot3 Burger Hero Banner" width="100%">
+  <img src="docs/images/disaster_recovery_banner_latest.png" alt="Disaster Recovery TurtleBot3 Burger Hero Banner" width="100%">
 </p>
 
 > 🚨 **Mission Statement**: 원격 탐사 중 **Wi-Fi 통신이 끊기거나(Heartbeat 3.0초 타임아웃)** **가연성 가스가 감지되면(MQ-2)**,  
