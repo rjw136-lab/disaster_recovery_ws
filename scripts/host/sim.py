@@ -25,13 +25,23 @@ import subprocess
 import threading
 
 # -----------------------------------------------------------------------------------------------
-# CRITICAL GRAPHICS ENVIRONMENT FOR WSL2 / WSLg
+# CRITICAL GRAPHICS ENVIRONMENT FOR WSL2 / WSLg (HARDWARE ACCELERATION SUPPORT)
 # -----------------------------------------------------------------------------------------------
-# In WSL2/WSLg, Mesa Direct3D12 hardware rendering causes Gazebo OGRE 3D viewport to be pitch black.
-# Forcing software rendering (LIBGL_ALWAYS_SOFTWARE=1) routes through llvmpipe, guaranteeing full
-# OpenGL 3.3/4.5 compliance and rendering the 3D Gazebo world cleanly without black screen!
-os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
-os.environ["MESA_D3D12_DEFAULT_ADAPTER_NAME"] = "NVIDIA"
+# -----------------------------------------------------------------------------------------------
+# PREVENT WSL2 MIRRORED NETWORK COLLAPSE & DDS MULTICAST FLOODING (INTERNET DROP FIX)
+# -----------------------------------------------------------------------------------------------
+# In WSL2 mirrored networking, ROS 2 (FastDDS) and Gazebo broadcast massive multicast UDP packets
+# across host Wi-Fi interfaces, causing Wi-Fi routers and Windows network stacks to drop DNS/TCP.
+# Confining ROS 2 and Gazebo strictly to localhost (127.0.0.1) solves the internet drop completely!
+os.environ["ROS_LOCALHOST_ONLY"] = "1"
+os.environ["GAZEBO_IP"] = "127.0.0.1"
+os.environ["GAZEBO_MASTER_URI"] = "http://127.0.0.1:11345"
+os.environ["ROS_DOMAIN_ID"] = "0"
+os.environ["PYTHONUNBUFFERED"] = "1"
+
+# Windows 11 WSLg supports Direct3D12 hardware GPU acceleration (NVIDIA GeForce GTX 1050 Ti).
+# By default, we enable native hardware acceleration. Software rendering (llvmpipe) is only
+# activated when explicitly requested via --software.
 if not os.environ.get("DISPLAY"):
     os.environ["DISPLAY"] = ":0"
 if not os.environ.get("WAYLAND_DISPLAY"):
@@ -41,14 +51,11 @@ if not os.environ.get("XDG_RUNTIME_DIR"):
 if not os.environ.get("PULSE_SERVER"):
     os.environ["PULSE_SERVER"] = "unix:/mnt/wslg/PulseServer"
 
-os.environ["ROS_DOMAIN_ID"] = "0"
-os.environ["PYTHONUNBUFFERED"] = "1"
-
-# Gazebo model path to prevent offline timeout
+# Gazebo offline model paths to prevent network timeout freeze
+os.environ["GAZEBO_MODEL_DATABASE_URI"] = ""
 tb3_models = "/opt/ros/humble/share/turtlebot3_gazebo/models"
-cur_model_path = os.environ.get("GAZEBO_MODEL_PATH", "")
-if tb3_models not in cur_model_path:
-    os.environ["GAZEBO_MODEL_PATH"] = f"{tb3_models}:{cur_model_path}" if cur_model_path else tb3_models
+user_models = os.path.expanduser("~/.gazebo/models")
+os.environ["GAZEBO_MODEL_PATH"] = f"{user_models}:{tb3_models}"
 
 
 # ANSI Colors
@@ -93,11 +100,13 @@ def stop_all_sim():
 
 
 class GazeboSimulationRunner:
-    def __init__(self, world="world", use_slam=True, use_yolo=False, no_teleop=False):
+    def __init__(self, world="world", use_slam=True, use_yolo=False, no_teleop=False, software=False, headless=False):
         self.world = world
         self.use_slam = use_slam
         self.use_yolo = use_yolo
         self.no_teleop = no_teleop
+        self.software = software
+        self.headless = headless
         self.processes = []
         self.heartbeat_active = True
         self.running = True
@@ -120,16 +129,39 @@ class GazeboSimulationRunner:
         self.log_carto = open("/tmp/disaster_recovery/cartographer.log", "w")
 
         # 2. Start Gazebo World
-        print(f"{Colors.MAGENTA}{Colors.BOLD}▶ [1/5] Gazebo 3D 시뮬레이션 환경 기동 중... (맵: {self.world}){Colors.RESET}")
+        accel_mode = "소프트웨어 (llvmpipe)" if self.software else "하드웨어 GPU 가속 (NVIDIA GTX 1050 Ti)"
+        view_mode = "헤드리스 물리서버 (초경량 CPU 모드)" if self.headless else "3D 뷰포트 GUI 활성화"
+        print(f"{Colors.MAGENTA}{Colors.BOLD}▶ [1/5] Gazebo 시뮬레이션 환경 기동 중... (맵: {self.world} / 가속: {accel_mode} / 화면: {view_mode}){Colors.RESET}")
+        
+        gui_flag = "gui:=false" if self.headless else "gui:=true"
+        disaster_world = "/home/lab/disaster_recovery_ws/src/disaster_recovery/worlds/disaster_world.world"
+        disaster_house_world = "/home/lab/disaster_recovery_ws/src/disaster_recovery/worlds/disaster_house_world.world"
         if self.world in ["house", "turtlebot3_house"]:
-            launch_cmd = "ros2 launch turtlebot3_gazebo turtlebot3_house.launch.py x_pose:=-2.0 y_pose:=-0.5"
+            launch_cmd = f"ros2 launch turtlebot3_gazebo turtlebot3_house.launch.py x_pose:=-2.0 y_pose:=-0.5 world:={disaster_house_world} {gui_flag}"
         elif self.world in ["empty", "empty_world"]:
-            launch_cmd = "ros2 launch turtlebot3_gazebo empty_world.launch.py"
+            launch_cmd = f"ros2 launch turtlebot3_gazebo empty_world.launch.py {gui_flag}"
         else:
-            launch_cmd = "ros2 launch turtlebot3_gazebo turtlebot3_world.launch.py x_pose:=-2.0 y_pose:=-0.5"
+            launch_cmd = f"ros2 launch turtlebot3_gazebo turtlebot3_world.launch.py x_pose:=-2.0 y_pose:=-0.5 world:={disaster_world} {gui_flag}"
+
+        net_env = "export ROS_LOCALHOST_ONLY=1 GAZEBO_IP=127.0.0.1 GAZEBO_MASTER_URI=http://127.0.0.1:11345 "
+        if self.software:
+            env_prefix = (
+                net_env +
+                "export GALLIUM_DRIVER=llvmpipe "
+                "LIBGL_ALWAYS_SOFTWARE=1 "
+                "MESA_LOADER_DRIVER_OVERRIDE=llvmpipe "
+                "GAZEBO_MODEL_DATABASE_URI='' "
+                f"GAZEBO_MODEL_PATH='{user_models}:{tb3_models}' && "
+            )
+        else:
+            env_prefix = (
+                net_env +
+                "export GAZEBO_MODEL_DATABASE_URI='' "
+                f"GAZEBO_MODEL_PATH='{user_models}:{tb3_models}' && "
+            )
 
         p_gazebo = subprocess.Popen(
-            f"bash -c 'source /opt/ros/humble/setup.bash && {launch_cmd}'",
+            f"bash -c '{env_prefix}source /opt/ros/humble/setup.bash && {launch_cmd}'",
             shell=True,
             stdout=self.log_gz,
             stderr=subprocess.STDOUT,
@@ -137,14 +169,14 @@ class GazeboSimulationRunner:
         )
         self.processes.append(p_gazebo)
 
-        print(f"{Colors.CYAN}[INFO] Gazebo 물리 엔진 및 로봇 스폰 대기 중 (6초)... (로그: /tmp/disaster_recovery/gazebo.log){Colors.RESET}")
-        time.sleep(6)
+        print(f"{Colors.CYAN}[INFO] Gazebo 물리 엔진 및 로봇 스폰 대기 중 (5초)... (로그: /tmp/disaster_recovery/gazebo.log){Colors.RESET}")
+        time.sleep(5)
 
         # 3. Start Cartographer SLAM (Mapping + RViz2)
         if self.use_slam:
-            print(f"\n{Colors.MAGENTA}{Colors.BOLD}▶ [2/5] Cartographer SLAM 실시간 맵핑 및 RViz2 관제창 기동 중...{Colors.RESET}")
+            print(f"\n{Colors.MAGENTA}{Colors.BOLD}▶ [2/5] Cartographer SLAM 실시간 맵핑 및 RViz2 관제창 기동 중 (GPU 하드웨어 가속)...{Colors.RESET}")
             carto_cmd = (
-                "source /opt/ros/humble/setup.bash && "
+                f"{env_prefix}source /opt/ros/humble/setup.bash && "
                 "ros2 launch turtlebot3_cartographer cartographer.launch.py use_sim_time:=true use_rviz:=true"
             )
             p_carto = subprocess.Popen(
@@ -410,6 +442,8 @@ def main():
     parser.add_argument("--yolo", action="store_true", help="Launch YOLO26n Vision AI detection window")
     parser.add_argument("--no-slam", action="store_true", help="Disable Cartographer SLAM mapping & RViz")
     parser.add_argument("--no-teleop", action="store_true", help="Disable embedded keyboard teleop")
+    parser.add_argument("--software", action="store_true", help="Force software rendering (llvmpipe) instead of GPU hardware acceleration")
+    parser.add_argument("--headless", action="store_true", help="Run Gazebo in headless mode (No gzclient GUI, RViz2 only) for ultra-low CPU load")
     parser.add_argument("--stop", action="store_true", help="Stop all running simulation processes")
 
     args = parser.parse_args()
@@ -425,7 +459,9 @@ def main():
         world=world,
         use_slam=use_slam,
         use_yolo=args.yolo,
-        no_teleop=args.no_teleop
+        no_teleop=args.no_teleop,
+        software=args.software,
+        headless=args.headless
     )
     try:
         runner.start()

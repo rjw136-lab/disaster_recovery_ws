@@ -33,9 +33,15 @@ import time
 import select
 import termios
 import tty
+
+# Enforce ROS 2 localhost only to match sim.py and prevent network drop
+os.environ["ROS_LOCALHOST_ONLY"] = "1"
+os.environ["ROS_DOMAIN_ID"] = "0"
+
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
+from std_msgs.msg import Header
 
 # ANSI Styling
 C_RESET   = "\033[0m"
@@ -99,9 +105,15 @@ def get_key(timeout=0.05):
 
 
 class WASDTeleopNode(Node):
-    def __init__(self, target_topic='/cmd_vel_remote'):
+    def __init__(self, target_topic='/cmd_vel'):
         super().__init__('wasd_teleop')
-        self.pub = self.create_publisher(Twist, target_topic, 10)
+        self.pub_direct = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.pub_remote = self.create_publisher(Twist, '/cmd_vel_remote', 10)
+        self.pub_heartbeat = self.create_publisher(Header, '/heartbeat', 10)
+        self.heartbeat_timer = self.create_timer(0.10, self._on_heartbeat_tick)
+
+        self.heartbeat_active = True
+        self.hb_seq = 0
         self.target_topic = target_topic
         self.lin_speed = DEFAULT_LIN
         self.ang_speed = DEFAULT_ANG
@@ -110,6 +122,14 @@ class WASDTeleopNode(Node):
         self.curr_lin = 0.0
         self.curr_ang = 0.0
         self.state_text = "정지 (대기 중)"
+
+    def _on_heartbeat_tick(self):
+        if self.heartbeat_active:
+            hdr = Header()
+            hdr.stamp = self.get_clock().now().to_msg()
+            hdr.frame_id = f"wasd_teleop_hb_{self.hb_seq}"
+            self.pub_heartbeat.publish(hdr)
+            self.hb_seq += 1
 
     def set_vel(self, lin, ang, state_desc):
         self.curr_lin = max(-BURGER_MAX_LIN, min(BURGER_MAX_LIN, lin))
@@ -128,7 +148,9 @@ class WASDTeleopNode(Node):
         msg = Twist()
         msg.linear.x = float(self.curr_lin)
         msg.angular.z = float(self.curr_ang)
-        self.pub.publish(msg)
+        # Publish to both Gazebo direct actuator and Watchdog remote arbitration
+        self.pub_direct.publish(msg)
+        self.pub_remote.publish(msg)
 
     def check_auto_stop(self):
         """If user releases keys and cruise mode is OFF, gracefully stop robot."""
@@ -181,8 +203,9 @@ def main():
 
     try:
         while rclpy.ok():
-            key = get_key(timeout=0.05)
+            key = get_key(timeout=0.04)
             node.check_auto_stop()
+            rclpy.spin_once(node, timeout_sec=0.01)
 
             if not key:
                 continue
@@ -217,6 +240,12 @@ def main():
             elif key == '[':
                 node.ang_speed = max(0.20, node.ang_speed - ANG_STEP)
                 node.state_text = f"각속도 감소 (-{ANG_STEP} rad/s)"
+            elif key in ('h', 'H'):
+                node.heartbeat_active = False
+                node.state_text = "⚠️ 통신 단절 트리거 발동 (3.0s 후 자율복귀!)"
+            elif key in ('r', 'R'):
+                node.heartbeat_active = True
+                node.state_text = "✅ 통신 정상 복구 (Heartbeat 송출 재개)"
             elif key in ('c', 'C'):
                 node.cruise = not node.cruise
                 node.state_text = f"크루즈 모드: {'ON' if node.cruise else 'OFF'}"
@@ -224,6 +253,7 @@ def main():
                 break
 
             print_ui(node.lin_speed, node.ang_speed, node.state_text, node.cruise)
+            rclpy.spin_once(node, timeout_sec=0.02)
 
     except KeyboardInterrupt:
         pass
