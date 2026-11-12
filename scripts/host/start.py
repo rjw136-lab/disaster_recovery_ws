@@ -157,12 +157,20 @@ class PreFlightChecker:
         except ImportError:
             log_warn("PyTorch가 감지되지 않았습니다. CPU Fallback 모드로 동작합니다.")
 
-        # 6. Environment Variables
+        # 6. Environment Variables & WSLg GUI Display Protection
         os.environ["TURTLEBOT3_MODEL"] = "burger"
         os.environ["ROS_DOMAIN_ID"] = "0"
         os.environ["ROS_LOCALHOST_ONLY"] = "0"
         os.environ["PYTHONUNBUFFERED"] = "1"
-        log_ok("ROS 환경 변수 설정 완료 (MODEL=burger, DOMAIN_ID=0)")
+        if not os.environ.get("DISPLAY"):
+            os.environ["DISPLAY"] = ":0"
+        if not os.environ.get("WAYLAND_DISPLAY"):
+            os.environ["WAYLAND_DISPLAY"] = "wayland-0"
+        if not os.environ.get("XDG_RUNTIME_DIR"):
+            os.environ["XDG_RUNTIME_DIR"] = f"/run/user/{os.getuid()}"
+        if not os.environ.get("PULSE_SERVER"):
+            os.environ["PULSE_SERVER"] = "unix:/mnt/wslg/PulseServer"
+        log_ok(f"ROS 및 GUI 디스플레이 환경 준비 완료 (MODEL=burger, DOMAIN_ID=0, DISPLAY={os.environ['DISPLAY']})")
 
         # Create log dir
         os.makedirs(LOG_DIR, exist_ok=True)
@@ -385,6 +393,15 @@ class HostProcessManager:
         if env:
             full_env.update(env)
 
+        disp = full_env.get("DISPLAY", ":0")
+        wayl = full_env.get("WAYLAND_DISPLAY", "wayland-0")
+        xdg = full_env.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+        pulse = full_env.get("PULSE_SERVER", "unix:/mnt/wslg/PulseServer")
+        full_env["DISPLAY"] = disp
+        full_env["WAYLAND_DISPLAY"] = wayl
+        full_env["XDG_RUNTIME_DIR"] = xdg
+        full_env["PULSE_SERVER"] = pulse
+
         venv_cmd = f"[ -f {VENV_ACTIVATE} ] && source {VENV_ACTIVATE} && " if os.path.exists(VENV_ACTIVATE) else ""
         wrapped_cmd = (
             f"bash -c 'source {ROS_SETUP_SCRIPT} && "
@@ -392,6 +409,10 @@ class HostProcessManager:
             f"source {WS_SETUP_SCRIPT} && "
             f"export TURTLEBOT3_MODEL=burger && "
             f"export ROS_DOMAIN_ID=0 && "
+            f"export DISPLAY={disp} && "
+            f"export WAYLAND_DISPLAY={wayl} && "
+            f"export XDG_RUNTIME_DIR={xdg} && "
+            f"export PULSE_SERVER={pulse} && "
             f"exec {command}'"
         )
 
@@ -666,10 +687,30 @@ def main():
     parser.add_argument("--robot-ip", type=str, default=None, help="Target Robot IP address (e.g. 192.168.0.135)")
     parser.add_argument("--robot-user", type=str, default=DEFAULT_ROBOT_USER, help="Robot SSH username (default: lab)")
     parser.add_argument("--robot-pass", type=str, default=None, help="Robot SSH password")
+    parser.add_argument("--sim", action="store_true", help="Launch Gazebo simulation cockpit for odometry verification")
+    parser.add_argument("--rviz", action="store_true", help="Launch only RViz2 visualizer")
     parser.add_argument("--stop", action="store_true", help="Stop all running host and robot processes")
     parser.add_argument("--status", action="store_true", help="Check system and network status")
 
     args = parser.parse_args()
+
+    # Handle --sim
+    if args.sim:
+        sim_script = "/home/lab/sim.py"
+        if os.path.exists(sim_script):
+            sys.exit(subprocess.call(["python3", sim_script]))
+        else:
+            log_err(f"{sim_script}를 찾을 수 없습니다.")
+            return
+
+    # Handle --rviz
+    if args.rviz:
+        rviz_script = "/home/lab/rviz.py"
+        if os.path.exists(rviz_script):
+            subprocess.call(f"python3 {rviz_script}", shell=True)
+        else:
+            subprocess.call(f"bash -c 'source {ROS_SETUP_SCRIPT} && ros2 run rviz2 rviz2'", shell=True)
+        return
 
     # Handle --stop
     if args.stop:

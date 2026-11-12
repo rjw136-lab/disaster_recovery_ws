@@ -207,6 +207,14 @@ class RecoveryController(Node):
         self.current_theta = 0.0
         self.odom_initialized = False
 
+        # Raw Odometry and SE(2) Scan Matching Correction Offset
+        self.raw_odom_x = 0.0
+        self.raw_odom_y = 0.0
+        self.raw_odom_theta = 0.0
+        self.corr_x = 0.0
+        self.corr_y = 0.0
+        self.corr_th = 0.0
+
         # LiDAR Scan Matching State
         self.latest_scan_pts = None
         self.start_scan_pts = None
@@ -285,9 +293,16 @@ class RecoveryController(Node):
     def cb_odometry(self, msg: Odometry):
         pos = msg.pose.pose.position
         ori = msg.pose.pose.orientation
-        self.current_x = pos.x
-        self.current_y = pos.y
-        self.current_theta = quaternion_to_yaw(ori.x, ori.y, ori.z, ori.w)
+        self.raw_odom_x = pos.x
+        self.raw_odom_y = pos.y
+        self.raw_odom_theta = quaternion_to_yaw(ori.x, ori.y, ori.z, ori.w)
+
+        # Apply persistent SE(2) scan matching correction transform
+        c_c = math.cos(self.corr_th)
+        s_c = math.sin(self.corr_th)
+        self.current_x = self.corr_x + self.raw_odom_x * c_c - self.raw_odom_y * s_c
+        self.current_y = self.corr_y + self.raw_odom_x * s_c + self.raw_odom_y * c_c
+        self.current_theta = normalize_angle(self.raw_odom_theta + self.corr_th)
 
         if not self.odom_initialized:
             self.start_pose = Waypoint(self.current_x, self.current_y, self.current_theta, scan_pts=self.latest_scan_pts)
@@ -543,7 +558,7 @@ class RecoveryController(Node):
     def perform_scan_matching_correction(self):
         """
         Refines (self.current_x, self.current_y, self.current_theta) using 2D LiDAR scan matching.
-        Eliminates accumulated wheel odometry slip during backtracking.
+        Eliminates accumulated wheel odometry slip during backtracking by maintaining a persistent SE(2) correction.
         """
         if not self.enable_scan_matching or self.latest_scan_pts is None or self.active_target_wp is None:
             return
@@ -562,43 +577,54 @@ class RecoveryController(Node):
         if dist_to_wp > self.scan_match_max_dist:
             return
 
-        # Estimate initial guess in target WP frame
+        # Estimate initial guess in target WP frame (vector from WP to robot expressed in WP frame)
         dx_world = self.current_x - self.active_target_wp.x
         dy_world = self.current_y - self.active_target_wp.y
         wp_th = self.active_target_wp.theta
         c_th, s_th = math.cos(wp_th), math.sin(wp_th)
-        dx_guess = -(c_th * dx_world + s_th * dy_world)
-        dy_guess = -(-s_th * dx_world + c_th * dy_world)
-        dth_guess = normalize_angle(wp_th - self.current_theta)
+        dx_guess = c_th * dx_world + s_th * dy_world
+        dy_guess = -s_th * dx_world + c_th * dy_world
+        dth_guess = normalize_angle(self.current_theta - wp_th)
 
         dx_rel, dy_rel, dth_rel, ok = icp_match_2d(
             self.latest_scan_pts, ref_pts,
             initial_guess=(dx_guess, dy_guess, dth_guess),
-            max_iters=10, inlier_thresh=0.35, min_inliers=15
+            max_iters=15, inlier_thresh=0.35, min_inliers=15
         )
 
         if ok:
             # Reconstruct measured robot world pose
-            x_meas = self.active_target_wp.x - (c_th * dx_rel - s_th * dy_rel)
-            y_meas = self.active_target_wp.y - (s_th * dx_rel + c_th * dy_rel)
-            th_meas = normalize_angle(wp_th - dth_rel)
+            x_meas = self.active_target_wp.x + (c_th * dx_rel - s_th * dy_rel)
+            y_meas = self.active_target_wp.y + (s_th * dx_rel + c_th * dy_rel)
+            th_meas = normalize_angle(wp_th + dth_rel)
 
-            # Complementary filter fusion
-            alpha = self.scan_match_weight
-            corr_x = (1.0 - alpha) * self.current_x + alpha * x_meas
-            corr_y = (1.0 - alpha) * self.current_y + alpha * y_meas
-            corr_th = normalize_angle(self.current_theta + alpha * normalize_angle(th_meas - self.current_theta))
+            # Update persistent SE(2) correction transform T_corr = T_meas * T_raw^-1
+            target_th_c = normalize_angle(th_meas - self.raw_odom_theta)
+            c_tc, s_tc = math.cos(target_th_c), math.sin(target_th_c)
+            target_x_c = x_meas - (self.raw_odom_x * c_tc - self.raw_odom_y * s_tc)
+            target_y_c = y_meas - (self.raw_odom_x * s_tc + self.raw_odom_y * c_tc)
 
-            # Outlier rejection on correction step (< 0.20m max sudden jump)
-            if math.hypot(corr_x - self.current_x, corr_y - self.current_y) < 0.20:
-                self.current_x = corr_x
-                self.current_y = corr_y
-                self.current_theta = corr_th
+            # Outlier rejection on sudden jumps (< 0.25m jump allowed per correction)
+            jump_dist = math.hypot(target_x_c - self.corr_x, target_y_c - self.corr_y)
+            if jump_dist < 0.25:
+                alpha = self.scan_match_weight
+                self.corr_x = (1.0 - alpha) * self.corr_x + alpha * target_x_c
+                self.corr_y = (1.0 - alpha) * self.corr_y + alpha * target_y_c
+                self.corr_th = normalize_angle(self.corr_th + alpha * normalize_angle(target_th_c - self.corr_th))
+
+                # Re-evaluate current_x, current_y, current_theta with updated transform
+                c_c = math.cos(self.corr_th)
+                s_c = math.sin(self.corr_th)
+                self.current_x = self.corr_x + self.raw_odom_x * c_c - self.raw_odom_y * s_c
+                self.current_y = self.corr_y + self.raw_odom_x * s_c + self.raw_odom_y * c_c
+                self.current_theta = normalize_angle(self.raw_odom_theta + self.corr_th)
+
                 self.scan_match_count += 1
-                if self.scan_match_count % 15 == 1:
+                if self.scan_match_count % 10 == 1:
                     self.get_logger().info(
-                        f"[LIDAR SCAN MATCH] Odometry drift compensated: "
-                        f"Pose=({self.current_x:.2f}, {self.current_y:.2f}, {math.degrees(self.current_theta):.1f}°)"
+                        f"[LIDAR SCAN MATCH #{self.scan_match_count}] Drift Compensated: "
+                        f"Pose=({self.current_x:.2f}, {self.current_y:.2f}, {math.degrees(self.current_theta):.1f}°) | "
+                        f"Offset=({self.corr_x:.3f}, {self.corr_y:.3f}, {math.degrees(self.corr_th):.1f}°)"
                     )
 
     def check_proximity_or_next_waypoint(self):
