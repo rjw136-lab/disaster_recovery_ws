@@ -21,9 +21,7 @@
   <img src="docs/images/disaster_recovery_banner_latest.png" alt="Disaster Recovery TurtleBot3 Burger Hero Banner" width="100%">
 </p>
 
-> 🚨 **Mission Statement**: 원격 탐사 중 **Wi-Fi 통신이 끊기거나(Heartbeat 3.0초 타임아웃)** **가연성 가스가 감지되면(MQ-2)**,  
-> 로봇은 Host PC 도움 없이 **온보드 연산만으로** 지나온 경로를 역순 추종(LIFO Breadcrumb)하고,  
-> 2D LiDAR ICP 오차 보정 및 ArUco 정밀 도킹을 통해 누적 위치 오차를 체계적으로 최소화하여 출발점으로의 안전 복귀 성공률을 높이는 것을 목표로 합니다.
+> 🚨 **연구 요약 (System Overview)**: 본 연구는 실내 재난 환경 탐사 중 발생 가능한 **통신 인프라 단절(Heartbeat 3.0초 타임아웃)** 및 **유해 가스 누출(MQ-2 임계치 초과)** 상황에서, 외부 관제 인프라의 개입 없이 로봇 온보드 연산(Raspberry Pi 4)만으로 기검증된 경로를 역추종(LIFO Breadcrumb Backtracking)하고, 2D LiDAR ICP 오차 보정 및 ArUco 정밀 도킹을 통해 누적 위치 오차를 체계적으로 최소화하여 출발점으로의 안전 복귀 성공률을 제고하는 자율주행 제어 시스템을 제안한다.
 
 ---
 
