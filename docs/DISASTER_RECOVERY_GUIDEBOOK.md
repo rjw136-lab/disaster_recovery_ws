@@ -20,7 +20,7 @@ Host PC(Windows 11 WSL2)와 로봇 본체(Raspberry Pi 4 + OpenCR 1.0) 간의 �
 ### 2.2 비홀로노믹 구속 로봇의 제자리 회전 후 직진 (Rotate-then-Translate) 분리 제어
 - **주장**: 2륜 차동 구동 로봇의 역추종 주행 제어 방식으로 제자리 회전(Rotate)과 직진(Translate)을 엄격히 분리한 방식 A를 채택한다.
 - **근거**: Siegwart, Nourbakhsh, & Scaramuzza (2011), *Introduction to Autonomous Mobile Robots*, MIT Press에 따르면, 2륜 차동 로봇은 측면 이동이 불가능한 비홀로노믹(Non-holonomic) 시스템이다. 곡선 궤적을 연속적으로 생성하는 추종 제어는 슬립 환경에서 곡률 오차가 가중되는 반면, 목표점을 향해 제자리 회전으로 헤딩각 오차($e_\theta$)를 0으로 정렬한 뒤 순수 직진을 수행하는 2단계 분리 제어는 기구학적 불확실성을 배제하고 제어 안정성을 극대화한다.
-- **결론**: 본 시스템에서는 헤딩 오차 $|\Delta \theta| > 0.08\,\text{rad}$ ($4.6^\circ$) 구간에서는 선속도를 0으로 제한하고 순수 각속도 $P$-제어를 수행한 후, 정렬 완료 시에만 선속도를 인가하는 Rotate-then-Translate 알고리즘을 구현한다.
+- **결론**: 본 시스템에서는 헤딩 오차 $|\Delta \theta| > 0.08\,\text{rad}$ ($4.6^\circ$) 구간에서는 선속도를 0으로 제한하고 순수 각속도 P-제어를 수행한 후, 정렬 완료 시에만 선속도를 인가하는 Rotate-then-Translate 알고리즘을 구현한다.
 
 ### 2.3 포섭 구조(Subsumption Architecture) 기반의 무정지 온보드 생존성
 - **주장**: 외부 통신(Host PC) 및 고수준 AI 연산과 로봇의 최하위 생존/복귀 루프는 완전히 물리적으로 격리되어야 한다.
@@ -40,67 +40,70 @@ Host PC(Windows 11 WSL2)와 로봇 본체(Raspberry Pi 4 + OpenCR 1.0) 간의 �
 
 ```mermaid
 flowchart TD
-    subgraph Host_PC ["Host PC (Windows 11 + WSL2)"]
-        NIC1["유선 LAN<br/>(학교 고정 IP / 보안 유지)"]
-        NIC2["USB 무선 Wi-Fi 동글<br/>(192.168.0.100)"]
-        WSL["WSL2 Ubuntu 22.04 LTS<br/>(networkingMode=mirrored)"]
-        GPU["NVIDIA GeForce GTX 1050 Ti<br/>(CUDA 12.x)"]
-        AI1["YOLO26n Vision AI<br/>(Person 탐지, 270° 보정)"]
-        AI2["Faster-Whisper STT<br/>(구조 요청 발화 분석)"]
-        HB["Heartbeat Generator<br/>(10Hz /heartbeat)"]
-        SLAM["Cartographer SLAM<br/>& RViz2 관제"]
+    subgraph HOST["Host PC · Windows 11 WSL2"]
+        NIC1["유선 LAN (학교 고정 IP)"]
+        NIC2["USB Wi-Fi 동글 (192.168.0.x)"]
+        AI1["YOLO26n Vision AI (GPU FP16)"]
+        AI2["Faster-Whisper STT (CPU INT8)"]
+        HB["Heartbeat Generator (10Hz)"]
+        SLAM["Cartographer SLAM & RViz2"]
     end
 
-    subgraph Network ["로컬 사설 Wi-Fi (연구실 공유기: 192.168.0.x 대역)"]
-        UDP["초저지연 UDP 멀티캐스트<br/>(지연 시간 1~2ms)"]
+    subgraph NET["연구실 사설 Wi-Fi (192.168.0.x)"]
+        UDP["Fast DDS UDP 멀티캐스트 (3~13ms)"]
     end
 
-    subgraph Robot_RPi ["TurtleBot3 Burger - Raspberry Pi 4 (Ubuntu 22.04)"]
-        WIFI_RPI["RPi 4 내장 Wi-Fi<br/>(192.168.0.105)"]
-        LDS["LDS-01 2D LiDAR<br/>(/scan 발행)"]
-        CAM["RPi Camera V2<br/>(v4l2_camera 스트리밍)"]
-        MIC["AB13X USB 마이크<br/>(48kHz → /audio/raw)"]
-        WLOG["Odometry Logger<br/>(LIFO: d≥0.3m, θ≥25°)"]
-        WDOG["Watchdog Manager<br/>(Heartbeat 3.0s & Gas)"]
-        BTRK["Autonomous Backtracker<br/>(Rotate-then-Translate)"]
-        ARUCO["ArUco PnP Docking<br/>(15cm 정밀 안착)"]
-        BBOX["Local MicroSD Blackbox<br/>(통신단절 시 압축기록)"]
-        GAS["gas_sensor_node<br/>(ADS1115 I2C → /gas/level)"]
+    subgraph RPI["TurtleBot3 Burger · Raspberry Pi 4"]
+        LDS["LDS-01 2D LiDAR (/scan)"]
+        CAM["RPi Camera V2 (카메라 노드)"]
+        MIC["AB13X USB 마이크 (48kHz)"]
+        RC["recovery_controller (워치독·LIFO)"]
+        AD["aruco_docking (solvePnP 정밀도킹)"]
+        BB["blackbox_recorder (비상시 기록)"]
+        GB["gas_sensor_node (ADS1115 수집)"]
     end
 
-    subgraph Sensor_Board ["MQ-2 센서 회로 (RPi I2C bus 1)"]
-        MQ2["MQ-2 가스 센서<br/>(5V, AOUT)"]
-        DIV["10k:20k 분압기<br/>(max 3.33V)"]
-        ADS["ADS1115 16-bit ADC<br/>(VDD 3.3V, 0x48)"]
+    subgraph SENS["I2C 센서 회로"]
+        MQ2["MQ-2 가스 센서 (5V)"]
+        DIV["10k:20k 분압기 (3.33V)"]
+        ADS["ADS1115 16-bit ADC (0x48)"]
     end
 
-    subgraph Robot_OpenCR ["TurtleBot3 Burger - OpenCR 1.0 (순정 유지)"]
-        DYNAMIXEL["XL430-W250 다이내믹셀 모터 제어"]
-        ENC["휠 엔코더 오도메트리<br/>(/odom via turtlebot3_node)"]
+    subgraph OCR["OpenCR 1.0 (순정 펌웨어)"]
+        MOT["Dynamixel 모터 제어"]
+        ENC["휠 엔코더 오도메트리 (/odom)"]
     end
 
-    NIC2 <--> UDP
-    UDP <--> WIFI_RPI
-    WSL --- GPU
-    GPU --- AI1
-    GPU --- AI2
-    WSL --- HB
-    WSL --- SLAM
-
-    WIFI_RPI --- WLOG
-    WIFI_RPI --- WDOG
-    LDS --> WDOG
-    LDS --> BTRK
-    CAM --> ARUCO
-    CAM --> BBOX
+    NIC2 --- UDP
+    UDP --- RPI
+    HB --> RC
+    LDS --> RC
+    LDS --> SLAM
+    CAM --> AI1
+    CAM --> AD
+    CAM --> BB
     MIC --> AI2
-    WDOG --> BTRK
-    BTRK --> ARUCO
-    WDOG --> BBOX
-    MQ2 --> DIV --> ADS --> GAS --> WDOG
-    ENC -- "USB /dev/ttyACM0" --> WLOG
-    BTRK --> DYNAMIXEL
-    ARUCO --> DYNAMIXEL
+    ENC --> RC
+    RC --> MOT
+    AD --> MOT
+    RC --> AD
+    RC --> BB
+    MQ2 --> DIV
+    DIV --> ADS
+    ADS --> GB
+    GB --> RC
+```
+
+#### 시스템 구성 텍스트 구조도 (모바일 앱용)
+
+```
+[Host PC (WSL2)] ── (사설 Wi-Fi: Fast DDS 10Hz) ── [TurtleBot3 RPi 4]
+  ├─ YOLO26n (GPU FP16)                              ├─ recovery_controller
+  ├─ Faster-Whisper (CPU INT8)                       ├─ aruco_docking (solvePnP)
+  ├─ Cartographer SLAM                               ├─ blackbox_recorder
+  └─ 10Hz Heartbeat 송신                             ├─ LDS-01 LiDAR (5Hz)
+                                                     ├─ MQ-2 ➔ ADS1115 ➔ gas_sensor_node
+                                                     └─ OpenCR 1.0 ➔ Dynamixel 모터
 ```
 
 ---
@@ -111,31 +114,35 @@ flowchart TD
 
 ```mermaid
 stateDiagram-v2
-    direction TB
     [*] --> INIT: 부팅 및 하드웨어 초기화
+    INIT --> NORMAL_TELEOP: 센서 및 첫 Heartbeat 수신
+    NORMAL_TELEOP --> EMERGENCY_STOP: Heartbeat 타임아웃 3초 또는 가스 감지
+    EMERGENCY_STOP --> BACKTRACKING_ROTATE: 모터 정지 및 LIFO 경유지 팝
+    BACKTRACKING_ROTATE --> BACKTRACKING_TRANSLATE: 헤딩 오차 0.08 rad 이내 정렬
+    BACKTRACKING_TRANSLATE --> BACKTRACKING_ROTATE: 경유지 도달 팝 또는 헤딩 발산
+    BACKTRACKING_ROTATE --> OBSTACLE_HOLD: 전방 장애물 감지 0.12-0.25m
+    BACKTRACKING_TRANSLATE --> OBSTACLE_HOLD: 전방 장애물 감지 0.12-0.25m
+    OBSTACLE_HOLD --> BACKTRACKING_ROTATE: 장애물 제거 확인
+    BACKTRACKING_TRANSLATE --> HANDOVER_TO_ARUCO: 원점 0.5m 접근 또는 스택 소진
+    HANDOVER_TO_ARUCO --> ARUCO_DOCKING: 도킹 트리거 발행
+    ARUCO_DOCKING --> MISSION_COMPLETE: 2cm 및 3도 정렬 성공 또는 10초 타임아웃
+    MISSION_COMPLETE --> [*]: 반경 15cm 복귀 완료
+```
 
-    INIT --> NORMAL_TELEOP: 센서 및 첫 Heartbeat 수신 완료
+#### 상태 전이 텍스트 요약 (모바일 앱용)
 
-    NORMAL_TELEOP --> EMERGENCY_STOP: Heartbeat 타임아웃 (3.0초)<br/>OR 가스 임계치 초과 (0.40)
-
-    EMERGENCY_STOP --> BACKTRACKING_ROTATE: 모터 정지 & 원격 조종 차단<br/>LIFO 최상단 경유지 팝
-
-    BACKTRACKING_ROTATE --> BACKTRACKING_TRANSLATE: 헤딩 오차 ≤ 0.08 rad 정렬 완료
-
-    BACKTRACKING_TRANSLATE --> BACKTRACKING_ROTATE: 경유지 도달 (0.08m) 및 다음 팝<br/>또는 헤딩각 발산 (> 0.2 rad)
-
-    BACKTRACKING_ROTATE --> OBSTACLE_HOLD: 전방 20° 내 0.12~0.25m 장애물 감지
-    BACKTRACKING_TRANSLATE --> OBSTACLE_HOLD: 전방 20° 내 0.12~0.25m 장애물 감지
-
-    OBSTACLE_HOLD --> BACKTRACKING_ROTATE: 장애물 제거 및 경로 확보 완료
-
-    BACKTRACKING_TRANSLATE --> HANDOVER_TO_ARUCO: 베이스캠프 0.50m 접근<br/>OR 스택 소진
-
-    HANDOVER_TO_ARUCO --> ARUCO_DOCKING: /aruco/dock_trigger 발행<br/>시각 서보 제어권 이양
-
-    ARUCO_DOCKING --> MISSION_COMPLETE: 거리 오차 2cm & 각도 오차 3°<br/>10회 연속 달성
-
-    MISSION_COMPLETE --> [*]: 반경 15cm 이내 정밀 복귀 완료 및 모터 고정
+```
+[INIT] ──(수신 완료)──▶ [NORMAL_TELEOP] ──(3초 단절/가스)──▶ [EMERGENCY_STOP]
+                              │                                    │
+                              │ (0.3m/25도 LIFO 기록)               ▼
+                              ▼                           [BACKTRACKING_ROTATE]
+                        [원격 탐색]                                │ (헤딩 <= 0.08 rad)
+                                                                   ▼
+[MISSION_COMPLETE] ◀── [ARUCO_DOCKING] ◀── [HANDOVER] ◀── [BACKTRACKING_TRANSLATE]
+   (최종 정지)           (2cm 정밀도킹)     (원점 0.5m)             │
+                                                                   │ (전방 0.12~0.25m 장애물)
+                                                                   ▼
+                                                            [OBSTACLE_HOLD]
 ```
 
 ### 각 상태(State)별 온보드 세부 실행 동작
@@ -179,45 +186,72 @@ stateDiagram-v2
 ## 6. 결선도 및 파라미터 수식 검증 요약
 
 ### 6.1 MQ-2 분압기 전압 무결성 검증 (ADS1115 경유)
-- 센서 $V_{CC}$: $5.0\,\text{V}$ / ADS1115 $V_{DD}$: $3.3\,\text{V}$
-- 분압 저항: $R_1 = 10\,\text{k}\Omega$ (신호선 직렬), $R_2 = 20\,\text{k}\Omega$ (AIN0→GND)
-- 최대 입력 전압:
-  $$V_{AIN0} = 5.0\,\text{V} \times \frac{20\,\text{k}\Omega}{10\,\text{k}\Omega + 20\,\text{k}\Omega} = 3.333\,\text{V}$$
-  $$V_{AIN0} \le V_{DD} + 0.3\,\text{V} = 3.6\,\text{V} \quad (\text{ADS1115 입력 허용 범위 충족})$$
-- 노이즈 제거: $\alpha = 0.15$ 기반 1차 지수이동평균(EMA) 필터 적용 (`gas_sensor_node`, 20 Hz).
-- 가스 지표 (상대 농도 지수):
-  $$\text{gas\_level} = \text{clamp}\left(1 - \frac{R_s}{R_{s,\text{air}}}, 0, 1\right)$$
-  *(※ ppm 단위가 아니며, 현장 기준선 보정 필요)*
+
+- 센서 전원: $V_{CC} = 5.0\,\text{V}$
+- ADC 전원: $V_{DD} = 3.3\,\text{V}$
+- 분압 저항: $R_1 = 10\,\text{k}\Omega$ (신호선 직렬), $R_2 = 20\,\text{k}\Omega$ (AIN0 ➔ GND)
+
+**최대 입력 전압 계산식:**
+
+$$V_{AIN0} = 5.0\,\text{V} \times \frac{20\,\text{k}\Omega}{10\,\text{k}\Omega + 20\,\text{k}\Omega} = 3.333\,\text{V}$$
+
+$$V_{AIN0} \le V_{DD} + 0.3\,\text{V} = 3.6\,\text{V}$$
+
+- 계산 결과: $3.333\,\text{V} \le 3.6\,\text{V}$ 로 ADS1115 허용 입력 전압 범위 충족
+- 노이즈 필터: $\alpha = 0.15$ 기반 1차 지수이동평균(EMA) 필터 적용 (`gas_sensor_node`, 20 Hz)
+
+**가스 상대 농도 지표 수식:**
+
+$$\text{gas\_level} = \text{clamp}\left(1 - \frac{R_s}{R_{s,\text{air}}}, 0, 1\right)$$
+
+*(※ ppm 절대 농도가 아니며 현장 기준선 보정 필요)*
+
+---
 
 ### 6.2 오도메트리 이산화 스택 기준
-- 주행 변위 조건:
-  $$\Delta d = \sqrt{(x_k - x_{k-1})^2 + (y_k - y_{k-1})^2} \ge 0.30\,\text{m}$$
-- 헤딩 회전 조건:
-  $$|\Delta \theta| = |\text{atan2}(\sin(\theta_k - \theta_{k-1}), \cos(\theta_k - \theta_{k-1}))| \ge 25^\circ \approx 0.4363\,\text{rad}$$
+
+**주행 변위 조건:**
+
+$$\Delta d = \sqrt{(x_k - x_{k-1})^2 + (y_k - y_{k-1})^2} \ge 0.30\,\text{m}$$
+
+**헤딩 회전각 조건:**
+
+$$|\Delta \theta| = |\text{atan2}(\sin(\theta_k - \theta_{k-1}), \cos(\theta_k - \theta_{k-1}))| \ge 25^\circ \approx 0.4363\,\text{rad}$$
+
+---
 
 ### 6.3 Rotate-then-Translate 제어기 수식
-- 회전 단계 ($|\Delta \theta_{\text{target}}| > 0.08\,\text{rad}$):
-  $$\begin{aligned}
-  v &= 0.0\,\text{m/s} \\
-  \omega &= \text{clamp}(K_{p,\omega} \cdot \Delta \theta_{\text{target}}, -\omega_{\max}, \omega_{\max})
-  \end{aligned}$$
-- 직진 단계 ($|\Delta \theta_{\text{target}}| \le 0.08\,\text{rad}$):
-  $$\begin{aligned}
-  v &= \text{clamp}(K_{p,v} \cdot d_{\text{target}}, 0.03\,\text{m/s}, v_{\max}) \\
-  \omega &= \text{clamp}(K_{p,\text{align}} \cdot \Delta \theta_{\text{target}}, -\omega_{\max}, \omega_{\max})
-  \end{aligned}$$
-- 라이다 비상 정지: 전방 $\pm 20^\circ$ 내 유효 거리 $0.12\,\text{m} \le d_{\text{lidar}} \le 0.25\,\text{m}$ 검출 시 즉시 $v=0, \omega=0$.
+
+**회전 제어 단계** ($|\Delta \theta_{\text{target}}| > 0.08\,\text{rad}$):
+
+$$v = 0.0\,\text{m/s}$$
+
+$$\omega = \text{clamp}(K_{p,\omega} \cdot \Delta \theta_{\text{target}}, -\omega_{\max}, \omega_{\max})$$
+
+**직진 제어 단계** ($|\Delta \theta_{\text{target}}| \le 0.08\,\text{rad}$):
+
+$$v = \text{clamp}(K_{p,v} \cdot d_{\text{target}}, 0.03\,\text{m/s}, v_{\max})$$
+
+$$\omega = \text{clamp}(K_{p,\text{align}} \cdot \Delta \theta_{\text{target}}, -\omega_{\max}, \omega_{\max})$$
+
+- 라이다 비상 정지: 전방 $\pm 20^\circ$ 내 유효 거리 $0.12\,\text{m} \le d_{\text{lidar}} \le 0.25\,\text{m}$ 검출 시 즉시 $v=0, \omega=0$
+
+---
 
 ### 6.4 ArUco solvePnP 정밀 도킹 수식
+
 - 마커 코너 3D 좌표: $[-s/2, s/2, 0], [s/2, s/2, 0], [s/2, -s/2, 0], [-s/2, -s/2, 0]$ ($s = 0.10\,\text{m}$)
 - PnP 해석: `cv2.solvePnP(obj_points, img_points, K, D, flags=cv2.SOLVEPNP_IPPE_SQUARE)`
-- 최종 오차 수렴 판정 (10프레임 연속 만족):
-  $$\begin{aligned}
-  |Z_c - 0.20\,\text{m}| &\le 0.02\,\text{m} \\
-  |X_c| &\le 0.02\,\text{m} \\
-  |\text{yaw}| &\le 0.05\,\text{rad}
-  \end{aligned}$$
-  출발 원점 대비 최종 안착 오차 반경 **15cm 이내** 달성.
+
+**최종 오차 수렴 판정 (10프레임 연속 만족):**
+
+$$|Z_c - 0.20\,\text{m}| \le 0.02\,\text{m}$$
+
+$$|X_c| \le 0.02\,\text{m}$$
+
+$$|\text{yaw}| \le 0.05\,\text{rad}$$
+
+- 출발 원점 대비 최종 안착 오차 반경 **15cm 이내** 달성.
 
 ---
 
