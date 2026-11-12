@@ -7,64 +7,70 @@
 ![Python](https://img.shields.io/badge/Python-3.10-3776AB?logo=python&logoColor=white)
 ![CUDA](https://img.shields.io/badge/CUDA-GTX%201050%20Ti-76B900?logo=nvidia&logoColor=white)
 ![OpenCV](https://img.shields.io/badge/OpenCV-ArUco%20%2F%20solvePnP-5C3EE8?logo=opencv&logoColor=white)
-![License](https://img.shields.io/badge/License-Apache%202.0-blue)
 ![YOLO](https://img.shields.io/badge/YOLO-26n-00FFFF)
-![Status](https://img.shields.io/badge/Status-Prototype%20(Host%20AI%20verified)-orange)
+![Gazebo](https://img.shields.io/badge/Gazebo-11-orange)
+![License](https://img.shields.io/badge/License-Apache%202.0-blue)
+![Status](https://img.shields.io/badge/Status-Prototype-orange)
 
 > 원격 탐사 중 **Wi-Fi가 끊기거나(Heartbeat 3초 타임아웃)** **가연성 가스가 감지되면(MQ-2)**,
-> 로봇이 Host PC 도움 없이 **온보드 연산만으로** 지나온 경로를 역순으로 되짚어 출발점 **반경 15 cm 이내**로 돌아온다.
-
----
-
-## 🎯 프로젝트 개발 목적 및 핵심 목표 (Objectives)
-
-본 시스템은 지진, 건물 붕괴, 유해가스 누출 등 통신 인프라가 파괴된 가혹한 실내 재난 환경에서 다음과 같은 **4가지 핵심 엔지니어링 목표**를 달성하기 위해 구축되었습니다:
-
-1. **통신 단절 시 100% 온보드 자율 복귀 (Off-Grid Standalone Navigation)**:
-   - Wi-Fi 두절(Heartbeat 3.0초 타임아웃) 또는 가연성 가스 누출 시, 외부 관제 PC 개입 없이 라즈베리파이 4 단독 연산으로 탐색 경로(LIFO Waypoint)를 역추종하여 출발 기지로 안전 복귀.
-2. **바퀴 슬립 오차 완전 극복 (2D LiDAR Keyframe Scan Matching - ICP)**:
-   - 2륜 차동 구동 로봇의 고질적 한계인 바퀴 헛돎(Wheel Slip) 누적 오차를 상쇄하기 위해, RPi 4 온보드에서 3.5ms 내 수렴하는 고속 2D ICP 알고리즘으로 벽면 기하를 대조하여 복귀 정확도 5~10cm 달성.
-3. **베이스캠프 정밀 비주얼 도킹 및 세이프티 가드 (ArUco Visual Servoing & Safety Guard)**:
-   - 출발 기지에 부착된 ArUco 마커를 인식하여 2cm 이내 초정밀 도킹 완료.
-   - 마커 미배치 또는 시야 가림 시에도 로봇이 무한 회전에 빠지지 않도록 **10초 타임아웃 세이프티 가드** 구축 (자동 미션 완수).
-4. **저지연 하이브리드 인공지능 재난 관제 (Dual-AI & Zero-Lag Stream)**:
-   - 4GB VRAM 한계를 극복하기 위해 YOLO26n 비전 AI(GPU FP16)와 Faster-Whisper 음성 AI(CPU AVX2 INT8)를 분할 가속하여 실시간 조난자 탐색 및 구조 요청 발화 인식.
-
----
-
-## 🆕 최신 주요 추가 내역 (What Was Added - 2026.11)
-
-- 🚀 **2D 라이다 키프레임 스캔 매칭 (ICP Odometry Drift Compensation)**:
-  - 복귀 주행 시 실시간 2D ICP 알고리즘으로 벽면 형상을 대조하여 바퀴 슬립에 의한 $\Delta x, \Delta y, \Delta \theta$ 오차를 실시간 상쇄.
-  - 지나온 중요 길목마다 라이다 스냅샷(`scan_pts`)과 최초 출발 원점 스캔(`start_scan_pts`)을 앵커로 보관하여 원점 도착 오차를 5~10cm 이내로 극적 축소.
-- 🛡️ **ArUco 10초 타임아웃 세이프티 가드 (Fallback Base Camp Arrival)**:
-  - 마커가 없거나 가려져도 무한 뺑뺑이 회전 없이 10초 후 제자리 정지 및 미션 자동 완료 (`dock_complete=True`).
-  - `recovery_controller`에도 12초 2차 백업 타임아웃 및 `use_aruco_docking: false` 파라미터 스위치 내장.
-- ⚡ **원터치 마스터 런처 (`start.py` / `stop.py`)**:
-  - 환경 사전 점검(Pre-Flight) ➔ SSH 무암호 키 자동 등록 ➔ 로봇 온보드 일괄 기동 ➔ 호스트 AI/SLAM 백그라운드 ➔ 포그라운드 텔레옵 통합.
-- 📚 **공학 기술 보고서 및 트러블슈팅 백서 발간**:
-  - [`docs/2026-11-10_LIDAR_Scan_Matching_및_자율복귀_엔지니어링_보고서.md`](docs/2026-11-10_LIDAR_Scan_Matching_및_자율복귀_엔지니어링_보고서.md)
-  - [`docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md`](docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md)
+> 로봇은 Host PC 도움 없이 **온보드 연산만으로** 지나온 경로를 역순으로 되짚어 출발점으로 돌아온다.
 
 ---
 
 ## 📑 목차
 
-1. [프로젝트 개발 목적 및 핵심 목표](#-프로젝트-개발-목적-및-핵심-목표-objectives)
-2. [최신 주요 추가 내역](#-최신-주요-추가-내역-what-was-added---202611)
-3. [핵심 기능](#-핵심-기능)
-4. [시스템 아키텍처](#-시스템-아키텍처)
-5. [상태 머신](#-상태-머신-recovery_controller)
+1. [개요](#-개요)
+2. [핵심 기능](#-핵심-기능)
+3. [시스템 아키텍처](#-시스템-아키텍처)
+4. [상태 머신](#-상태-머신-recovery_controller)
+5. [차세대 고도화 로드맵](#-차세대-고도화-로드맵-계층적-하이브리드-자율복귀)
 6. [하드웨어 구성](#-하드웨어-구성)
 7. [저장소 구조](#-저장소-구조)
 8. [설치](#-설치)
 9. [실행](#-실행)
-10. [ROS 2 인터페이스](#-ros-2-인터페이스)
-11. [주요 파라미터](#-주요-파라미터)
-12. [필드 테스트](#-필드-테스트)
-13. [알려진 한계 및 해결 내역](#-알려진-한계-및-해결-내역)
-14. [선행 특허(Prior Art) 및 지식재산권(IP) 심층 분석](#-선행-특허prior-art-및-지식재산권ip-심층-분석)
-15. [참고 문헌](#-참고-문헌)
+10. [Gazebo 시뮬레이션](#-gazebo-시뮬레이션)
+11. [ROS 2 인터페이스](#-ros-2-인터페이스)
+12. [주요 파라미터](#-주요-파라미터)
+13. [필드 테스트](#-필드-테스트)
+14. [알려진 한계](#-알려진-한계)
+15. [선행 특허 및 IP 분석](#-선행-특허prior-art-및-지식재산권ip-심층-분석)
+16. [참고 문헌](#-참고-문헌-및-특허-출처)
+
+---
+
+## 📌 개요
+
+### 개발 목적
+
+지진, 건물 붕괴, 유해가스 누출 등으로 통신 인프라가 파괴된 실내 재난 환경에서 다음 4가지 목표를 달성하는 것을 목적으로 한다.
+
+| # | 목표 | 핵심 기술 |
+| :-: | :--- | :--- |
+| 1 | **통신 단절 시 온보드 자율 복귀** | Heartbeat 워치독 + LIFO Breadcrumb 역추적 (RPi 4 단독 연산) |
+| 2 | **바퀴 슬립 누적 오차 보정** | 2D LiDAR 키프레임 스캔 매칭 (SVD 기반 ICP, 3.5 ms 수렴) |
+| 3 | **베이스캠프 정밀 도킹** | ArUco + `solvePnP` 비주얼 서보잉, 10초 타임아웃 세이프티 가드 |
+| 4 | **저지연 AI 재난 관제** | YOLO26n (GPU FP16) + Faster-Whisper (CPU INT8) 분할 가속 |
+
+### 개발 현황
+
+| 구분 | 항목 | 상태 |
+| :--- | :--- | :-: |
+| 제어 | Heartbeat 워치독, LIFO 백트래킹, LiDAR 긴급 정지 | ✅ 구현 |
+| 위치 보정 | 2D ICP 스캔 매칭 (지속형 SE(2) 보정 오프셋) | ✅ 구현 · 실차 검증 중 |
+| 도킹 | ArUco 정밀 도킹 + 10초 세이프티 가드 | ✅ 구현 |
+| AI 관제 | YOLO26n 조난자 탐지 (270° 회전 보정) | ✅ 실차 검증 |
+| AI 관제 | Faster-Whisper 음성 구조 요청 인식 | ✅ 구현 |
+| 운용 | 원터치 런처 `start.py` / `stop.py`, WASD 텔레옵 | ✅ 구현 |
+| 시뮬레이션 | Gazebo + Cartographer SLAM 검증 환경 `sim.py` | ✅ 구현 |
+| 센서 | MQ-2 + ADS1115 가스 센서 | ⏳ 드라이버 완료, 결선 예정 |
+| 고도화 | TD3 기반 국소 잔해 우회 ([로드맵](#-차세대-고도화-로드맵-계층적-하이브리드-자율복귀)) | 🗺 계획 |
+
+### 관련 문서
+
+- [`docs/DISASTER_RECOVERY_GUIDEBOOK.md`](docs/DISASTER_RECOVERY_GUIDEBOOK.md) — 종합 설계 문서 (이론적 근거 및 학술 배경)
+- [`docs/2026-11-10_LIDAR_Scan_Matching_및_자율복귀_엔지니어링_보고서.md`](docs/2026-11-10_LIDAR_Scan_Matching_및_자율복귀_엔지니어링_보고서.md) — 2D ICP 스캔 매칭 설계 보고서
+- [`docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md`](docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md) — 트러블슈팅 백서
+- [`docs/PATENT_ANALYSIS_AND_PRIOR_ART.md`](docs/PATENT_ANALYSIS_AND_PRIOR_ART.md) — 선행 특허 분석 보고서
 
 ---
 
@@ -72,20 +78,20 @@
 
 | 기능 | 설명 | 실행 위치 |
 | :--- | :--- | :--- |
-| **Heartbeat 워치독** | `/heartbeat` 3.0 s 미수신 시 즉시 정지(v=0, ω=0) 후 원격 명령 차단 | RPi 4 |
-| **가스 워치독** | MQ-2 → ADS1115(I2C) → `/gas/level` ≥ 0.40 이면 동일한 비상 복귀 시퀀스 진입 | RPi 4 |
-| **오도메트리 로거** | 탐색 중 Δd ≥ 0.3 m 또는 \|Δθ\| ≥ 25° 마다 (x, y, θ, scan_pts)를 LIFO 스택에 push | RPi 4 |
-| **LIFO 백트래킹** | 스택을 pop하며 *제자리 회전 → 직진* (Rotate-then-Translate) 추종 | RPi 4 |
-| **LiDAR 스캔 매칭 (ICP)** | 복귀 중 2D ICP로 벽면 기하를 실시간 대조하여 바퀴 슬립 누적 오차를 3.5ms 내 상쇄 (5~10cm 복귀) | RPi 4 |
-| **LiDAR 긴급 정지** | 복귀 중 전방 ±20°, 0.12–0.25 m 장애물 감지 시 정지·대기, 해제 시 재개 | RPi 4 |
-| **ArUco 정밀 도킹** | 원점 0.5 m 진입 시 ArUco(ID 0, 10 cm)를 `solvePnP`로 추정해 2cm 이내 도킹 | RPi 4 |
-| **도킹 세이프티 가드** | 마커 미배치 또는 가림 시 무한 회전 없이 10초 후 제자리 정지 및 미션 자동 완료 | RPi 4 |
-| **원터치 마스터 런처** | SSH 로봇 원격 기동 + 호스트 AI 파이프라인 + SLAM + 텔레옵 원클릭 오케스트레이션 | Host PC |
-| **로컬 블랙박스** | 비상 전환 시 MicroSD에 영상(mp4) + 텔레메트리(csv) 기록 | RPi 4 |
-| **비전 AI** | Ultralytics **YOLO26n** (`yolo26n.pt`)으로 조난자(`person`) 탐지 · 270° 회전 보정 · Zero-Lag 워커 | Host PC (GPU) |
-| **오디오 캡처** | AB13X USB 마이크(`plughw:1,0`, 48 kHz S16_LE mono)를 `arecord`로 읽어 `/audio/raw`로 PCM 스트리밍 | RPi 4 |
-| **음성 AI** | `/audio/raw` → 16 kHz 다운샘플 → RMS VAD → Faster-Whisper(int8)로 구조 요청 키워드 검출 | Host PC (CPU) |
-| **RViz2 관제** | `disaster_station.rviz` — RobotModel + `/scan` + `/map` + `/detection/image` 원클릭 레이아웃 | Host PC |
+| Heartbeat 워치독 | `/heartbeat` 3.0 s 미수신 시 즉시 정지(v=0, ω=0) 후 원격 명령 차단 | RPi 4 |
+| 가스 워치독 | MQ-2 → ADS1115(I2C) → `/gas/level` ≥ 0.40 이면 동일한 비상 복귀 시퀀스 진입 | RPi 4 |
+| 오도메트리 로거 | 탐색 중 Δd ≥ 0.3 m 또는 \|Δθ\| ≥ 25°마다 (x, y, θ, scan_pts)를 LIFO 스택에 push | RPi 4 |
+| LIFO 백트래킹 | 스택을 pop하며 *제자리 회전 → 직진* (Rotate-then-Translate) 추종 | RPi 4 |
+| LiDAR 스캔 매칭 (ICP) | 경유지 40 cm 이내에서 저장 스캔과 현재 스캔을 대조해 바퀴 슬립 누적 오차를 보정 | RPi 4 |
+| LiDAR 긴급 정지 | 복귀 중 전방 ±20°, 0.12–0.25 m 장애물 감지 시 정지·대기, 해제 시 재개 | RPi 4 |
+| ArUco 정밀 도킹 | 원점 0.5 m 진입 시 ArUco(ID 0, 10 cm)를 `solvePnP`로 추정해 2 cm 이내 도킹 | RPi 4 |
+| 도킹 세이프티 가드 | 마커 미배치·가림 시 무한 회전 없이 10초 후 정지 및 미션 완료 처리 | RPi 4 |
+| 로컬 블랙박스 | 비상 전환 시 MicroSD에 영상(mp4)과 텔레메트리(csv) 기록 | RPi 4 |
+| 오디오 캡처 | AB13X USB 마이크(`plughw:1,0`, 48 kHz S16_LE mono)를 `arecord`로 읽어 `/audio/raw`로 송신 | RPi 4 |
+| 비전 AI | YOLO26n으로 조난자(`person`) 탐지 · 270° 회전 보정 · Zero-Lag 워커 | Host PC (GPU) |
+| 음성 AI | 16 kHz 다운샘플 → RMS VAD → Faster-Whisper(int8)로 구조 요청 키워드 검출 | Host PC (CPU) |
+| 원터치 런처 | SSH 로봇 원격 기동 + 호스트 AI + SLAM + 텔레옵 통합 실행 | Host PC |
+| RViz2 관제 | `disaster_station.rviz` — RobotModel + `/scan` + `/map` + `/detection/image` | Host PC |
 
 > **설계 원칙:** 생존·복귀에 필요한 모든 제어 루프는 로봇 내부에서 닫힌다. Host PC는 관제·AI·Heartbeat만 담당하며, Host PC가 사라져도 복귀 기능은 영향을 받지 않는다 (Brooks, 1986의 계층형 제어 구조 개념 참고).
 
@@ -97,7 +103,7 @@
 flowchart LR
     subgraph HOST["Host PC · Windows 11 + WSL2 (mirrored)"]
         HB["Heartbeat 10Hz"]
-        TELEOP["teleop_twist_keyboard"]
+        TELEOP["wasd_teleop"]
         AI["host_ai_pipeline<br/>YOLO26n + Faster-Whisper"]
         SLAM["Cartographer + RViz2"]
     end
@@ -151,9 +157,9 @@ flowchart LR
  공통: ROS_DOMAIN_ID=0, ROS_LOCALHOST_ONLY=0, DDS 멀티캐스트 디스커버리 (Fast DDS 기본)
 ```
 
-- 학교 망 인증(고정 IP/MAC)은 유선 NIC에서 그대로 유지하고, ROS 2 트래픽은 사설 공유기로만 흐른다.
+- 학교 망 인증(고정 IP/MAC)은 유선 NIC에서 유지하고, ROS 2 트래픽은 사설 공유기로만 흐른다.
 - WSL2 미러드 모드는 Windows의 NIC/IP를 Linux에 그대로 노출하므로 NAT 포트포워딩 없이 DDS 멀티캐스트가 동작한다. 단, Windows 방화벽(Hyper-V firewall)에서 UDP 수신을 허용해야 할 수 있다. 상세: [`docs/WSL_NETWORK_SETUP.md`](docs/WSL_NETWORK_SETUP.md)
-- 공유기에 직접 붙을 수 없는 경우 **Tailscale + CycloneDDS 유니캐스트 피어**로도 운용 가능하지만, 지연(50–150 ms)·지터 때문에 Heartbeat 타임아웃 오작동 위험이 있어 현장 시험에는 사설 Wi-Fi 직결을 권장한다 (`WSL_NETWORK_SETUP.md` §6).
+- 공유기에 직접 붙을 수 없는 경우 Tailscale + CycloneDDS 유니캐스트 피어로도 운용할 수 있으나, 지연(50–150 ms)·지터로 Heartbeat 타임아웃 오작동 위험이 있어 현장 시험에는 사설 Wi-Fi 직결을 권장한다 (`WSL_NETWORK_SETUP.md` §6).
 
 ---
 
@@ -165,15 +171,15 @@ stateDiagram-v2
     INIT --> NORMAL_TELEOP: odom 수신 + 첫 heartbeat
     NORMAL_TELEOP --> EMERGENCY_STOP: heartbeat > 3.0s 또는 gas >= 0.40
     EMERGENCY_STOP --> BACKTRACKING_ROTATE: 스택 pop
-    BACKTRACKING_ROTATE --> BACKTRACKING_TRANSLATE: 헤딩 오차 <= 0.08 rad (라이다 ICP 보정)
+    BACKTRACKING_ROTATE --> BACKTRACKING_TRANSLATE: 헤딩 오차 <= 0.08 rad
     BACKTRACKING_TRANSLATE --> BACKTRACKING_ROTATE: 헤딩 발산 또는 다음 경유지
     BACKTRACKING_ROTATE --> OBSTACLE_HOLD: 전방 장애물 (0.12~0.25m)
     BACKTRACKING_TRANSLATE --> OBSTACLE_HOLD: 전방 장애물 (0.12~0.25m)
     OBSTACLE_HOLD --> BACKTRACKING_ROTATE: 장애물 해제
-    BACKTRACKING_TRANSLATE --> HANDOVER_TO_ARUCO: 원점 0.5m 이내 (베이스캠프 스캔 매칭)
-    HANDOVER_TO_ARUCO --> ARUCO_DOCKING: use_aruco=True
-    HANDOVER_TO_ARUCO --> MISSION_COMPLETE: use_aruco=False (라이다 원점 즉시 성공)
-    ARUCO_DOCKING --> MISSION_COMPLETE: 도킹 성공 (2cm 이내) OR 10초 타임아웃
+    BACKTRACKING_TRANSLATE --> HANDOVER_TO_ARUCO: 원점 0.5m 이내
+    HANDOVER_TO_ARUCO --> ARUCO_DOCKING: use_aruco_docking=true
+    HANDOVER_TO_ARUCO --> MISSION_COMPLETE: use_aruco_docking=false
+    ARUCO_DOCKING --> MISSION_COMPLETE: 도킹 성공 또는 10초 타임아웃
     MISSION_COMPLETE --> [*]
 ```
 
@@ -181,11 +187,60 @@ stateDiagram-v2
 
 - 회전 단계 (`|e_θ| > 0.08 rad`): `v = 0`, `ω = clamp(Kp_ω · e_θ, ±0.45)`
 - 직진 단계: `v = clamp(Kp_v · d, 0.03, 0.12)`, `ω = clamp(0.5 · Kp_ω · e_θ, ±0.45)`
-- 2D 라이다 스캔 매칭 (ICP): 경유지 40cm 이내 접근 시 실시간 라이다 점군과 기준 스캔을 3.5ms 내 매칭하여 바퀴 슬립에 의한 $(x, y, \theta)$ 오차를 상보필터($\alpha=0.40$)로 소거
-- 도킹 수렴 조건: `|Z − 0.20| ≤ 0.02 m`, `|X| ≤ 0.02 m`, `|yaw| ≤ 0.05 rad` 를 10프레임 연속 만족
-- 도킹 세이프티 가드: 마커 미감지 시 10.0초 경과 즉시 로봇 정지 후 `MISSION_COMPLETE` 자동 전이 (이중 백업: 제어기 12.0초 타임아웃)
-- 직진 단계: `v = clamp(Kp_v · d, 0.03, 0.12)`, `ω = clamp(0.5 · Kp_ω · e_θ, ±0.45)`
-- 도킹 수렴 조건: `|Z − 0.20| ≤ 0.02 m`, `|X| ≤ 0.02 m`, `|yaw| ≤ 0.05 rad` 를 10프레임 연속 만족
+- 스캔 매칭: 경유지 40 cm 이내 접근 시 저장 스캔과 현재 스캔을 ICP로 정합하고, 결과를 `/odom` → 보정 좌표계 간 SE(2) 오프셋에 상보필터(α = 0.40)로 누적 반영한다. 오프셋은 이후 수신되는 `/odom`에도 계속 적용된다.
+- 도킹 수렴 조건: `|Z − 0.20| ≤ 0.02 m`, `|X| ≤ 0.02 m`, `|yaw| ≤ 0.05 rad`를 10프레임 연속 만족
+- 도킹 세이프티 가드: 마커 미감지 시 10.0초 후 정지 및 `MISSION_COMPLETE` 전이 (제어기 측 12.0초 2차 백업)
+
+---
+
+## 🗺 차세대 고도화 로드맵: 계층적 하이브리드 자율복귀
+
+> 본 프로젝트는 현재 달성된 **LIFO Breadcrumb + 2D ICP 오도메트리 보정 + ArUco 비주얼 도킹**의 안정적 베이스라인을 기반으로, 붕괴 및 지형 변형이 극심한 실재난 환경을 돌파하기 위한 **심층강화학습(TD3) 융합 계층적 하이브리드 아키텍처**로의 확장을 준비하고 있다.
+
+### 1. 차세대 핵심 변경 아키텍처 개요
+
+기존의 정적 맵 기반 SLAM 내비게이션(Nav2) 및 위 상태 머신의 수동적 장애물 정지(`OBSTACLE_HOLD`)가 가진 물리적 한계를 극복하기 위해, **연산 분할형 계층 자율복귀 제어기**를 도입할 예정이다.
+
+```mermaid
+flowchart TD
+    G["Global Layer<br/>LIFO Breadcrumb 역추적"] -->|"복귀로 상 신규 잔해 감지"| L["Local Reactive Layer<br/>TD3 국소 우회 기동"]
+    L -->|"우회 완료 후 본선 합류"| D["Drift Reset Layer<br/>2D ICP 슬립 오차 소거"]
+    D --> G
+    G -->|"베이스캠프 0.5m 진입"| T["Terminal Layer<br/>ArUco 2cm 정밀 도킹"]
+```
+
+1. **Global Layer (골격 경로)**: 진입 시 검증된 LIFO Breadcrumb Waypoint 스택 역추적
+2. **Local Reactive Layer (동적 잔해 우회)**: 복귀로에 신규 낙하 잔해 발생 시 **TD3(Twin Delayed DDPG)** 기반 부드러운 국소 우회 기동
+3. **Drift Reset Layer (오차 소거)**: 우회 조향 중 발생한 추가 바퀴 슬립을 **2D 라이다 스캔 매칭** 으로 즉시 소거 후 본선 궤도 복귀
+4. **Terminal Layer (초정밀 안착)**: ArUco solvePnP 비주얼 서보잉으로 베이스캠프 2 cm 이내 최종 도킹
+
+### 2. 기대되는 공학적 가치
+
+**🛡️ 신규 붕괴 잔해 돌파를 통한 실현장 생존율 100% 달성 기대**
+
+- 기존 시스템은 복귀 경로에 천장 붕괴나 가구 전도가 발생하면 12~25 cm 전방에서 안전 정지(`OBSTACLE_HOLD`) 후 대기하는 한계가 있었다.
+- TD3 강화학습 에이전트가 투입되면, 막힌 복귀로를 실시간으로 판단하여 **좁은 틈새를 부드럽게 감아 도는 능동적 회피 기동**을 수행하므로 **통신 두절 상태에서도 영구 고립 없이 기지로 100% 귀환할 것으로 크게 기대된다.**
+
+**🎯 심층강화학습(TD3)과 기하학적 ICP의 상호 보완 시너지 기대**
+
+- 과거 APF(인공 포텐셜 필드)는 장애물 회피 시 급격한 조향으로 휠 슬립을 유발하여 오도메트리를 파괴하는 딜레마가 있었다.
+- 본 아키텍처에서는 **TD3의 연속 곡선 제어로 슬립을 최소화**하고, 우회 직후 **2D ICP가 남은 미세 오차를 즉시 리셋 소거**하므로, **"강화학습의 기동성 + 사체항법의 정밀도"가 결합된 극한의 원점 복귀 정밀도(오차 5 cm 이내)가 실증될 것으로 더욱더 기대된다.**
+
+**⚡ 엣지(Edge) 연산 리소스 보호 및 상용화 가능성 극대화 기대**
+
+- 고가의 임베디드 GPU(Jetson 등)를 로봇에 추가 증설하지 않고, **Host PC(GTX 1050 Ti) Gazebo 병렬 가상환경에서 Sim-to-Real 학습**을 완료한 뒤 **초경량 Actor 네트워크(수백 KB MLP)만 RPi 4에 탑재한다.**
+- 단일 CPU 코어에서 **1.5 ms 미만의 초저지연 온보드 추론**이 가능하여, 저전력 초소형 로봇 플랫폼에서도 대형 재난 로봇 수준의 자율성을 구현하는 **극단적 가격 대비 성능(Cost-Performance) 혁신이 기대된다.**
+
+### 3. 검증 계획
+
+| 비교군 | 복귀 방식 | 신규 장애물 대응 |
+| :--- | :--- | :--- |
+| Baseline A | 순수 휠 오도메트리 역추적 | 없음 |
+| Baseline B | 휠 오도메트리 + APF | 수식 기반 반발력 |
+| Baseline C (현재) | Breadcrumb + 2D ICP | `OBSTACLE_HOLD` 정지 대기 |
+| **제안** | **Breadcrumb + 2D ICP + TD3 + ArUco** | **TD3 국소 우회 후 본선 복귀** |
+
+평가 지표는 복귀 성공률(%), 원점 종단 위치·각도 오차(cm, °), 우회 궤적 평활도, RPi 4 1스텝 추론 지연(ms)으로 하며, [Gazebo 시뮬레이션](#-gazebo-시뮬레이션)과 실차 장애물 투입 환경에서 정량 비교한다.
 
 ---
 
@@ -195,9 +250,9 @@ stateDiagram-v2
 | :--- | :--- |
 | 로봇 | TurtleBot3 Burger (OpenCR 1.0 + Raspberry Pi 4 4/8GB) |
 | LiDAR | LDS-01 (USB2LDS) |
-| 카메라 | Raspberry Pi Camera Module (CSI, 640×480) — **케이블 배선상 90° 옆으로 장착** → 소프트웨어에서 270° 회전 보정 |
-| 가스 센서 | MQ-2 (5 V 구동) → 10k/20k 분압 → **ADS1115** 16-bit I2C ADC → RPi 4 |
-| 마이크 | Generic **AB13X USB Audio** (card 1, device 0 = `plughw:1,0`, S16_LE · mono · 48 kHz) |
+| 카메라 | Raspberry Pi Camera Module (CSI, 640×480) — 케이블 배선상 90° 옆으로 장착, 소프트웨어에서 270° 회전 보정 |
+| 가스 센서 | MQ-2 (5 V 구동) → 10k/20k 분압 → ADS1115 16-bit I2C ADC → RPi 4 |
+| 마이크 | Generic AB13X USB Audio (card 1, device 0 = `plughw:1,0`, S16_LE · mono · 48 kHz) |
 | Host PC | i7-8700 / GTX 1050 Ti 4GB / Windows 11 + WSL2 Ubuntu 22.04 / PyTorch 2.5.1 + CUDA 12.1 |
 
 ### MQ-2 + ADS1115 회로
@@ -234,44 +289,44 @@ i2cdetect -y 1        # 48 이 보여야 정상
 disaster_recovery_ws/
 ├── README.md
 ├── LICENSE
-├── .gitignore
 ├── scripts/
-│   ├── host/                            # 호스트 PC 원터치 관제 스크립트
-│   │   ├── start.py                     # 원터치 통합 오케스트레이션 마스터 런처
-│   │   └── stop.py                      # 전체 프로세스(호스트 + 로봇) 일괄 안전 종료
-│   └── rpi/                             # 라즈베리파이 온보드 편의 실행 스크립트
-│       ├── start_camera.sh              # camera_ros 고속 모드 (640x480 @ 30 FPS)
-│       ├── start_audio.sh               # AB13X USB 마이크 캡처 노드 시작
-│       ├── start_all.sh                 # 로봇 Bringup + 카메라 + 복귀 패키지 원클릭 실행
-│       └── stop_all.sh                  # 로봇 관련 프로세스 일괄 안전 종료
+│   ├── host/                            # Host PC 관제 스크립트
+│   │   ├── start.py                     # 원터치 통합 런처 (--sim, --rviz, --tmux, --stop 등)
+│   │   ├── stop.py                      # 호스트 + 로봇 프로세스 일괄 종료
+│   │   ├── sim.py                       # Gazebo + SLAM + 복귀 제어기 시뮬레이션 콘솔
+│   │   └── wasd_teleop.py               # WASD 텔레옵 (/cmd_vel_remote 발행)
+│   └── rpi/                             # RPi 4 온보드 실행 스크립트
+│       ├── start_camera.sh              # camera_ros (640x480 @ 30 FPS)
+│       ├── start_audio.sh               # AB13X USB 마이크 캡처 노드
+│       ├── start_all.sh                 # Bringup + 카메라 + 복귀 패키지 일괄 실행
+│       └── stop_all.sh                  # 로봇 프로세스 일괄 종료
 ├── docs/
-│   ├── DISASTER_RECOVERY_GUIDEBOOK.md   # 종합 설계 문서 (이론적 근거 및 학술 배경)
-│   ├── WSL_NETWORK_SETUP.md             # .wslconfig 미러드 네트워킹, ROS 2, CUDA 설정
-│   ├── CIRCUIT_AND_CALIBRATION.md       # MQ-2 분압 회로 설계 및 카메라 캘리브레이션
-│   ├── FIELD_TEST_CHECKLIST.md          # 터미널별 실행 순서, 검증 체크리스트
-│   ├── TURTLEBOT3_ARUCO_GUIDE.md        # ArUco 마커 생성 및 비주얼 도킹 가이드
-│   ├── 2026-11-10_LIDAR_Scan_Matching_및_자율복귀_엔지니어링_보고서.md # 2D ICP 라이다 스캔 매칭 보고서
-│   ├── 2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md # 전체 트러블슈팅 백서
-│   ├── Disaster_Recovery_TurtleBot3_Integration_Report.md   # YOLO26n·오디오 통합 구축 보고서
-│   └── Disaster_Recovery_TurtleBot3_Integration_Report.docx # 동일 보고서 (Word)
+│   ├── DISASTER_RECOVERY_GUIDEBOOK.md   # 종합 설계 문서
+│   ├── WSL_NETWORK_SETUP.md             # 미러드 네트워킹, ROS 2, CUDA 설정
+│   ├── CIRCUIT_AND_CALIBRATION.md       # MQ-2 분압 회로 및 카메라 캘리브레이션
+│   ├── FIELD_TEST_CHECKLIST.md          # 실행 순서 및 검증 체크리스트
+│   ├── TURTLEBOT3_ARUCO_GUIDE.md        # ArUco 마커 생성 및 도킹 가이드
+│   ├── PATENT_ANALYSIS_AND_PRIOR_ART.md # 선행 특허 분석 보고서
+│   ├── 2026-11-10_LIDAR_Scan_Matching_및_자율복귀_엔지니어링_보고서.md
+│   ├── 2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md
+│   └── Disaster_Recovery_TurtleBot3_Integration_Report.{md,docx}
 └── src/disaster_recovery/
-    ├── package.xml
-    ├── setup.py / setup.cfg
+    ├── package.xml / setup.py / setup.cfg
     ├── config/
-    │   ├── recovery_params.yaml         # 임계값, 속도, 라이다 스캔 매칭 및 도킹 게인
-    │   ├── camera_info_sample.yaml      # 예시값 (직접 캘리브레이션한 값으로 교체 권장)
+    │   ├── recovery_params.yaml         # 임계값, 속도, 스캔 매칭 및 도킹 게인
+    │   ├── camera_info_sample.yaml      # 예시값 (직접 캘리브레이션 값으로 교체 권장)
     │   └── disaster_station.rviz        # RViz2 관제 레이아웃
     ├── launch/
-    │   ├── robot_onboard.launch.py      # RPi 4용 (recovery/aruco/gas/blackbox/audio)
-    │   └── host_station.launch.py       # Host PC용 (launch argument 지원, use_rviz)
+    │   ├── robot_onboard.launch.py      # RPi 4 (recovery / aruco / gas / blackbox / audio)
+    │   └── host_station.launch.py       # Host PC (AI 파이프라인, use_rviz)
     ├── disaster_recovery/
-    │   ├── recovery_controller.py       # 워치독 + 키프레임 2D 라이다 스캔 매칭(ICP) + LIFO 백트래킹
-    │   ├── aruco_docking.py             # solvePnP 기반 도킹 P-제어 + 10초 타임아웃 세이프티 가드
+    │   ├── recovery_controller.py       # 워치독 + LIFO 백트래킹 + 2D ICP 스캔 매칭
+    │   ├── aruco_docking.py             # solvePnP 도킹 P-제어 + 10초 세이프티 가드
     │   ├── host_ai_pipeline.py          # YOLO26n + Faster-Whisper + Heartbeat 10Hz
-    │   ├── gas_sensor_node.py           # ADS1115 → EMA → /gas/level (사전 설계)
+    │   ├── gas_sensor_node.py           # ADS1115 → EMA → /gas/level
     │   ├── ads1115_mq2.py               # ADS1115 드라이버 + MQ-2 계산 (ROS 비의존)
     │   ├── blackbox_recorder.py         # MicroSD 영상·CSV 기록
-    │   └── audio_capture_node.py        # arecord → /audio/raw PCM 스트리밍
+    │   └── audio_capture_node.py        # arecord → /audio/raw
     └── test/
         └── test_ads1115_mq2.py          # 단위 테스트 (pytest)
 ```
@@ -306,7 +361,7 @@ autoProxy=true
 # PowerShell: wsl --shutdown 후 WSL 재진입
 sudo apt install -y ros-humble-desktop ros-humble-cv-bridge \
                     ros-humble-teleop-twist-keyboard ros-humble-camera-calibration \
-                    ros-humble-turtlebot3-cartographer
+                    ros-humble-turtlebot3-cartographer ros-humble-turtlebot3-gazebo
 pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 pip3 install ultralytics faster-whisper
 pip3 install "numpy==1.26.4" "opencv-python==4.10.0.84"     # cv_bridge(NumPy 1.x) 호환 고정
@@ -327,12 +382,6 @@ sudo usermod -aG i2c,audio $USER   # 재로그인 필요
 arecord -l                          # card 1: AB13X USB Audio 확인 (번호가 다르면 alsa_device 수정)
 ```
 
-### 단위 테스트 (ROS·하드웨어 불필요)
-
-```bash
-cd src/disaster_recovery && python3 -m pytest test -q   # ADS1115 레지스터/MQ-2 계산 8개 테스트
-```
-
 ### 빌드 (양쪽 모두)
 
 ```bash
@@ -342,15 +391,26 @@ colcon build --symlink-install --packages-select disaster_recovery
 source install/setup.bash
 ```
 
+### 단위 테스트 (ROS·하드웨어 불필요)
+
+```bash
+cd src/disaster_recovery && python3 -m pytest test -q   # ADS1115 레지스터 / MQ-2 계산 8개 테스트
+```
+
 ---
 
 ## ▶ 실행
 
-### ⚡ 원터치 통합 실행 (추천)
+### 원터치 통합 실행 (권장)
 
 ```bash
-# Host PC 터미널에서 실행 (RPi 4 원격 브링업 + Host AI 파이프라인 + SLAM + 텔레옵 통합)
-python3 scripts/host/start.py   # 또는 PATH 등록 시 start.py
+# Host PC에서 실행: RPi 4 원격 브링업 + Host AI 파이프라인 + SLAM + 텔레옵
+python3 scripts/host/start.py
+
+python3 scripts/host/start.py --tmux        # tmux 멀티 패널 대시보드
+python3 scripts/host/start.py --host-only   # 로봇 원격 기동 생략
+python3 scripts/host/start.py --status      # 네트워크 및 노드 상태 점검
+python3 scripts/host/stop.py                # 전체 종료
 ```
 
 ### 단계별 수동 실행
@@ -372,7 +432,6 @@ python3 scripts/host/start.py   # 또는 PATH 등록 시 start.py
 ros2 topic echo /recovery/status
 ros2 topic echo /disaster/victim_alert
 ros2 topic echo /disaster/audio_alert
-ros2 run rviz2 rviz2 -d $(ros2 pkg prefix disaster_recovery)/share/disaster_recovery/config/disaster_station.rviz
 ```
 
 ### `host_station.launch.py` 인자
@@ -381,26 +440,46 @@ ros2 run rviz2 rviz2 -d $(ros2 pkg prefix disaster_recovery)/share/disaster_reco
 | :--- | :-: | :--- |
 | `yolo_model_path` | `yolo26n.pt` | YOLO 가중치 경로/이름 |
 | `image_topic` | `/camera/image_raw/compressed` | 카메라 토픽 |
-| `use_compressed` | `true` | `CompressedImage` 구독 (Wi-Fi 대역폭 절약, 권장) |
-| `rotation_angle` | `270` | 영상 회전 (0/90/180/270, `cv2.rotate` 기준) |
+| `use_compressed` | `true` | `CompressedImage` 구독 (Wi-Fi 대역폭 절약) |
+| `rotation_angle` | `270` | 영상 회전 (0/90/180/270) |
 | `show_window` | `true` | OpenCV 탐지 창 표시 |
 | `heartbeat_rate_hz` | `10.0` | Heartbeat 주기 |
 | `confidence_threshold` | `0.40` | YOLO 추론 임계값 |
 | `person_conf_threshold` | `0.55` | 조난자 알림 임계값 |
-| `only_person_detection` | `true` | COCO class 0(person)만 추론 |
+| `only_person_detection` | `false` | COCO class 0(person)만 추론 |
 | `min_consecutive_detections` | `2` | 알림 발행에 필요한 연속 탐지 프레임 수 |
 | `cuda_device` | `0` | GPU 번호 |
 | `whisper_model_size` | `base` | Faster-Whisper 모델 크기 (tiny/base/small) |
-| `whisper_device` | `cpu` | Whisper 연산 디바이스 (`cpu`/`cuda`. GTX 1050 Ti VRAM 보호를 위해 CPU 권장) |
-| `whisper_compute_type` | `int8` | Whisper CPU 양자화 가속 타입 (`int8` AVX2 권장) |
+| `whisper_device` | `cpu` | Whisper 연산 디바이스 (VRAM 보호를 위해 CPU 권장) |
+| `whisper_compute_type` | `int8` | Whisper CPU 양자화 타입 |
 | `use_rviz` | `false` | `disaster_station.rviz`로 RViz2 동시 실행 |
 
-예) 원본 영상 + 회전 없음 + 창 끄기:
+---
+
+## 🎮 Gazebo 시뮬레이션
+
+실차 없이 Host PC에서 복귀 제어기와 스캔 매칭 보정을 검증하기 위한 환경이다. Gazebo + Cartographer SLAM + RViz2 + `recovery_controller` + 가상 Heartbeat를 한 번에 실행한다.
 
 ```bash
-ros2 launch disaster_recovery host_station.launch.py \
-  image_topic:=/camera/image_raw use_compressed:=false rotation_angle:=0 show_window:=false
+python3 scripts/host/sim.py            # turtlebot3_world 맵
+python3 scripts/host/sim.py --house    # 방·복도 구조의 house 맵
+python3 scripts/host/sim.py --yolo     # 카메라 장착 모델(burger_cam) + YOLO26n 탐지 창
+python3 scripts/host/sim.py --no-slam  # SLAM/RViz 없이 실행
+python3 scripts/host/sim.py --stop     # 시뮬레이션 프로세스 일괄 종료
+python3 scripts/host/start.py --sim    # start.py 경유 실행
 ```
+
+| 키 | 동작 |
+| :-: | :--- |
+| `W` `A` `S` `D` | 전진 / 좌회전 / 후진 / 우회전 |
+| `Space` | 정지 |
+| `H` | Heartbeat 송신 중단 (통신 단절 재현 → 3초 후 자율 복귀) |
+| `R` | Heartbeat 복구 |
+| `Q` | 종료 |
+
+**검증 절차:** 벽·기둥 사이를 5~10 m 주행 → `H` 입력 → 복귀 중 `[LIDAR SCAN MATCH #n] Drift Compensated` 로그와 출발점 도착 오차를 확인한다.
+
+> WSL2(WSLg)에서는 Gazebo 3D 화면이 검게 나오는 문제가 있어 `sim.py`가 `LIBGL_ALWAYS_SOFTWARE=1`(소프트웨어 렌더링)을 자동 설정한다. 또한 오프라인 모델 다운로드 대기를 막기 위해 `GAZEBO_MODEL_PATH`에 `turtlebot3_gazebo/models`를 추가한다.
 
 ---
 
@@ -417,12 +496,12 @@ ros2 launch disaster_recovery host_station.launch.py \
 | `/gas/voltage` | `std_msgs/Float32` | gas_sensor_node → (모니터링) MQ-2 출력 전압 |
 | `/gas/rs_ro` | `std_msgs/Float32` | gas_sensor_node → (모니터링) 데이터시트 ppm 곡선용 Rs/Ro |
 | `/gas/sensor_ok` | `std_msgs/Bool` | gas_sensor_node → (모니터링) I2C 읽기 실패 시 false |
-| `/camera/image_raw` | `sensor_msgs/Image` | v4l2_camera → aruco_docking, blackbox, (host_ai: `use_compressed:=false`) |
-| `/camera/image_raw/compressed` | `sensor_msgs/CompressedImage` | image_transport → host_ai_pipeline (기본, BEST_EFFORT depth 1) |
+| `/camera/image_raw` | `sensor_msgs/Image` | v4l2_camera → aruco_docking, blackbox |
+| `/camera/image_raw/compressed` | `sensor_msgs/CompressedImage` | image_transport → host_ai_pipeline (BEST_EFFORT, depth 1) |
+| `/camera/camera_info` | `sensor_msgs/CameraInfo` | v4l2_camera → aruco_docking |
 | `/detection/image` | `sensor_msgs/Image` | host_ai_pipeline → RViz2 (바운딩 박스 + SURVIVOR 배너) |
 | `/audio/raw` | `std_msgs/UInt8MultiArray` | audio_capture_node → host_ai_pipeline (48 kHz S16_LE mono, 0.5 s/msg) |
-| `/aruco/debug_image` | `sensor_msgs/Image` | aruco_docking → (모니터링, 정방향 회전) |
-| `/camera/camera_info` | `sensor_msgs/CameraInfo` | v4l2_camera → aruco_docking |
+| `/aruco/debug_image` | `sensor_msgs/Image` | aruco_docking → (모니터링) |
 | `/aruco/dock_trigger` | `std_msgs/Bool` | recovery_controller → aruco_docking |
 | `/aruco/dock_complete` | `std_msgs/Bool` | aruco_docking → recovery_controller |
 | `/blackbox/trigger` | `std_msgs/Bool` | recovery_controller → blackbox_recorder |
@@ -441,27 +520,26 @@ ros2 launch disaster_recovery host_station.launch.py \
 | `heartbeat_timeout_sec` | 3.0 | 통신 단절 판정 시간 |
 | `gas_threshold` | 0.40 | 가스 위험 판정값 (`1 − Rs/Rs_air`, ppm 아님 · 현장 보정 필요) |
 | `gas_stale_timeout_sec` / `gas_stale_triggers_recovery` | 2.0 / false | `/gas/level` 끊김 경고 / 끊김 시 복귀 여부 |
-| `warmup_sec` / `baseline_samples` | 60 / 100 | MQ-2 예열 시간 / 깨끗한 공기 기준 측정 샘플 수 |
-| `rs_air_kohm` | 0.0 | 0보다 크면 저장된 기준값 재사용 (기준 측정 생략) |
-| `log_dist_threshold_m` | 0.30 | 경유지 기록 거리 간격 |
-| `log_angle_threshold_deg` | 25.0 | 경유지 기록 회전 간격 |
+| `warmup_sec` / `baseline_samples` | 60 / 100 | MQ-2 예열 시간 / 기준 측정 샘플 수 |
+| `rs_air_kohm` | 0.0 | 0보다 크면 저장된 기준값 재사용 |
+| `log_dist_threshold_m` / `log_angle_threshold_deg` | 0.30 / 25.0 | 경유지 기록 간격 (거리 / 회전) |
 | `waypoint_reach_radius_m` | 0.08 | 경유지 도달 판정 반경 |
 | `linear_speed_max` / `angular_speed_max` | 0.12 / 0.45 | 복귀 속도 상한 |
 | `lidar_min_range_m` / `lidar_max_danger_range_m` | 0.12 / 0.25 | 정지 거리 구간 |
 | `lidar_fov_half_deg` | 20.0 | 전방 감시 반각 |
 | `docking_start_distance_m` | 0.50 | ArUco 도킹 전환 거리 |
-| `enable_scan_matching` | `true` | 2D 라이다 키프레임 스캔 매칭(ICP) 오도메트리 보정 활성화 |
-| `scan_match_weight` | `0.40` | 상보필터 융합 가중치 (오도메트리 60% + 라이다 40%) |
-| `scan_match_max_dist_m` | 0.40 | ICP 매칭 발동 반경 (웨이포인트 40cm 이내) |
-| `use_aruco_docking` | `true` | ArUco 도킹 활성화 (false 시 라이다만으로 원점 복귀 후 즉시 완료) |
-| `aruco_docking_timeout_sec` | 12.0 | 제어기 차원의 ArUco 도킹 2차 백업 타임아웃 |
-| `search_timeout_sec` (aruco_docking) | 10.0 | ArUco 마커 미배치 시 10초 후 자동 미션 성공 완료 |
+| `enable_scan_matching` | true | 2D ICP 스캔 매칭 보정 활성화 |
+| `scan_match_weight` | 0.40 | 상보필터 가중치 (0 = 오도메트리만, 1 = 라이다만) |
+| `scan_match_max_dist_m` | 0.40 | ICP 매칭 발동 반경 |
+| `use_aruco_docking` | true | false이면 라이다 복귀만으로 미션 완료 |
+| `aruco_docking_timeout_sec` | 12.0 | 제어기 측 도킹 2차 백업 타임아웃 |
+| `search_timeout_sec` (aruco_docking) | 10.0 | 마커 미감지 시 미션 완료 처리까지의 시간 |
 | `marker_size_m` / `target_dock_dist_m` | 0.10 / 0.20 | 마커 크기 / 마커 앞 정지 거리 |
-| `camera_rotation_deg` (aruco_docking) | 270 | 카메라 장착 회전. solvePnP 결과를 정방향 카메라 좌표계로 변환 |
+| `camera_rotation_deg` (aruco_docking) | 270 | 카메라 장착 회전 보정 |
 | `alsa_device` / `sample_rate` (audio_capture_node) | `plughw:1,0` / 48000 | USB 마이크 장치 / 샘플레이트 |
 | `chunk_duration_sec` (audio_capture_node) | 0.5 | `/audio/raw` 메시지 1개 길이 |
 
-Host AI 오디오 파라미터 (`host_ai_pipeline`, 코드 기본값): `audio_sample_rate=48000`, `sample_rate_hz=16000`(Whisper 입력), `audio_buffer_sec=2.0`(50% 중첩), `voice_activity_threshold=0.012`(RMS), `whisper_model_size=base`.
+Host AI 오디오 파라미터 (`host_ai_pipeline` 코드 기본값): `audio_sample_rate=48000`, `sample_rate_hz=16000`, `audio_buffer_sec=2.0`(50% 중첩), `voice_activity_threshold=0.012`(RMS).
 
 ---
 
@@ -470,10 +548,11 @@ Host AI 오디오 파라미터 (`host_ai_pipeline`, 코드 기본값): `audio_sa
 전체 체크리스트: [`docs/FIELD_TEST_CHECKLIST.md`](docs/FIELD_TEST_CHECKLIST.md)
 
 - [ ] 텔레옵 주행 중 `[ODOM LOGGER] Recorded Waypoint` 로그가 0.3 m / 25° 간격으로 출력되는가
-- [ ] Host PC의 `host_station.launch.py`를 `Ctrl+C`로 종료 → 약 3초 후 정지하는가
+- [ ] Host PC의 `host_station.launch.py`를 `Ctrl+C`로 종료하면 약 3초 후 정지하는가
 - [ ] 정지 이후 텔레옵 키 입력이 무시되는가
 - [ ] `~/blackbox_logs/session_*/`에 mp4·csv가 생성되는가
 - [ ] 제자리 회전 → 직진으로 경유지를 역순 추종하는가
+- [ ] 복귀 중 `[LIDAR SCAN MATCH]` 로그가 출력되는가
 - [ ] 복귀 중 전방 약 15 cm에 장애물을 두면 정지하고, 치우면 재개하는가
 - [ ] 원점 0.5 m 이내에서 ArUco 도킹으로 전환되고 최종 위치가 출발점 15 cm 이내인가
 - [ ] 라이터 가스(점화 금지)를 MQ-2에 근접시켰을 때 동일한 복귀 시퀀스가 시작되는가
@@ -482,49 +561,27 @@ Host AI 오디오 파라미터 (`host_ai_pipeline`, 코드 기본값): `audio_sa
 
 ---
 
-## ⚠ 알려진 한계 및 해결 내역
+## ⚠ 알려진 한계
 
-본 저장소는 **실차 검증 및 지속 고도화 중인 프로토타입**이다.
+본 저장소는 실차 검증 및 고도화가 진행 중인 프로토타입이다.
 
-1. ~~**OpenCR 펌웨어 충돌**~~ → **해결됨.** MQ-2를 ADS1115(I2C)로 RPi 4에 직접 연결하는 방식으로 바꿨다. OpenCR은 순정 TurtleBot3 펌웨어를 유지한다.
-2. ~~**`audio_capture_node`는 스텁**~~ → **구현됨.** `arecord`로 48 kHz PCM을 읽어 `/audio/raw`로 보내고, Host가 16 kHz 다운샘플 및 RMS VAD를 거쳐 Whisper STT로 전달한다.
-3. ~~**바퀴 미끄러짐(Wheel Slip)으로 인한 오도메트리 누적 오차 발산**~~ → **해결됨.** RPi 4 온보드에 2D 라이다 키프레임 스캔 매칭(ICP) 알고리즘을 자체 구현하여, 3.5ms 만에 벽면 형상을 대조해 누적 오차를 상쇄함으로써 출발 원점 5~10cm 이내 안착을 달성했다.
-4. ~~**ArUco 마커 미배치/유실 시 무한 회전 루프**~~ → **해결됨.** 10초 타임아웃 세이프티 가드를 추가하여 마커가 없거나 가려져도 제자리 정지 후 `MISSION_COMPLETE`로 안전하게 종료한다.
-5. ~~**다중 터미널 수동 실행 및 좀비 프로세스 충돌**~~ → **해결됨.** `scripts/host/start.py` 및 `stop.py`를 통해 원터치 오케스트레이션 및 일괄 종료를 지원한다.
-6. **블랙박스의 Wi-Fi 스트리밍 차단**은 구현되어 있지 않다. 현재는 로컬 기록만 시작한다.
-7. **`OBSTACLE_HOLD`와 제자리 회전**: 회전 단계에서도 전방 장애물 검사를 하므로, 벽 근처에서 회전이 막혀 대기 상태가 지속될 수 있다.
-8. **도킹 기하**: 마커가 출발 위치 정면 벽에 있다는 가정이다. 출발 자세와 마커 위치의 상대 관계(오프셋)는 현장에서 실측해 `target_dock_dist_m`을 조정해야 한다.
-9. **가스 센서 실물 결선**: MQ-2와 ADS1115 분압 회로 설계 및 드라이버 코드는 완료되었으나, 실물 회로 결선 전이므로 오작동 방지를 위해 `gas_stale_triggers_recovery: false`로 설정되어 있다. 향후 결선 및 캘리브레이션 테스트가 필요하다.
+**현재 남아 있는 한계**
 
----
+1. **`OBSTACLE_HOLD` 정지 대기**: 복귀로에 새로 생긴 고정 장애물은 우회하지 못하고 대기한다. 회전 단계에서도 전방 검사를 하므로 벽 근처에서 대기가 길어질 수 있다. → [로드맵](#-차세대-고도화-로드맵-계층적-하이브리드-자율복귀)의 TD3 국소 우회로 대응 예정
+2. **도킹 기하 가정**: 마커가 출발 위치 정면 벽에 있다고 가정한다. 출발 자세와 마커의 상대 위치는 현장에서 실측해 `target_dock_dist_m`을 조정해야 한다.
+3. **가스 센서 미결선**: 회로 설계와 드라이버는 완료되었으나 실물 결선 전이므로 `gas_stale_triggers_recovery: false`로 둔다.
+4. **블랙박스 Wi-Fi 스트리밍 차단 미구현**: 현재는 로컬 기록만 시작한다.
 
-## 🚀 차세대 고도화 로드맵: 계층적 하이브리드 자율복귀 (Upcoming Architecture)
+**해결된 이슈**
 
-> 본 프로젝트는 현재 달성된 **LIFO Breadcrumb + 2D ICP 오도메트리 보정 + ArUco 비주얼 도킹**의 안정적 베이스라인을 기반으로, 붕괴 및 지형 변형이 극심한 실재난 환경을 돌파하기 위한 **심층강화학습(TD3) 융합 계층적 하이브리드 아키텍처**로의 확장을 준비하고 있다.
-
-### 1. 차세대 핵심 변경 아키텍처 개요
-기존의 정적 맵 기반 SLAM 내비게이션(Nav2) 및 수동적 장애물 정지(`OBSTACLE_HOLD`)의 물리적 한계를 극복하기 위해, **연산 분할형 3계층 자율복귀 제어기**를 도입할 예정이다:
-
-1. **Global Layer (골격 경로)**: 진입 시 검증된 LIFO Breadcrumb Waypoint 스택 역추적
-2. **Local Reactive Layer (동적 잔해 우회)**: 복귀로에 신규 낙하 잔해 발생 시 **TD3(Twin Delayed DDPG)** 기반 부드러운 국소 우회 기동
-3. **Drift Reset Layer (오차 소거)**: 우회 조향 중 발생한 추가 바퀴 슬립을 **2D 라이다 스캔 매칭(ICP)**으로 즉시 소거 후 본선 궤도 복귀
-4. **Terminal Layer (초정밀 안착)**: ArUco solvePnP 비주얼 서보잉으로 베이스캠프 2cm 이내 최종 도킹
-
----
-
-### 💡 차세대 시스템 도입을 통해 더욱더 기대되는 공학적 가치 (Anticipated Impacts)
-
-* 🛡️ **1. 신규 붕괴 잔해 돌파를 통한 실현장 생존율 100% 달성 기대**
-  - 기존 시스템은 복귀 경로에 천장 붕괴나 가구 전도가 발생하면 12~25cm 전방에서 안전 정지(`OBSTACLE_HOLD`) 후 대기하는 한계가 있었다.
-  - TD3 강화학습 에이전트가 투입되면, 막힌 복귀로를 실시간으로 판단하여 **좁은 틈새를 부드럽게 감아 도는 능동적 회피 기동**을 수행하므로 **통신 두절 상태에서도 영구 고립 없이 기지로 100% 귀환할 것으로 크게 기대된다.**
-
-* 🎯 **2. 심층강화학습(TD3)과 기하학적 ICP의 상호 보완 시너지 기대**
-  - 과거 APF(인공 포텐셜 필드)는 장애물 회피 시 급격한 조향으로 휠 슬립을 유발하여 오도메트리를 파괴하는 딜레마가 있었다.
-  - 본 아키텍처에서는 **TD3의 연속 곡선 제어로 슬립을 최소화**하고, 우회 직후 **2D ICP가 남은 미세 오차를 즉시 리셋 소거**하므로, **"강화학습의 기동성 + 사체항법의 정밀도"가 결합된 극한의 원점 복귀 정밀도(오차 5cm 이내)가 실증될 것으로 더욱더 기대된다.**
-
-* ⚡ **3. 엣지(Edge) 연산 리소스 보호 및 상용화 가능성 극대화 기대**
-  - 고가의 임베디드 GPU(Jetson 등)를 로봇에 추가 증설하지 않고, **Host PC(GTX 1050 Ti) Gazebo 병렬 가상환경에서 Sim-to-Real 학습**을 완료한 뒤 **초경량 Actor 네트워크(수백 KB MLP)만 RPi 4에 탑재한다.**
-  - 단일 CPU 코어에서 **1.5ms 미만의 초저지연 온보드 추론**이 가능하여, 저전력 초소형 로봇 플랫폼에서도 대형 재난 로봇 수준의 자율성을 구현하는 **극단적 가격 대비 성능(Cost-Performance) 혁신이 기대된다.**
+| 이슈 | 해결 방법 |
+| :--- | :--- |
+| OpenCR 펌웨어 충돌 | MQ-2를 ADS1115(I2C)로 RPi 4에 직결, OpenCR은 순정 펌웨어 유지 |
+| `audio_capture_node` 스텁 | `arecord` 기반 48 kHz PCM 스트리밍 및 Host 측 VAD + Whisper 연동 구현 |
+| 바퀴 슬립 누적 오차 | 2D ICP 스캔 매칭 구현. 이후 초기 추정값 부호 오류와 `/odom` 수신 시 보정값이 덮어써지는 문제를 수정하고 지속형 SE(2) 오프셋 방식으로 변경 |
+| ArUco 마커 부재 시 무한 회전 | 10초 타임아웃 세이프티 가드 추가 |
+| 다중 터미널 수동 실행 | `start.py` / `stop.py` 원터치 실행·종료 |
+| WSL2에서 Gazebo 검은 화면 | `sim.py`에서 소프트웨어 렌더링 자동 적용 |
 
 ---
 
