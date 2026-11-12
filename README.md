@@ -1,23 +1,29 @@
+# 🚨 Disaster Recovery TurtleBot3 Burger
+
 <p align="center">
-  <img src="docs/images/disaster_recovery_social_preview.png" alt="Disaster Recovery TurtleBot3 Burger" width="100%">
+  <strong>통신 단절 적응형 실내 재난 탐사 및 자율 복귀 로봇 시스템</strong><br>
+  <em>(TurtleBot3 Burger · ROS 2 Humble · Kyungpook National University)</em>
 </p>
 
-# 🚨 Disaster Recovery TurtleBot3
+<p align="center">
+  <img src="https://img.shields.io/badge/ROS%202-Humble-22314E?logo=ros" alt="ROS 2">
+  <img src="https://img.shields.io/badge/Ubuntu-22.04-E95420?logo=ubuntu&logoColor=white" alt="Ubuntu">
+  <img src="https://img.shields.io/badge/Python-3.10-3776AB?logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/CUDA-GTX%201050%20Ti-76B900?logo=nvidia&logoColor=white" alt="CUDA">
+  <img src="https://img.shields.io/badge/OpenCV-ArUco%20%2F%20solvePnP-5C3EE8?logo=opencv&logoColor=white" alt="OpenCV">
+  <img src="https://img.shields.io/badge/YOLO-26n-00FFFF" alt="YOLO">
+  <img src="https://img.shields.io/badge/Gazebo-11-orange" alt="Gazebo">
+  <img src="https://img.shields.io/badge/License-Apache%202.0-blue" alt="License">
+  <img src="https://img.shields.io/badge/Status-Prototype-orange" alt="Status">
+</p>
 
-**통신 단절 적응형 실내 재난 탐사 및 자율 복귀 로봇 시스템 (TurtleBot3 Burger · ROS 2 Humble)**
+<p align="center">
+  <img src="docs/images/disaster_recovery_social_preview.png" alt="Disaster Recovery TurtleBot3 Burger Hero Banner" width="100%">
+</p>
 
-![ROS 2](https://img.shields.io/badge/ROS%202-Humble-22314E?logo=ros)
-![Ubuntu](https://img.shields.io/badge/Ubuntu-22.04-E95420?logo=ubuntu&logoColor=white)
-![Python](https://img.shields.io/badge/Python-3.10-3776AB?logo=python&logoColor=white)
-![CUDA](https://img.shields.io/badge/CUDA-GTX%201050%20Ti-76B900?logo=nvidia&logoColor=white)
-![OpenCV](https://img.shields.io/badge/OpenCV-ArUco%20%2F%20solvePnP-5C3EE8?logo=opencv&logoColor=white)
-![YOLO](https://img.shields.io/badge/YOLO-26n-00FFFF)
-![Gazebo](https://img.shields.io/badge/Gazebo-11-orange)
-![License](https://img.shields.io/badge/License-Apache%202.0-blue)
-![Status](https://img.shields.io/badge/Status-Prototype-orange)
-
-> 원격 탐사 중 **Wi-Fi가 끊기거나(Heartbeat 3초 타임아웃)** **가연성 가스가 감지되면(MQ-2)**,
-> 로봇은 Host PC 도움 없이 **온보드 연산만으로** 지나온 경로를 역순으로 되짚어 출발점으로 돌아온다.
+> 🚨 **Mission Statement**: 원격 탐사 중 **Wi-Fi 통신이 끊기거나(Heartbeat 3.0초 타임아웃)** **가연성 가스가 감지되면(MQ-2)**,  
+> 로봇은 Host PC 도움 없이 **온보드 연산만으로** 지나온 경로를 역순 추종(LIFO Breadcrumb)하고,  
+> 2D LiDAR ICP 오차 보정 및 ArUco 정밀 도킹을 통해 출발점으로 100% 안전하게 자율 복귀합니다.
 
 ---
 
@@ -249,6 +255,12 @@ flowchart TD
 ---
 
 ## 🔧 하드웨어 구성
+
+<p align="center">
+  <img src="docs/images/turtlebot3_3dprinted_shell.jpg" alt="TurtleBot3 Burger 3D-Printed Custom Shell" width="60%">
+  <br>
+  <em>▲ 3D 프린팅 맞춤형 보호 외피(Outer Shell) 및 센서 마운팅 하드웨어 구성</em>
+</p>
 
 | 구분 | 사양 |
 | :--- | :--- |
