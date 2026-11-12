@@ -12,6 +12,7 @@ __pycache__/
 # Model weights (downloaded automatically by Ultralytics / Faster-Whisper)
 *.pt
 *.onnx
+!src/disaster_recovery/config/*.onnx
 *.engine
 
 # Runtime outputs
