@@ -57,8 +57,8 @@ def print_banner():
   🚨  재난구조로봇 원터치 마스터 런처 (Disaster Recovery System)  🚨
 ========================================================================================{Colors.RESET}
   {Colors.BOLD}Host Station{Colors.RESET} : Windows 11 WSL2 · i7-8700 CPU · GTX 1050 Ti GPU · ROS 2 Humble
-  {Colors.BOLD}AI Workload {Colors.RESET} : YOLO26n (GPU CUDA 가속) + Faster-Whisper base (CPU AVX2-INT8 가속)
-  {Colors.BOLD}VRAM Safety {Colors.RESET} : 4GB VRAM 보호 하이브리드 가속 분할 (OOM 방지)
+  {Colors.BOLD}AI Workload {Colors.RESET} : YOLO26n (GPU CUDA 가속) + Faster-Whisper base (GPU CUDA INT8 가속)
+  {Colors.BOLD}VRAM Safety {Colors.RESET} : 4GB VRAM 통합 GPU 가속 (YOLO26n + Whisper INT8, 실패 시 CPU 폴백)
   {Colors.BOLD}Robot Target{Colors.RESET} : TurtleBot3 Burger (Raspberry Pi 4 · OpenCR · LDS-01 · MQ-2)
   {Colors.BOLD}Safety Rule {Colors.RESET} : Heartbeat 10Hz · Teleop Remap -> /cmd_vel_remote · Zero-Lag Vision
 {Colors.CYAN}========================================================================================{Colors.RESET}
@@ -150,8 +150,7 @@ class PreFlightChecker:
             if torch.cuda.is_available():
                 gpu_name = torch.cuda.get_device_name(0)
                 vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-                log_ok(f"GPU 가속: {gpu_name} ({vram_gb:.1f}GB VRAM) -> YOLO26n 비전 AI 전담 (~14.7ms / 68 FPS)")
-                log_ok(f"CPU 가속: Intel Core i7-8700 (AVX2 INT8) -> Faster-Whisper base 음성 AI 전담 (VRAM 보호)")
+                log_ok(f"GPU 가속: {gpu_name} ({vram_gb:.1f}GB VRAM) -> YOLO26n 비전 AI + Faster-Whisper base (CUDA INT8) 동시 가속")
             else:
                 log_warn("CUDA 사용 불가. CPU 모드로 추론합니다 (FPS 저하 가능성 있음).")
         except ImportError:
@@ -502,7 +501,7 @@ def run_default_mode(robot_mgr, pm, args):
         f"rotation_angle:=270 "
         f"show_window:=true "
         f"heartbeat_rate_hz:=10.0 "
-        f"whisper_device:=cpu "
+        f"whisper_device:=cuda "
         f"whisper_model_size:=base "
         f"whisper_compute_type:=int8"
     )
@@ -602,7 +601,7 @@ def run_tmux_mode(robot_mgr, args):
         f"source {ROS_SETUP_SCRIPT} && {venv_cmd}source {WS_SETUP_SCRIPT} && "
         f"ros2 launch disaster_recovery host_station.launch.py "
         f"yolo_model_path:={YOLO_MODEL_PATH} "
-        f"whisper_device:=cpu "
+        f"whisper_device:=cuda "
         f"whisper_model_size:=base "
         f"whisper_compute_type:=int8"
     )

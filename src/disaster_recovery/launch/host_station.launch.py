@@ -84,13 +84,13 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'whisper_device',
-            default_value='cpu',
-            description='Compute device for Faster-Whisper (cpu or cuda; cpu recommended for GTX 1050 Ti VRAM protection)'
+            default_value='cuda',
+            description='Compute device for Faster-Whisper (cuda or cpu)'
         ),
         DeclareLaunchArgument(
             'whisper_compute_type',
             default_value='int8',
-            description='Quantization compute type for Faster-Whisper on CPU (int8, float32)'
+            description='Quantization compute type for Faster-Whisper (int8, int8_float32, float32)'
         ),
         DeclareLaunchArgument(
             'use_rviz',

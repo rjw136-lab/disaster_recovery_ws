@@ -30,6 +30,9 @@ Key Functions:
 =================================================================================================
 """
 
+import ctypes
+import glob
+import os
 import threading
 import queue
 import time
@@ -65,6 +68,29 @@ except ImportError:
     WHISPER_AVAILABLE = False
 
 
+def _preload_nvidia_cuda_libs():
+    """Preload pip-installed cuBLAS/cuDNN shared libraries so CTranslate2 finds them on CUDA."""
+    try:
+        import nvidia.cublas
+        cublas_dir = os.path.join(os.path.dirname(nvidia.cublas.__file__), 'lib')
+        for lib_name in ('libcublasLt.so.12', 'libcublas.so.12'):
+            lib_path = os.path.join(cublas_dir, lib_name)
+            if os.path.exists(lib_path):
+                ctypes.CDLL(lib_path, mode=ctypes.RTLD_GLOBAL)
+    except Exception:
+        pass
+    try:
+        import nvidia.cudnn
+        cudnn_dir = os.path.join(os.path.dirname(nvidia.cudnn.__file__), 'lib')
+        for lib_path in sorted(glob.glob(os.path.join(cudnn_dir, 'libcudnn*.so.9'))):
+            try:
+                ctypes.CDLL(lib_path, mode=ctypes.RTLD_GLOBAL)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 class HostAIPipelineNode(Node):
     def __init__(self):
         super().__init__('host_ai_pipeline')
@@ -76,7 +102,7 @@ class HostAIPipelineNode(Node):
         self.declare_parameter('enable_heartbeat', True)
         self.declare_parameter('yolo_model_path', 'yolo26n.pt')
         self.declare_parameter('whisper_model_size', 'base')
-        self.declare_parameter('whisper_device', 'cpu')
+        self.declare_parameter('whisper_device', 'cuda')
         self.declare_parameter('whisper_compute_type', 'int8')
         self.declare_parameter('whisper_cpu_threads', 4)
         self.declare_parameter('confidence_threshold', 0.40)
@@ -166,21 +192,27 @@ class HostAIPipelineNode(Node):
         self.whisper_model = None
         self.audio_queue = queue.Queue(maxsize=100)
         if WHISPER_AVAILABLE:
-            # CPU INT8 acceleration (AVX2 on i7-8700) is prioritized to completely preserve 
-            # the 4GB VRAM on GTX 1050 Ti for YOLO26n and RViz2.
+            target_whisper_dev = self.whisper_device
+            if target_whisper_dev == 'cuda' and not (TORCH_AVAILABLE and torch.cuda.is_available()):
+                target_whisper_dev = 'cpu'
+            if target_whisper_dev == 'cuda':
+                _preload_nvidia_cuda_libs()
             try:
-                self.whisper_model = WhisperModel(
-                    self.whisper_size,
-                    device=self.whisper_device,
-                    compute_type=self.whisper_compute_type,
-                    cpu_threads=self.whisper_cpu_threads
-                )
+                whisper_kwargs = {
+                    'device': target_whisper_dev,
+                    'compute_type': self.whisper_compute_type,
+                    'cpu_threads': self.whisper_cpu_threads,
+                }
+                if target_whisper_dev == 'cuda':
+                    whisper_kwargs['device_index'] = self.device_id
+                self.whisper_model = WhisperModel(self.whisper_size, **whisper_kwargs)
+                dev_label = f"cuda:{self.device_id}" if target_whisper_dev == 'cuda' else f"cpu ({self.whisper_cpu_threads} threads)"
                 self.get_logger().info(
                     f"Faster-Whisper ({self.whisper_size}, {self.whisper_compute_type}) initialized "
-                    f"successfully on {self.whisper_device} ({self.whisper_cpu_threads} CPU threads, VRAM protected)."
+                    f"successfully on {dev_label}."
                 )
             except Exception as e:
-                self.get_logger().warn(f"Faster-Whisper on {self.whisper_device} failed: {e}. Falling back to CPU int8.")
+                self.get_logger().warn(f"Faster-Whisper on {target_whisper_dev} failed: {e}. Falling back to CPU int8.")
                 try:
                     self.whisper_model = WhisperModel(self.whisper_size, device="cpu", compute_type="int8", cpu_threads=4)
                     self.get_logger().info("Faster-Whisper CPU default fallback initialized.")
