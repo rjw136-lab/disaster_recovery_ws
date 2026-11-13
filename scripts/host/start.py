@@ -508,10 +508,13 @@ def run_default_mode(robot_mgr, pm, args):
     pm.launch("Host_AI_Pipeline", ai_cmd, "host_ai.log")
     time.sleep(1.5)
 
-    # 2. Launch Cartographer SLAM (with RViz)
+    # 2. Launch Cartographer SLAM (with RobotModel RViz2)
     if not args.no_cartographer:
-        carto_cmd = "ros2 launch turtlebot3_cartographer cartographer.launch.py"
+        rviz_cfg = os.path.join(WORKSPACE_DIR, "src", "disaster_recovery", "config", "disaster_cartographer.rviz")
+        carto_cmd = "ros2 launch turtlebot3_cartographer cartographer.launch.py use_rviz:=false"
         pm.launch("Cartographer_SLAM", carto_cmd, "cartographer.log")
+        rviz_cmd = f"ros2 run rviz2 rviz2 -d {rviz_cfg}"
+        pm.launch("RViz2_Station", rviz_cmd, "rviz2.log")
         time.sleep(1.5)
 
     # 3. Guide & Teleop Launch
@@ -610,11 +613,13 @@ def run_tmux_mode(robot_mgr, args):
     # Split bottom vertically
     subprocess.call(f"tmux split-window -h -t {session_name}:0.1", shell=True)
 
-    # Pane 2 (bottom right): Cartographer SLAM
+    # Pane 2 (bottom right): Cartographer SLAM + RobotModel RViz2
+    rviz_cfg = os.path.join(WORKSPACE_DIR, "src", "disaster_recovery", "config", "disaster_cartographer.rviz")
     carto_cmd = (
         f"source {ROS_SETUP_SCRIPT} && source {WS_SETUP_SCRIPT} && "
         f"export TURTLEBOT3_MODEL=burger && "
-        f"ros2 launch turtlebot3_cartographer cartographer.launch.py"
+        f"ros2 launch turtlebot3_cartographer cartographer.launch.py use_rviz:=false & "
+        f"ros2 run rviz2 rviz2 -d {rviz_cfg}"
     )
     subprocess.call(f"tmux send-keys -t {session_name}:0.2 '{carto_cmd}' C-m", shell=True)
 

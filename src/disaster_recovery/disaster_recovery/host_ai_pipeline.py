@@ -109,6 +109,7 @@ class HostAIPipelineNode(Node):
         self.declare_parameter('person_conf_threshold', 0.55)
         self.declare_parameter('only_person_detection', True)
         self.declare_parameter('min_consecutive_detections', 2)
+        self.declare_parameter('yolo_max_fps', 15.0)
         self.declare_parameter('cuda_device', 0)
         self.declare_parameter('sample_rate_hz', 16000)
         self.declare_parameter('audio_raw_topic', '/audio/raw')
@@ -131,6 +132,7 @@ class HostAIPipelineNode(Node):
         self.person_conf_th = self.get_parameter('person_conf_threshold').value
         self.only_person = self.get_parameter('only_person_detection').value
         self.min_consecutive = self.get_parameter('min_consecutive_detections').value
+        self.yolo_max_fps = max(1.0, float(self.get_parameter('yolo_max_fps').value))
         self.device_id = self.get_parameter('cuda_device').value
         self.sample_rate = self.get_parameter('sample_rate_hz').value
         self.audio_raw_topic = self.get_parameter('audio_raw_topic').value
@@ -342,7 +344,7 @@ class HostAIPipelineNode(Node):
     def vision_worker_loop(self):
         """Dedicated thread to process only the latest frame, preventing network/queue lag."""
         last_infer_t = 0.0
-        infer_interval = 0.10  # 10 FPS inference throttle: reduces CPU/GPU utilization by ~65%
+        infer_interval = 1.0 / self.yolo_max_fps
 
         while self.vision_thread_running:
             if not self.new_frame_event.wait(timeout=0.1):
@@ -354,6 +356,15 @@ class HostAIPipelineNode(Node):
                 self.latest_compressed_bytes = None
                 frame = self.latest_frame
                 self.latest_frame = None
+
+            if raw_bytes is None and frame is None:
+                continue
+
+            # Throttle heavy decode/rotate/YOLO rate without overwriting HUD
+            now = time.time()
+            if now - last_infer_t < infer_interval:
+                continue
+            last_infer_t = now
 
             if raw_bytes is not None:
                 try:
@@ -368,12 +379,6 @@ class HostAIPipelineNode(Node):
 
             # 1. Rotate to upright orientation (e.g. 270 degrees)
             frame = self.rotate_image(frame)
-
-            # Throttle heavy YOLO inference rate to preserve CPU without overwriting HUD
-            now = time.time()
-            if now - last_infer_t < infer_interval:
-                continue
-            last_infer_t = now
 
             # 2. Process YOLO and publish
             self.process_frame(frame)

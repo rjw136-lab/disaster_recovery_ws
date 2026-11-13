@@ -200,9 +200,10 @@ class GazeboSimulationRunner:
         # 3. Start Cartographer SLAM (Mapping + RViz2)
         if self.use_slam:
             print(f"\n{Colors.MAGENTA}{Colors.BOLD}▶ [2/5] Cartographer SLAM 실시간 맵핑 및 RViz2 관제창 기동 중 (GPU 하드웨어 가속)...{Colors.RESET}")
+            rviz_cfg = "/home/lab/disaster_recovery_ws/src/disaster_recovery/config/disaster_cartographer.rviz"
             carto_cmd = (
                 f"{env_prefix}source /opt/ros/humble/setup.bash && "
-                "ros2 launch turtlebot3_cartographer cartographer.launch.py use_sim_time:=true use_rviz:=true"
+                "ros2 launch turtlebot3_cartographer cartographer.launch.py use_sim_time:=true use_rviz:=false"
             )
             p_carto = subprocess.Popen(
                 f"bash -c '{carto_cmd}'",
@@ -212,7 +213,19 @@ class GazeboSimulationRunner:
                 preexec_fn=os.setsid
             )
             self.processes.append(p_carto)
-            print(f"{Colors.CYAN}[INFO] SLAM 맵핑 노드 및 RViz2 렌더링 대기 중 (3초)... (로그: /tmp/disaster_recovery/cartographer.log){Colors.RESET}")
+            rviz_cmd = (
+                f"{env_prefix}source /opt/ros/humble/setup.bash && "
+                f"ros2 run rviz2 rviz2 -d {rviz_cfg} --ros-args -p use_sim_time:=true"
+            )
+            p_rviz = subprocess.Popen(
+                f"bash -c '{rviz_cmd}'",
+                shell=True,
+                stdout=self.log_carto,
+                stderr=subprocess.STDOUT,
+                preexec_fn=os.setsid
+            )
+            self.processes.append(p_rviz)
+            print(f"{Colors.CYAN}[INFO] SLAM 맵핑 노드 및 RViz2(RobotModel + /robot_description) 대기 중 (3초)... (로그: /tmp/disaster_recovery/cartographer.log){Colors.RESET}")
             time.sleep(3)
 
         # 4. Start Recovery Controller Node
