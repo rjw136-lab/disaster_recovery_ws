@@ -28,6 +28,7 @@
 ## 📑 목차
 
 1. [개요](#-개요)
+   - [최근 변경사항 (Patch Notes)](#최근-변경사항-patch-notes)
 2. [핵심 기능](#-핵심-기능)
 3. [시스템 아키텍처](#-시스템-아키텍처)
 4. [상태 머신](#-상태-머신-recovery_controller)
@@ -57,7 +58,7 @@
 | 1 | **통신 단절 시 온보드 자율 복귀** | Heartbeat 워치독 + LIFO Breadcrumb 역추적 (RPi 4 단독 연산) |
 | 2 | **바퀴 슬립 누적 오차 보정** | 2D LiDAR 키프레임 스캔 매칭 (SVD 기반 ICP, 3.5 ms 수렴) |
 | 3 | **베이스캠프 정밀 도킹** | ArUco + `solvePnP` 비주얼 서보잉, 10초 타임아웃 세이프티 가드 |
-| 4 | **저지연 AI 재난 관제** | YOLO26n (GPU FP16) + Faster-Whisper (CPU INT8) 분할 가속 |
+| 4 | **저지연 AI 재난 관제** | YOLO26n (GPU FP16 · 최대 15 FPS) + Faster-Whisper (CUDA INT8 · CPU 자동 폴백) GPU 통합 가속 |
 
 ### 개발 현황
 
@@ -66,12 +67,23 @@
 | 제어 | Heartbeat 워치독, LIFO 백트래킹, LiDAR 긴급 정지 | ✅ 구현 |
 | 위치 보정 | 2D ICP 스캔 매칭 (지속형 SE(2) 보정 오프셋) | ✅ 구현 · 실차 검증 중 |
 | 도킹 | ArUco 정밀 도킹 + 10초 세이프티 가드 | ✅ 구현 |
-| AI 관제 | YOLO26n 조난자 탐지 (270° 회전 보정) | ✅ 실차 검증 |
-| AI 관제 | Faster-Whisper 음성 구조 요청 인식 | ✅ 구현 |
+| AI 관제 | YOLO26n 조난자 탐지 (270° 회전 보정, 15 FPS 캡) | ✅ 실차 검증 |
+| AI 관제 | Faster-Whisper 음성 구조 요청 인식 (CUDA INT8 / CPU 폴백) | ✅ 구현 |
 | 운용 | 원터치 런처 `start.py` / `stop.py`, WASD 텔레옵 | ✅ 구현 |
-| 시뮬레이션 | Gazebo + Cartographer SLAM 검증 환경 `sim.py` | ✅ 구현 |
+| 시뮬레이션 | Gazebo + Cartographer SLAM 검증 환경 `sim.py` (WSLg D3D12 GPU 가속, 붕괴 건물 등 5개 월드) | ✅ 구현 |
 | 센서 | MQ-2 + ADS1115 가스 센서 | ⏳ 드라이버 완료, 결선 예정 |
-| 고도화 | 계층적 하이브리드 자율복귀 (TD3 + 2D ICP + ArUco) | ✅ 구현 · 벤치마크 검증 완료 |
+| 고도화 | 계층적 하이브리드 자율복귀 (Regulated Pure Pursuit + Residual TD3 + 2D ICP + ArUco) | ✅ 구현 · 벤치마크 검증 완료 |
+
+### 최근 변경사항 (Patch Notes)
+
+| 일자 (커밋) | 핵심 변경 요약 |
+| :--- | :--- |
+| **2026-11-13** (`b212688`) | **RViz2 `RobotModel` 연동 & YOLO 15 FPS 상향** — `disaster_cartographer.rviz` 분리(`start.py`/`sim.py`에서 `use_rviz:=false` 연동), `host_ai_pipeline`에 `yolo_max_fps`(기본 `15.0`) 추가 |
+| **2026-11-13** (`0871c58`) | **Faster-Whisper CUDA INT8 GPU 가속** — cuBLAS/cuDNN 프리로드(`_preload_nvidia_cuda_libs()`) 기반 `whisper_device:=cuda` 기본 활성화 및 CPU 자동 폴백 지원 |
+| **2026-11-13** (`dde535c`) | **WSLg GPU 렌더링 기본화 & 붕괴 건물 15회 벤치마크** — `sim.py`에서 `LIBGL_ALWAYS_SOFTWARE` 해제 + `MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA` 기본 적용(소프트웨어 전환은 `--software`), 기본 맵 `--collapsed` 전환, `[O]` 랜덤 3~6개 낙석 투하(`debris_utils.py`), 15회 붕괴 건물 분석 보고서(11/15 PASS · 실패 원인 · 자원 프로파일링) 추가 |
+| **2026-11-13** (`bdc4bfe`) | **붕괴 건물 재난 월드 & 커스텀 모델 통합** — `disaster_collapsed_building.world`, LiDAR 시각화 포함 커스텀 `turtlebot3_burger` SDF, `disaster_world.launch.py` 동적 인자 바인딩 |
+| **2026-11-13** (`7e04510`) | **Regulated Pure Pursuit + Residual TD3 하이브리드 추종** — `BACKTRACKING_HYBRID` 연속 곡률 추종(`lookahead_dist_m=0.45`, `v_max=0.20 m/s`, `w_max=0.65 rad/s`) 및 `recovery_params.yaml` 파라미터 고도화, 통합 테스트 5개(총 13개) 통과 |
+| **2026-11-12** (`2daa1ff`~`07d151c`) | **지하 터널 통합 & 시뮬레이터 모드 확장** — `sim.py` `--software`·`--headless` 옵션 추가, `wasd_teleop.py` 이중 발행/내장 하트비트 개선, 동적 낙석 투하 20회 터널 벤치마크 검증 |
 
 ### 관련 문서
 
@@ -90,17 +102,17 @@
 | Heartbeat 워치독 | `/heartbeat` 3.0 s 미수신 시 즉시 정지(v=0, ω=0) 후 원격 명령 차단 | RPi 4 |
 | 가스 워치독 | MQ-2 → ADS1115(I2C) → `/gas/level` ≥ 0.40 이면 동일한 비상 복귀 시퀀스 진입 | RPi 4 |
 | 오도메트리 로거 | 탐색 중 Δd ≥ 0.3 m 또는 \|Δθ\| ≥ 25°마다 (x, y, θ, scan_pts)를 LIFO 스택에 push | RPi 4 |
-| LIFO 백트래킹 | 스택을 pop하며 *제자리 회전 → 직진* (Rotate-then-Translate) 추종 | RPi 4 |
-| LiDAR 스캔 매칭 (ICP) | 경유지 40 cm 이내에서 저장 스캔과 현재 스캔을 대조해 바퀴 슬립 누적 오차를 보정 | RPi 4 |
+| LIFO 백트래킹 | 스택을 pop하며 회전 정렬 후 Regulated Pure Pursuit + Residual TD3 연속 추종(`BACKTRACKING_HYBRID`) 또는 직진 추종 | RPi 4 |
+| LiDAR 스캔 매칭 (ICP) | 경유지 45 cm 이내에서 저장 스캔과 현재 스캔을 대조해 바퀴 슬립 누적 오차를 보정 | RPi 4 |
 | LiDAR 긴급 정지 | 복귀 중 전방 ±20°, 0.12–0.25 m 장애물 감지 시 정지·대기, 해제 시 재개 | RPi 4 |
 | ArUco 정밀 도킹 | 원점 0.5 m 진입 시 ArUco(ID 0, 10 cm)를 `solvePnP`로 추정해 2 cm 이내 도킹 | RPi 4 |
 | 도킹 세이프티 가드 | 마커 미배치·가림 시 무한 회전 없이 10초 후 정지 및 미션 완료 처리 | RPi 4 |
 | 로컬 블랙박스 | 비상 전환 시 MicroSD에 영상(mp4)과 텔레메트리(csv) 기록 | RPi 4 |
 | 오디오 캡처 | AB13X USB 마이크(`plughw:1,0`, 48 kHz S16_LE mono)를 `arecord`로 읽어 `/audio/raw`로 송신 | RPi 4 |
-| 비전 AI | YOLO26n으로 조난자(`person`) 탐지 · 270° 회전 보정 · Zero-Lag 워커 | Host PC (GPU) |
-| 음성 AI | 16 kHz 다운샘플 → RMS VAD → Faster-Whisper(int8)로 구조 요청 키워드 검출 | Host PC (CPU) |
+| 비전 AI | YOLO26n(최대 15 FPS)으로 조난자(`person`) 탐지 · 270° 회전 보정 · Zero-Lag 워커 | Host PC (GPU) |
+| 음성 AI | 16 kHz 다운샘플 → RMS VAD → Faster-Whisper(`base`, `int8`)로 구조 요청 키워드 검출 | Host PC (CUDA / CPU 폴백) |
 | 원터치 런처 | SSH 로봇 원격 기동 + 호스트 AI + SLAM + 텔레옵 통합 실행 | Host PC |
-| RViz2 관제 | `disaster_station.rviz` — RobotModel + `/scan` + `/map` + `/detection/image` | Host PC |
+| RViz2 관제 | `disaster_cartographer.rviz` (SLAM + `RobotModel`) / `disaster_station.rviz` (`/detection/image`) | Host PC |
 
 > **설계 원칙:** 생존·복귀에 필요한 모든 제어 루프는 로봇 내부에서 닫힌다. Host PC는 관제·AI·Heartbeat만 담당하며, Host PC가 사라져도 복귀 기능은 영향을 받지 않는다 (Brooks, 1986의 계층형 제어 구조 개념 참고).
 
@@ -180,26 +192,31 @@ stateDiagram-v2
     INIT --> NORMAL_TELEOP: odom 수신 + 첫 heartbeat
     NORMAL_TELEOP --> EMERGENCY_STOP: heartbeat > 3.0s 또는 gas >= 0.40
     EMERGENCY_STOP --> BACKTRACKING_ROTATE: 스택 pop
-    BACKTRACKING_ROTATE --> BACKTRACKING_TRANSLATE: 헤딩 오차 <= 0.08 rad
-    BACKTRACKING_TRANSLATE --> BACKTRACKING_ROTATE: 헤딩 발산 또는 다음 경유지
-    BACKTRACKING_ROTATE --> LOCAL_TD3_AVOIDANCE: 전방 잔해 감지 (<=0.38m)
-    BACKTRACKING_TRANSLATE --> LOCAL_TD3_AVOIDANCE: 전방 잔해 감지 (<=0.38m)
-    LOCAL_TD3_AVOIDANCE --> BACKTRACKING_ROTATE: 우회 완료 + 2D ICP 슬립 소거
-    LOCAL_TD3_AVOIDANCE --> OBSTACLE_HOLD: 우회 15초 타임아웃
+    BACKTRACKING_ROTATE --> BACKTRACKING_HYBRID: 헤딩 정렬 (enable_hybrid_tracking=true)
+    BACKTRACKING_ROTATE --> BACKTRACKING_TRANSLATE: 헤딩 정렬 (enable_hybrid_tracking=false)
+    BACKTRACKING_HYBRID --> BACKTRACKING_ROTATE: 큰 헤딩 발산 (|alpha| > 1.65 rad)
+    BACKTRACKING_ROTATE --> LOCAL_TD3_AVOIDANCE: 전방 잔해 감지 (<=0.42m)
+    BACKTRACKING_TRANSLATE --> LOCAL_TD3_AVOIDANCE: 전방 잔해 감지 (<=0.42m)
+    BACKTRACKING_ROTATE --> OBSTACLE_HOLD: TD3 비활성화 + 전방 위험 감지
+    BACKTRACKING_TRANSLATE --> OBSTACLE_HOLD: TD3 비활성화 + 전방 위험 감지
+    LOCAL_TD3_AVOIDANCE --> BACKTRACKING_ROTATE: 우회 완료 또는 250스텝(25s) 만료 + 2D ICP
     OBSTACLE_HOLD --> BACKTRACKING_ROTATE: 장애물 제거
-    BACKTRACKING_TRANSLATE --> HANDOVER_TO_ARUCO: 원점 0.5m 이내
+    BACKTRACKING_HYBRID --> HANDOVER_TO_ARUCO: 원점 0.50m 이내 (use_aruco_docking=true)
+    BACKTRACKING_HYBRID --> MISSION_COMPLETE: 원점 0.10m 이내 (use_aruco_docking=false)
+    BACKTRACKING_TRANSLATE --> HANDOVER_TO_ARUCO: 원점 0.50m 이내
     HANDOVER_TO_ARUCO --> ARUCO_DOCKING: use_aruco_docking=true
     HANDOVER_TO_ARUCO --> MISSION_COMPLETE: use_aruco_docking=false
-    ARUCO_DOCKING --> MISSION_COMPLETE: 도킹 성공 또는 10초 타임아웃
-    MISSION_COMPLETE --> [*]
+    ARUCO_DOCKING --> MISSION_COMPLETE: 도킹 성공 또는 12초 백업 타임아웃
+    MISSION_COMPLETE --> NORMAL_TELEOP: Heartbeat 1.5s 이상 정상 복구
 ```
 
-**제어 법칙 요약**
+**제어 법칙 요약** (`recovery_params.yaml` 기본값 기준)
 
-- 회전 단계 (`|e_θ| > 0.08 rad`): `v = 0`, `ω = clamp(Kp_ω · e_θ, ±0.45)`
-- 직진 단계: `v = clamp(Kp_v · d, 0.03, 0.12)`, `ω = clamp(0.5 · Kp_ω · e_θ, ±0.45)`
-- 스캔 매칭: 경유지 40 cm 이내 접근 시 저장 스캔과 현재 스캔을 ICP로 정합하고, 결과를 `/odom` → 보정 좌표계 간 SE(2) 오프셋에 상보필터(α = 0.40)로 누적 반영한다. 오프셋은 이후 수신되는 `/odom`에도 계속 적용된다.
-- 도킹 수렴 조건: `|Z − 0.20| ≤ 0.02 m`, `|X| ≤ 0.02 m`, `|yaw| ≤ 0.05 rad`를 10프레임 연속 만족
+- 회전 단계 (`|e_θ| > 0.12 rad`): `v = 0`, `ω = clamp(1.40 · e_θ, ±0.65)`
+- 하이브리드 연속 추종 (`BACKTRACKING_HYBRID`, 기본 활성): Lookahead 거리 `L_d = clip(d_target, 0.25, 0.45) m` 기반 Regulated Pure Pursuit(`κ = 2 sin(α) / L_d`, `v_reg = clip(v_max / (1 + 0.6|κ|), 0.14, 0.20)`)과 Residual TD3 출력을 블렌딩한다 (`d_front ≤ 0.42 m` 시 `0.85·ω_TD3 + 0.15·ω_PP`, 평시 `0.55·ω_PP + 0.45·ω_TD3`).
+- 레거시 직진 단계 (`BACKTRACKING_TRANSLATE`, `enable_hybrid_tracking=false`): `v = clamp(0.60 · d, 0.03, 0.20)`, `ω = clamp(0.5 · 1.40 · e_θ, ±0.65)`
+- 스캔 매칭: 경유지 `45 cm` (`scan_match_max_dist_m: 0.45`) 이내 접근 시 저장 스캔과 현재 스캔을 ICP로 정합하고, 결과를 `/odom` → 보정 좌표계 간 SE(2) 오프셋에 상보필터(α = 0.40)로 누적 반영한다. 오프셋은 이후 수신되는 `/odom`에도 계속 적용된다.
+- 도킹 수렴 조건: `|Z − 0.20| ≤ 0.02 m`, `|X| ≤ 0.02 m`, `|yaw| ≤ 0.05 rad`를 10프레임 연속 만족 (`use_aruco_docking`은 `recovery_params.yaml` 기본 `false`, `sim.py --yolo` 실행 시 `true` 활성화)
 - 도킹 세이프티 가드: 마커 미감지 시 10.0초 후 정지 및 `MISSION_COMPLETE` 전이 (제어기 측 12.0초 2차 백업)
 
 ---
@@ -254,11 +271,36 @@ flowchart TD
 
 - **Layer 3 단독 (ArUco 도킹 전 2D ICP 도착 오차)**: **$19.10 \pm 0.25\,\text{cm}$** (50회 시험 전수에서 ArUco 시각 도킹 유효 반경인 50cm 이내 진입 기록)
 - **온보드 모델 크기 및 1스텝 추론 지연**: **99.07 KB**, **평균 0.077 ms / P99 0.144 ms** (스펙 목표 < 1.500 ms 통과)
-- **단위 및 통합 테스트**: `pytest src/disaster_recovery/test` **12개 전수 통과 (12/12 PASS)**
+- **단위 및 통합 테스트**: `pytest src/disaster_recovery/test` **13개 전수 통과 (13/13 PASS)** (`test_ads1115_mq2.py` 8개 + `test_hybrid_recovery.py` 5개)
 
 ```bash
 # 4대 비교군 정량 벤치마크 직접 재현 실행
 python3 scripts/host/verify_hybrid_recovery.py --trials 50
+```
+
+### 4. Gazebo 3D 붕괴 건물 환경 15회 연속 자율복귀 벤치마크 및 원인 규명
+
+`disaster_collapsed_building.world` (20 m × 20 m 지진 붕괴 건물 맵)에서 `sim.py --collapsed --yolo --no-teleop` + `auto_disaster_trials.py --trials 15 --collapsed`로 편도 `12~20 m` 심층 탐사 및 복귀로 상 동적 낙석(`debris_obstacle.sdf`) **3~6개 불시 투하** 연속 벤치마크를 수행했다.
+
+<p align="center">
+  <img src="docs/images/collapsed_disaster_benchmark_trajectories.png" alt="15-Trial Collapsed Building Autonomous Recovery Benchmark" width="92%">
+  <br>
+  <em>▲ 붕괴 건물 15회 연속 자율복귀 궤적 및 회차별 종단 오차 (11/15 PASS, 73.3%)</em>
+</p>
+
+| 지표 | 측정 결과 (`auto_disaster_trials.py --trials 15 --collapsed`) |
+| :--- | :--- |
+| **복귀 성공률** | **73.3% (11 / 15회 PASS)** (최대 6개 낙석·20.05 m 침투 포함) |
+| **성공 회차 평균 종단 오차** | **47.26 cm** (`use_aruco_docking:=true`로 0.50 m 도킹 구역 진입 정지 → 12초 백업 타임아웃 완료) |
+| **성공 회차 평균 복귀 시간** | **142.9 초** (최단 `103.2초` / 최장 `309.5초`) |
+| **실패 4건 원인 규명** | ① `BACKTRACKING_HYBRID` 상태의 `LOCAL_TD3_AVOIDANCE` 미전이 및 `0.08 m/s` 최소 전진 클램프<br>② 다회차 리셋 시 `SE(2)` 오프셋(`corr_y` 최대 `+1.300 m`) 미초기화<br>③ `interior_wall_1a`·`collapsed_wall_B` 협소 포켓 정적 교착 |
+| **자원 프로파일링 실측** | GTX 1050 Ti (`GPU-Util 41%`, `VRAM 1,239 MiB`), CPU 주병목 `cartographer_node` (`125% CPU`, `53% RAM`)·`gzserver/client` (`91%`) → 무인 벤치마크 시 `--no-slam`/`--headless` 권장 |
+
+> 📄 상세 궤적·회차별 표·로그 해부: [`docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_논문형_분석보고서.md`](docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_논문형_분석보고서.md)
+
+```bash
+# 붕괴 건물 실측 Gazebo 연속 자율복귀 벤치마크 재현 (별도 터미널에서 sim.py --no-teleop 기동 후 실행)
+python3 scripts/host/auto_disaster_trials.py --trials 15 --collapsed
 ```
 
 ---
@@ -315,18 +357,25 @@ disaster_recovery_ws/
 ├── README.md
 ├── LICENSE
 ├── scripts/
-│   ├── host/                            # Host PC 관제 및 AI/시뮬레이션 스크립트
+│   ├── host/                            # Host PC 관제·AI·시뮬레이션·벤치마크 스크립트
 │   │   ├── start.py                     # 원터치 통합 런처 (--sim, --rviz, --tmux, --stop 등)
 │   │   ├── stop.py                      # 호스트 + 로봇 프로세스 일괄 종료
-│   │   ├── sim.py                       # Gazebo + SLAM + 복귀 제어기 + 잔해 투입([O]키) 시뮬레이터
+│   │   ├── sim.py                       # Gazebo + SLAM + 복귀 제어기 + 랜덤 낙석([O]키) 시뮬레이터
+│   │   ├── wasd_teleop.py               # WASD 텔레옵 (/cmd_vel_remote 발행)
+│   │   ├── auto_disaster_trials.py      # Gazebo 실측 다회차 자율복귀 & 동적 낙석 자동 벤치마크
+│   │   ├── debris_utils.py              # Gazebo 동적 붕괴 암석 스폰/정리 유틸리티
+│   │   ├── plot_tunnel_trials.py        # 벤치마크 궤적·오차 고해상도 시각화 스크립트
 │   │   ├── train_td3.py                 # TD3 국소 회피 제어기 Sim-to-Real DRL 학습 & ONNX 변환기
 │   │   ├── verify_hybrid_recovery.py    # 4대 비교군 50회 몬테카를로 재난 복귀 정량 검증기
-│   │   └── wasd_teleop.py               # WASD 텔레옵 (/cmd_vel_remote 발행)
-│   └── rpi/                             # RPi 4 온보드 실행 스크립트
+│   │   └── verify_extreme_stress.py     # 다중 낙석·고슬립·라이다 노이즈 극한 스트레스 검증기
+│   └── rpi/                             # RPi 4 온보드 실행·보조 스크립트
+│       ├── start.py / stop.py           # 로봇 단독 올인원 기동 / 종료 스크립트
+│       ├── start_all.sh / stop_all.sh   # Bringup + camera_ros + 복귀 패키지 일괄 실행/종료
 │       ├── start_camera.sh              # camera_ros (640x480 @ 30 FPS)
 │       ├── start_audio.sh               # AB13X USB 마이크 캡처 노드
-│       ├── start_all.sh                 # Bringup + 카메라 + 복귀 패키지 일괄 실행
-│       └── stop_all.sh                  # 로봇 프로세스 일괄 종료
+│       ├── aruco_detector.py            # ArUco 3D 포즈 추정 & 웹 스트리밍 보조 스크립트
+│       ├── audio_capture_node.py        # 단독 실행용 USB 마이크 캡처 노드
+│       └── generate_marker.py           # ArUco 마커 이미지 생성기
 ├── docs/
 │   ├── DISASTER_RECOVERY_GUIDEBOOK.md   # 종합 설계 문서
 │   ├── WSL_NETWORK_SETUP.md             # 미러드 네트워킹, ROS 2, CUDA 설정
@@ -337,32 +386,36 @@ disaster_recovery_ws/
 │   ├── 2026-11-10_LIDAR_Scan_Matching_및_자율복귀_엔지니어링_보고서.md
 │   ├── 2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md
 │   ├── 2026-11-13_붕괴건물_15회_자율복귀_벤치마크_논문형_분석보고서.md
-│   ├── images/collapsed_disaster_benchmark_trajectories.png
-│   └── Disaster_Recovery_TurtleBot3_Integration_Report.{md,docx}
+│   ├── Disaster_Recovery_TurtleBot3_Integration_Report.{md,docx}
+│   └── images/                          # 배너, 3D 쉘, 벤치마크 궤적 그래프 이미지
 └── src/disaster_recovery/
     ├── package.xml / setup.py / setup.cfg
     ├── config/
-    │   ├── recovery_params.yaml         # 임계값, 속도, TD3 회피, 스캔 매칭 및 도킹 게인
+    │   ├── recovery_params.yaml         # 임계값, 속도, Pure Pursuit/TD3, ICP, 도킹, 오디오 파라미터
     │   ├── debris_obstacle.sdf          # Gazebo 시뮬레이션용 낙하 붕괴 잔해(Debris) SDF 모델
     │   ├── recovery_td3.onnx            # RPi 4 온보드 배포용 99KB 초경량 TD3 Actor 신경망
     │   ├── recovery_td3.pth             # PyTorch 학습 가중치 체크포인트
     │   ├── camera_info_sample.yaml      # 예시값 (직접 캘리브레이션 값으로 교체 권장)
-    │   └── disaster_station.rviz        # RViz2 관제 레이아웃
+    │   ├── disaster_cartographer.rviz   # SLAM + RobotModel (/robot_description) RViz2 레이아웃
+    │   └── disaster_station.rviz        # AI 영상 포함 관제용 RViz2 레이아웃
     ├── launch/
+    │   ├── disaster_world.launch.py     # 다중 재난 월드 + 커스텀 버거 모델 스폰 런치
     │   ├── robot_onboard.launch.py      # RPi 4 (recovery / aruco / gas / blackbox / audio)
     │   └── host_station.launch.py       # Host PC (AI 파이프라인, use_rviz)
+    ├── models/turtlebot3_burger/        # LiDAR <visualize>true</visualize> 및 카메라 포함 SDF
+    ├── worlds/                          # 붕괴 건물/터널/하우스/미로/기본 재난 Gazebo 월드 (5종)
     ├── disaster_recovery/
-    │   ├── recovery_controller.py       # 4계층 복귀 제어기 (TD3 우회 + 2D ICP + LIFO 백트래킹)
+    │   ├── recovery_controller.py       # 4계층 복귀 제어기 (Pure Pursuit + TD3 + 2D ICP + LIFO)
     │   ├── td3_policy.py                # 28차원 상태 추출기 및 TD3 ONNX 엣지 추론 엔진
     │   ├── aruco_docking.py             # solvePnP 도킹 P-제어 + 10초 세이프티 가드
-    │   ├── host_ai_pipeline.py          # YOLO26n + Faster-Whisper + Heartbeat 10Hz
+    │   ├── host_ai_pipeline.py          # YOLO26n + Faster-Whisper(CUDA INT8) + Heartbeat 10Hz
     │   ├── gas_sensor_node.py           # ADS1115 → EMA → /gas/level
     │   ├── ads1115_mq2.py               # ADS1115 드라이버 + MQ-2 계산 (ROS 비의존)
     │   ├── blackbox_recorder.py         # MicroSD 영상·CSV 기록
     │   └── audio_capture_node.py        # arecord → /audio/raw
     └── test/
         ├── test_ads1115_mq2.py          # ADS1115/MQ-2 단위 테스트 (8개)
-        └── test_hybrid_recovery.py      # 2D ICP, TD3 상태 벡터화, ONNX 추론 통합 테스트 (4개)
+        └── test_hybrid_recovery.py      # 2D ICP, TD3, Pure Pursuit 블렌딩 통합 테스트 (5개)
 ```
 
 ---
@@ -428,7 +481,7 @@ source install/setup.bash
 ### 단위 테스트 (ROS·하드웨어 불필요)
 
 ```bash
-cd src/disaster_recovery && python3 -m pytest test -q   # ADS1115 레지스터 / MQ-2 계산 8개 테스트
+cd src/disaster_recovery && python3 -m pytest test -q   # ADS1115/MQ-2(8개) + 2D ICP·TD3·Pure Pursuit(5개) 총 13개 테스트
 ```
 
 ---
@@ -438,13 +491,14 @@ cd src/disaster_recovery && python3 -m pytest test -q   # ADS1115 레지스터 /
 ### 원터치 통합 실행 (권장)
 
 ```bash
-# Host PC에서 실행: RPi 4 원격 브링업 + Host AI 파이프라인 + SLAM + 텔레옵
+# Host PC에서 실행: RPi 4 원격 브링업 + Host AI(YOLO26n + Whisper CUDA) + SLAM(RobotModel RViz2) + WASD 텔레옵
 python3 scripts/host/start.py
 
-python3 scripts/host/start.py --tmux        # tmux 멀티 패널 대시보드
-python3 scripts/host/start.py --host-only   # 로봇 원격 기동 생략
-python3 scripts/host/start.py --status      # 네트워크 및 노드 상태 점검
-python3 scripts/host/stop.py                # 전체 종료
+python3 scripts/host/start.py --tmux             # tmux 3분할 콕핏 대시보드
+python3 scripts/host/start.py --host-only        # 로봇 원격 기동 생략
+python3 scripts/host/start.py --no-cartographer  # SLAM/RViz2 생략
+python3 scripts/host/start.py --status           # 네트워크 및 노드 상태 점검
+python3 scripts/host/stop.py                     # 전체 종료
 ```
 
 ### 단계별 수동 실행
@@ -455,8 +509,8 @@ python3 scripts/host/stop.py                # 전체 종료
 | 2 | RPi 4 | `ros2 run camera_ros camera_node --ros-args -p width:=640 -p height:=480 -p format:=BGR888` (또는 `bash scripts/rpi/start_camera.sh`) |
 | 3 | RPi 4 | `ros2 launch disaster_recovery robot_onboard.launch.py` |
 | 4 | Host | `ros2 launch disaster_recovery host_station.launch.py` (RViz 동시 실행: `use_rviz:=true`) |
-| 5 | Host | `ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -r cmd_vel:=/cmd_vel_remote` |
-| 6 | Host | `ros2 launch turtlebot3_cartographer cartographer.launch.py` |
+| 5 | Host | `python3 scripts/host/wasd_teleop.py topic:=/cmd_vel_remote` (또는 `teleop_twist_keyboard --ros-args -r cmd_vel:=/cmd_vel_remote`) |
+| 6 | Host | `ros2 launch turtlebot3_cartographer cartographer.launch.py use_rviz:=false` + `ros2 run rviz2 rviz2 -d src/disaster_recovery/config/disaster_cartographer.rviz` |
 
 > ⚠ 텔레옵은 반드시 `/cmd_vel_remote`로 리매핑한다. `/cmd_vel`에 직접 발행하면 워치독의 원격 명령 차단이 무력화된다.
 
@@ -480,29 +534,35 @@ ros2 topic echo /disaster/audio_alert
 | `heartbeat_rate_hz` | `10.0` | Heartbeat 주기 |
 | `confidence_threshold` | `0.40` | YOLO 추론 임계값 |
 | `person_conf_threshold` | `0.55` | 조난자 알림 임계값 |
-| `only_person_detection` | `false` | COCO class 0(person)만 추론 |
+| `only_person_detection` | `false` | COCO class 0(person)만 추론 (`host_ai_pipeline` 노드 단독 기본값은 `True`) |
 | `min_consecutive_detections` | `2` | 알림 발행에 필요한 연속 탐지 프레임 수 |
 | `cuda_device` | `0` | GPU 번호 |
 | `whisper_model_size` | `base` | Faster-Whisper 모델 크기 (tiny/base/small) |
-| `whisper_device` | `cpu` | Whisper 연산 디바이스 (VRAM 보호를 위해 CPU 권장) |
-| `whisper_compute_type` | `int8` | Whisper CPU 양자화 타입 |
+| `whisper_device` | `cuda` | Whisper 연산 디바이스 (`cuda` INT8 기본, cuBLAS/cuDNN 프리로드 후 실패 시 `cpu` 자동 폴백) |
+| `whisper_compute_type` | `int8` | Whisper 양자화 타입 (`int8`, `int8_float32`, `float32`) |
 | `use_rviz` | `false` | `disaster_station.rviz`로 RViz2 동시 실행 |
+
+> 참고: `host_ai_pipeline` 노드는 추가 내부 파라미터 `yolo_max_fps`(기본값 `15.0`)로 비전 추론 주기를 조절해 GPU/CPU 여유를 확보한다.
 
 ---
 
 ## 🎮 Gazebo 시뮬레이션
 
-실차 없이 Host PC에서 복귀 제어기와 스캔 매칭 보정을 검증하기 위한 환경이다. Gazebo + Cartographer SLAM + RViz2 + `recovery_controller` + 가상 Heartbeat를 한 번에 실행한다.
+실차 없이 Host PC에서 4계층 복귀 제어기와 스캔 매칭 보정을 검증하기 위한 환경이다. Gazebo + Cartographer SLAM + RViz2(`RobotModel` + `/robot_description`) + `recovery_controller` + 가상 Heartbeat를 한 번에 실행한다.
 
 ```bash
-python3 scripts/host/sim.py --collapsed # 지진 붕괴 건물 재난 맵 (ros2-disaster-robot-sim 기반)
-python3 scripts/host/sim.py --tunnel    # 지하 터널 재난 맵
-python3 scripts/host/sim.py --house     # 방·복도 구조의 house 맵
-python3 scripts/host/sim.py             # turtlebot3_world 맵
-python3 scripts/host/sim.py --yolo      # 가상 카메라(/camera/image_raw) + YOLO26n 탐지 창
-python3 scripts/host/sim.py --no-slam   # SLAM/RViz 없이 실행
-python3 scripts/host/sim.py --stop      # 시뮬레이션 프로세스 일괄 종료
-python3 scripts/host/start.py --sim     # start.py 경유 실행
+python3 scripts/host/sim.py                # 기본값: 지진 붕괴 건물 재난 맵 (--collapsed)
+python3 scripts/host/sim.py --tunnel       # 지하 터널 재난 맵
+python3 scripts/host/sim.py --house        # 방·복도 구조의 house 맵
+python3 scripts/host/sim.py --maze         # 좁은 내부 격벽 미로 맵
+python3 scripts/host/sim.py --world world  # 기본 turtlebot3_world 맵 (empty 가능)
+python3 scripts/host/sim.py --yolo         # 가상 카메라(/camera/image_raw) + YOLO26n 창 + use_aruco_docking:=true
+python3 scripts/host/sim.py --no-slam      # SLAM/RViz 없이 실행
+python3 scripts/host/sim.py --no-teleop    # 내장 텔레옵 비활성화 (auto_disaster_trials.py 연동)
+python3 scripts/host/sim.py --software     # GPU 가속 대신 llvmpipe 소프트웨어 렌더링 강제
+python3 scripts/host/sim.py --headless     # gzclient 3D GUI 없이 물리 서버만 구동 (초경량 CPU 모드)
+python3 scripts/host/sim.py --stop         # 시뮬레이션 프로세스 일괄 종료
+python3 scripts/host/start.py --sim        # start.py 경유 실행
 ```
 
 | 키 | 동작 |
@@ -511,11 +571,12 @@ python3 scripts/host/start.py --sim     # start.py 경유 실행
 | `Space` | 정지 |
 | `H` | Heartbeat 송신 중단 (통신 단절 재현 → 3초 후 자율 복귀) |
 | `R` | Heartbeat 복구 |
+| `O` | 지나온 복귀 경로에 랜덤 붕괴 암석(`disaster_debris`) 3~6개 투하 / 일괄 제거 토글 |
 | `Q` | 종료 |
 
-**검증 절차:** 벽·기둥 사이를 5~10 m 주행 → `H` 입력 → 복귀 중 `[LIDAR SCAN MATCH #n] Drift Compensated` 로그와 출발점 도착 오차를 확인한다.
+**검증 절차:** `12~20 m` 주행 → `O` 입력으로 복귀 경로에 동적 낙석 투하 → `H` 입력으로 통신 단절 재현 → TD3 국소 우회 · `[LIDAR SCAN MATCH #n] Drift Compensated` 로그 · 출발점 도착 오차를 확인한다.
 
-> WSL2(WSLg)에서는 Gazebo 3D 화면이 검게 나오는 문제가 있어 `sim.py`가 `LIBGL_ALWAYS_SOFTWARE=1`(소프트웨어 렌더링)을 자동 설정한다. 또한 오프라인 모델 다운로드 대기를 막기 위해 `GAZEBO_MODEL_PATH`에 `turtlebot3_gazebo/models`를 추가한다.
+> WSL2(WSLg) 환경에서 `scripts/host/sim.py`는 기본적으로 `LIBGL_ALWAYS_SOFTWARE` 등을 해제(`unset`)하고 `MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA`를 설정해 **Direct3D12 하드웨어 GPU 가속**으로 `gzclient`와 `rviz2`를 구동한다. 드라이버/WSLg 호환성 문제로 3D 뷰포트가 검게 출력되는 경우에만 `--software` 플래그를 추가해 `llvmpipe` 소프트웨어 렌더링을 강제할 수 있다. 또한 오프라인 모델 다운로드 대기를 막기 위해 `GAZEBO_MODEL_DATABASE_URI=""`와 `GAZEBO_MODEL_PATH`(`~/.gazebo/models:/opt/ros/humble/share/turtlebot3_gazebo/models`)를 설정하고, WSL2 mirrored 네트워킹의 DDS 멀티캐스트 폭주 방지를 위해 시뮬레이션 전용으로 `ROS_LOCALHOST_ONLY=1`과 `GAZEBO_IP=127.0.0.1`을 적용한다.
 
 ---
 
@@ -559,15 +620,19 @@ python3 scripts/host/start.py --sim     # start.py 경유 실행
 | `warmup_sec` / `baseline_samples` | 60 / 100 | MQ-2 예열 시간 / 기준 측정 샘플 수 |
 | `rs_air_kohm` | 0.0 | 0보다 크면 저장된 기준값 재사용 |
 | `log_dist_threshold_m` / `log_angle_threshold_deg` | 0.30 / 25.0 | 경유지 기록 간격 (거리 / 회전) |
-| `waypoint_reach_radius_m` | 0.08 | 경유지 도달 판정 반경 |
-| `linear_speed_max` / `angular_speed_max` | 0.12 / 0.45 | 복귀 속도 상한 |
+| `waypoint_reach_radius_m` / `heading_tolerance_rad` | 0.10 / 0.12 | 경유지 도달 판정 반경 / 정렬 허용 각도 |
+| `linear_speed_max` / `angular_speed_max` | 0.20 / 0.65 | 복귀 속도 상한 (m/s, rad/s) |
+| `kp_linear` / `kp_angular` | 0.60 / 1.40 | 직진 / 회전 비례 제어 게인 |
 | `lidar_min_range_m` / `lidar_max_danger_range_m` | 0.12 / 0.25 | 정지 거리 구간 |
 | `lidar_fov_half_deg` | 20.0 | 전방 감시 반각 |
 | `docking_start_distance_m` | 0.50 | ArUco 도킹 전환 거리 |
 | `enable_scan_matching` | true | 2D ICP 스캔 매칭 보정 활성화 |
 | `scan_match_weight` | 0.40 | 상보필터 가중치 (0 = 오도메트리만, 1 = 라이다만) |
-| `scan_match_max_dist_m` | 0.40 | ICP 매칭 발동 반경 |
-| `use_aruco_docking` | true | false이면 라이다 복귀만으로 미션 완료 |
+| `scan_match_max_dist_m` | 0.45 | ICP 매칭 발동 반경 |
+| `enable_hybrid_tracking` / `lookahead_dist_m` | true / 0.45 | Regulated Pure Pursuit 연속 추종 / 전방 주시 거리 |
+| `enable_td3_avoidance` / `td3_clearance_dist_m` | true / 0.42 | Residual TD3 국소 우회 / 장애물 회피 반경 |
+| `td3_max_avoid_steps` | 250 | TD3 우회 최대 스텝 수 (10 Hz 기준 25초) |
+| `use_aruco_docking` | false | `true` 시 ArUco 도킹 전환 (`sim.py --yolo`는 `true` 오버라이드) |
 | `aruco_docking_timeout_sec` | 12.0 | 제어기 측 도킹 2차 백업 타임아웃 |
 | `search_timeout_sec` (aruco_docking) | 10.0 | 마커 미감지 시 미션 완료 처리까지의 시간 |
 | `marker_size_m` / `target_dock_dist_m` | 0.10 / 0.20 | 마커 크기 / 마커 앞 정지 거리 |
@@ -575,7 +640,7 @@ python3 scripts/host/start.py --sim     # start.py 경유 실행
 | `alsa_device` / `sample_rate` (audio_capture_node) | `plughw:1,0` / 48000 | USB 마이크 장치 / 샘플레이트 |
 | `chunk_duration_sec` (audio_capture_node) | 0.5 | `/audio/raw` 메시지 1개 길이 |
 
-Host AI 오디오 파라미터 (`host_ai_pipeline` 코드 기본값): `audio_sample_rate=48000`, `sample_rate_hz=16000`, `audio_buffer_sec=2.0`(50% 중첩), `voice_activity_threshold=0.012`(RMS).
+Host AI 파라미터 (`host_ai_pipeline` 코드 기본값): `yolo_max_fps=15.0`, `whisper_device='cuda'`, `whisper_compute_type='int8'`, `audio_sample_rate=48000`, `sample_rate_hz=16000`, `audio_buffer_sec=2.0`(50% 중첩), `voice_activity_threshold=0.012`(RMS).
 
 ---
 
@@ -606,6 +671,7 @@ Host AI 오디오 파라미터 (`host_ai_pipeline` 코드 기본값): `audio_sam
 1. **도킹 기하 가정**: 마커가 출발 위치 정면 벽에 있다고 가정한다. 출발 자세와 마커의 상대 위치는 현장에서 실측해 `target_dock_dist_m`을 조정해야 한다.
 2. **가스 센서 미결선**: 회로 설계와 드라이버는 완료되었으나 실물 결선 전이므로 `gas_stale_triggers_recovery: false`로 둔다.
 3. **블랙박스 Wi-Fi 스트리밍 차단 미구현**: 현재는 로컬 기록만 시작한다.
+4. **복합 붕괴 협소 구간 정체 (`BACKTRACKING_HYBRID`) 및 다회차 리셋 오프셋 누적**: 15회 붕괴 건물 벤치마크([분석 보고서](docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_논문형_분석보고서.md))에서 확인된 바와 같이, 현재 커밋된 `recovery_controller.py`에서는 `BACKTRACKING_HYBRID` 상태에서 `LOCAL_TD3_AVOIDANCE` 전이 및 차단 웨이포인트 스킵이 연결되어 있지 않고 최소 전진 속도(`0.08 m/s`)가 유지되며, 다회차 텔레포트 리셋 시 누적 `SE(2)` 오프셋(`corr_x/y/th`) 초기화 인터페이스가 없어 협소 통로 교착이 발생할 수 있다.
 
 **해결된 이슈**
 
@@ -617,7 +683,9 @@ Host AI 오디오 파라미터 (`host_ai_pipeline` 코드 기본값): `audio_sam
 | 바퀴 슬립 누적 오차 | 2D ICP 스캔 매칭 구현. 이후 초기 추정값 부호 오류와 `/odom` 수신 시 보정값이 덮어써지는 문제를 수정하고 지속형 SE(2) 오프셋 방식으로 변경 |
 | ArUco 마커 부재 시 무한 회전 | 10초 타임아웃 세이프티 가드 추가 |
 | 다중 터미널 수동 실행 | `start.py` / `stop.py` 원터치 실행·종료 |
-| WSL2에서 Gazebo 검은 화면 | `sim.py`에서 소프트웨어 렌더링 자동 적용 |
+| WSL2 Gazebo 렌더링 및 호환성 | `sim.py` 기본 모드를 WSLg `MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA` 하드웨어 GPU 가속으로 전환하고, 드라이버 호환 문제 시 `--software`(`llvmpipe`) 폴백 지원 |
+| Faster-Whisper CPU 전용 실행 지연 | `_preload_nvidia_cuda_libs()`로 pip cuBLAS/cuDNN 프리로드 후 CUDA INT8 GPU 가속 적용 (미가용 시 CPU 자동 폴백) |
+| RViz2 터틀봇3 3D 모델 미표시 & YOLO CPU 병목 | `disaster_cartographer.rviz`(`RobotModel` + `/robot_description`) 분리 적용 및 `yolo_max_fps=15.0` 추론 상한 도입 |
 | Gazebo 런치 월드 경로 하드코딩 | `disaster_world.launch.py` 신규 제작을 통해 다중 월드 및 초기 위치 인자 동적 바인딩 |
 | 대형 복합 메쉬 월드 엔티티 스폰 실패 | 19개 메쉬 로딩 지연 대응 `spawn_entity.py -timeout 120.0` 플래그 적용 |
 | 근거리 웨이포인트 제자리 회전 발산 | $d \le 0.08\,\text{m}$ 도달 시 즉시 pop 및 불감대 예외 처리로 $\text{atan2}$ 특이점 진동 해소 |
