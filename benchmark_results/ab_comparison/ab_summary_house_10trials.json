@@ -19,14 +19,14 @@
       "label_ko": "실내 가옥 (다실 문틀·직각 복도)",
       "strategy": "proposed",
       "trials": 10,
-      "passes": 8,
-      "success_rate_pct": 80.0,
-      "mean_error_cm_all": 109.25,
-      "mean_error_cm_pass": 9.68,
-      "mean_time_s_all": 133.83,
-      "mean_time_s_pass": 93.23,
-      "mean_ret_path_m_pass": 13.83,
-      "mean_explored_m": 16.53
+      "passes": 7,
+      "success_rate_pct": 70.0,
+      "mean_error_cm_all": 95.67,
+      "mean_error_cm_pass": 8.41,
+      "mean_time_s_all": 151.19,
+      "mean_time_s_pass": 103.7,
+      "mean_ret_path_m_pass": 14.17,
+      "mean_explored_m": 16.21
     }
   }
 }
