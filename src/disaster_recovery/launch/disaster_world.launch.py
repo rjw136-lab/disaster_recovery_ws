@@ -31,7 +31,14 @@ def generate_launch_description():
     yaw_pose = LaunchConfiguration('yaw_pose', default='0.0')
 
     model = os.environ.get('TURTLEBOT3_MODEL', 'burger')
-    urdf_path = os.path.join(pkg_tb3_gazebo, 'models', f'turtlebot3_{model}', 'model.sdf')
+    local_sdf = os.path.join(get_package_share_directory('disaster_recovery'), 'models', f'turtlebot3_{model}', 'model.sdf')
+    src_sdf = os.path.join('/home/lab/disaster_recovery_ws/src/disaster_recovery/models', f'turtlebot3_{model}', 'model.sdf')
+    if os.path.exists(local_sdf):
+        urdf_path = local_sdf
+    elif os.path.exists(src_sdf):
+        urdf_path = src_sdf
+    else:
+        urdf_path = os.path.join(pkg_tb3_gazebo, 'models', f'turtlebot3_{model}', 'model.sdf')
 
     declare_world_cmd = DeclareLaunchArgument('world', description='Full path to Gazebo world file')
     declare_gui_cmd = DeclareLaunchArgument('gui', default_value='true', description='Set to false for headless')

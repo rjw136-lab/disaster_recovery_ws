@@ -138,7 +138,10 @@ class GazeboSimulationRunner:
         disaster_house_world = "/home/lab/disaster_recovery_ws/src/disaster_recovery/worlds/disaster_house_world.world"
         disaster_maze_world = "/home/lab/disaster_recovery_ws/src/disaster_recovery/worlds/disaster_maze_world.world"
         disaster_tunnel_world = "/home/lab/disaster_recovery_ws/src/disaster_recovery/worlds/disaster_tunnel_world.world"
-        if self.world in ["tunnel", "gazebo_tunnel", "tunnel_world"]:
+        disaster_collapsed_world = "/home/lab/disaster_recovery_ws/src/disaster_recovery/worlds/disaster_collapsed_building.world"
+        if self.world in ["collapsed", "building", "collapsed_building"]:
+            launch_cmd = f"ros2 launch disaster_recovery disaster_world.launch.py x_pose:=0.0 y_pose:=-4.0 yaw_pose:=1.5708 world:={disaster_collapsed_world} {gui_flag}"
+        elif self.world in ["tunnel", "gazebo_tunnel", "tunnel_world"]:
             launch_cmd = f"ros2 launch disaster_recovery disaster_world.launch.py x_pose:=-0.5 y_pose:=-3.0 yaw_pose:=1.57 world:={disaster_tunnel_world} {gui_flag}"
         elif self.world in ["house", "turtlebot3_house"]:
             launch_cmd = f"ros2 launch disaster_recovery disaster_world.launch.py x_pose:=-2.0 y_pose:=-0.5 yaw_pose:=0.0 world:={disaster_house_world} {gui_flag}"
@@ -446,10 +449,11 @@ class GazeboSimulationRunner:
 
 def main():
     parser = argparse.ArgumentParser(description="Disaster Recovery TurtleBot3 Gazebo Simulator")
-    parser.add_argument("--world", type=str, default="world", help="World name (world, house, maze, tunnel, empty)")
+    parser.add_argument("--world", type=str, default="world", help="World name (world, house, maze, tunnel, collapsed, empty)")
     parser.add_argument("--house", action="store_true", help="Shortcut for --world house (Corridors & Rooms)")
     parser.add_argument("--maze", action="store_true", help="Shortcut for --world maze (Complex Inner Walls & Obstacles)")
     parser.add_argument("--tunnel", action="store_true", help="Shortcut for --world tunnel (Subterranean Tunnel & Rubble)")
+    parser.add_argument("--collapsed", action="store_true", help="Shortcut for --world collapsed (Collapsed Building Disaster Map)")
     parser.add_argument("--yolo", action="store_true", help="Launch YOLO26n Vision AI detection window")
     parser.add_argument("--no-slam", action="store_true", help="Disable Cartographer SLAM mapping & RViz")
     parser.add_argument("--no-teleop", action="store_true", help="Disable embedded keyboard teleop")
@@ -463,7 +467,9 @@ def main():
         stop_all_sim()
         return
 
-    if args.tunnel:
+    if args.collapsed:
+        world = "collapsed"
+    elif args.tunnel:
         world = "tunnel"
     elif args.maze:
         world = "maze"

@@ -788,8 +788,8 @@ class RecoveryController(Node):
             target_heading = math.atan2(dy, dx)
             alpha = normalize_angle(target_heading - self.current_theta)
 
-            # If heading diverged substantially (> 70 deg), re-align with quick pivot
-            if abs(alpha) > 1.22:
+            # If heading diverged substantially (> 95 deg), re-align with quick pivot
+            if abs(alpha) > 1.65:
                 self.stop_robot()
                 self.state = SystemState.BACKTRACKING_ROTATE
                 return
@@ -800,9 +800,9 @@ class RecoveryController(Node):
             w_pp = self.v_max * curvature
             w_pp = max(-self.w_max, min(self.w_max, w_pp))
 
-            # Regulated speed: slow down gracefully on curves
-            v_regulated = self.v_max / (1.0 + 1.8 * abs(curvature))
-            v_regulated = max(0.08, min(self.v_max, v_regulated))
+            # Regulated speed: keep robust velocity on tunnel straightaways
+            v_regulated = self.v_max / (1.0 + 0.6 * abs(curvature))
+            v_regulated = max(0.14, min(self.v_max, v_regulated))
 
             # 5. Continuous Residual RL (TD3) Obstacle Avoidance & Wall Repulsion
             if self.enable_td3_avoidance and self.td3_policy is not None and len(self.latest_raw_ranges) > 0:
@@ -818,7 +818,7 @@ class RecoveryController(Node):
                 if self.td3_obstacle_detected:
                     # Obstacle nearby: RL obstacle avoidance takes dominance
                     w_blend = 0.85 * w_td3 + 0.15 * w_pp
-                    v_blend = min(v_regulated, max(0.05, float(v_td3)))
+                    v_blend = min(v_regulated, max(0.14, float(v_td3)))
                 else:
                     # Clear corridor: Pure Pursuit line tracking with smooth RL wall repulsion & slip residual
                     w_blend = 0.55 * w_pp + 0.45 * w_td3
@@ -829,10 +829,10 @@ class RecoveryController(Node):
 
             # 6. Proportional Deceleration when approaching base camp
             if dist_to_origin <= self.docking_dist_th:
-                v_blend = max(0.04, min(v_blend, 0.40 * dist_to_origin))
+                v_blend = max(0.08, min(v_blend, 0.50 * dist_to_origin))
 
             cmd = Twist()
-            cmd.linear.x = max(0.04, min(self.v_max, float(v_blend)))
+            cmd.linear.x = max(0.08, min(self.v_max, float(v_blend)))
             cmd.angular.z = max(-self.w_max, min(self.w_max, float(w_blend)))
             self.last_cmd_v = cmd.linear.x
             self.last_cmd_w = cmd.angular.z
