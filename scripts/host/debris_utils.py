@@ -7,7 +7,8 @@ obstacles in Gazebo Classic simulations.
 import math
 import random
 import subprocess
-from typing import List, Optional, Sequence, Tuple
+import time
+from typing import Callable, List, Optional, Sequence, Tuple
 
 DEBRIS_SDF_PATH = (
     "/home/lab/disaster_recovery_ws/src/disaster_recovery/config/debris_obstacle.sdf"
@@ -75,6 +76,7 @@ def spawn_random_debris_cluster(
     z: float = 0.225,
     wait: bool = True,
     sdf_path: str = DEBRIS_SDF_PATH,
+    tick_fn: Optional[Callable[[], None]] = None,
 ) -> List[str]:
     """Spawn multiple rock/debris entities in Gazebo in parallel."""
     procs = []
@@ -97,11 +99,20 @@ def spawn_random_debris_cluster(
         procs.append(p)
 
     if wait:
-        for p in procs:
-            try:
-                p.wait(timeout=10.0)
-            except subprocess.TimeoutExpired:
-                p.kill()
+        if tick_fn is not None:
+            deadline = time.monotonic() + 10.0
+            while time.monotonic() < deadline and any(p.poll() is None for p in procs):
+                tick_fn()
+                time.sleep(0.02)
+            for p in procs:
+                if p.poll() is None:
+                    p.kill()
+        else:
+            for p in procs:
+                try:
+                    p.wait(timeout=10.0)
+                except subprocess.TimeoutExpired:
+                    p.kill()
 
     return names
 

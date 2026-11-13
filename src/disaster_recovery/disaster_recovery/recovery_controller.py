@@ -50,6 +50,7 @@ from disaster_recovery.td3_policy import (
     extract_state_vector,
     check_line_of_sight_clear
 )
+from disaster_recovery.local_grid_planner import ProposedRecoveryPlanner
 
 
 class SystemState:
@@ -186,6 +187,14 @@ class RecoveryController(Node):
         self.declare_parameter('td3_max_avoid_steps', 150)
         self.declare_parameter('enable_hybrid_tracking', True)
         self.declare_parameter('lookahead_dist_m', 0.45)
+        self.declare_parameter('recovery_strategy', 'baseline')
+        self.declare_parameter('local_grid_size_m', 6.0)
+        self.declare_parameter('local_grid_res_m', 0.04)
+        self.declare_parameter('local_grid_inflation_m', 0.085)
+        self.declare_parameter('shortcut_rejoin_dist_m', 3.2)
+        self.declare_parameter('unstuck_window_sec', 2.8)
+        self.declare_parameter('unstuck_min_disp_m', 0.06)
+        self.declare_parameter('reset_corr_on_episode', False)
 
         # Retrieve parameters
         self.heartbeat_timeout = self.get_parameter('heartbeat_timeout_sec').value
@@ -215,6 +224,16 @@ class RecoveryController(Node):
         self.td3_max_avoid_steps = self.get_parameter('td3_max_avoid_steps').value
         self.enable_hybrid = self.get_parameter('enable_hybrid_tracking').value
         self.lookahead_dist = self.get_parameter('lookahead_dist_m').value
+        self.recovery_strategy = str(self.get_parameter('recovery_strategy').value).lower()
+        self.local_grid_size_m = float(self.get_parameter('local_grid_size_m').value)
+        self.local_grid_res_m = float(self.get_parameter('local_grid_res_m').value)
+        self.local_grid_inflation_m = float(self.get_parameter('local_grid_inflation_m').value)
+        self.shortcut_rejoin_dist_m = float(self.get_parameter('shortcut_rejoin_dist_m').value)
+        self.unstuck_window_sec = float(self.get_parameter('unstuck_window_sec').value)
+        self.unstuck_min_disp_m = float(self.get_parameter('unstuck_min_disp_m').value)
+        self.reset_corr_on_episode = bool(self.get_parameter('reset_corr_on_episode').value) or (
+            self.recovery_strategy == 'proposed'
+        )
 
         # -------------------------------------------------------------------------
         # Internal State Variables
@@ -252,6 +271,22 @@ class RecoveryController(Node):
             )
         else:
             self.td3_policy = None
+
+        if self.recovery_strategy == 'proposed':
+            self.local_planner = ProposedRecoveryPlanner(
+                size_m=self.local_grid_size_m,
+                resolution_m=self.local_grid_res_m,
+                inflation_radius_m=self.local_grid_inflation_m,
+                lookahead_m=max(0.45, self.lookahead_dist),
+                shortcut_rejoin_dist_m=self.shortcut_rejoin_dist_m,
+                unstuck_window_sec=self.unstuck_window_sec,
+                unstuck_min_disp_m=self.unstuck_min_disp_m,
+            )
+            self.get_logger().info(
+                "[PROPOSED] Rolling 2D Grid A* + Topological Shortcut + Unstuck Escape active"
+            )
+        else:
+            self.local_planner = None
 
         # Robot Odometry State
         self.current_x = 0.0
@@ -326,6 +361,9 @@ class RecoveryController(Node):
         self.sub_dock_complete = self.create_subscription(
             Bool, '/aruco/dock_complete', self.cb_dock_complete, reliable_qos
         )
+        self.sub_reset_episode = self.create_subscription(
+            Bool, '/recovery/reset_episode', self.cb_reset_episode, reliable_qos
+        )
 
         # -------------------------------------------------------------------------
         # Publishers
@@ -343,6 +381,44 @@ class RecoveryController(Node):
     # -----------------------------------------------------------------------------
     # Callbacks
     # -----------------------------------------------------------------------------
+    def cb_reset_episode(self, msg: Bool):
+        """Reset inter-trial odometry correction, waypoint stack, and local planner cleanly."""
+        if not msg.data:
+            return
+        self.corr_x = 0.0
+        self.corr_y = 0.0
+        self.corr_th = 0.0
+        self.scan_match_count = 0
+        self.current_x = self.raw_odom_x
+        self.current_y = self.raw_odom_y
+        self.current_theta = self.raw_odom_theta
+        self.waypoint_stack.clear()
+        if self.odom_initialized:
+            pts_copy = self.latest_scan_pts.copy() if self.latest_scan_pts is not None else None
+            self.start_pose = Waypoint(self.current_x, self.current_y, self.current_theta, pts_copy)
+            self.waypoint_stack.append(self.start_pose)
+            self.start_scan_pts = pts_copy
+        else:
+            self.start_pose = None
+            self.start_scan_pts = None
+        self.last_logged_x = self.current_x
+        self.last_logged_y = self.current_y
+        self.last_logged_theta = self.current_theta
+        self.active_target_wp = None
+        self.aruco_docking_complete = False
+        self.fault_reason = "NONE"
+        self._link_restored_timer = None
+        self.last_cmd_v = 0.0
+        self.last_cmd_w = 0.0
+        if self.local_planner is not None:
+            self.local_planner.reset()
+        self.state = (
+            SystemState.NORMAL_TELEOP
+            if (self.odom_initialized and self.heartbeat_received_once)
+            else SystemState.INIT
+        )
+        self.get_logger().info(">>> Episode state reset via /recovery/reset_episode. <<<")
+
     def cb_odometry(self, msg: Odometry):
         pos = msg.pose.pose.position
         ori = msg.pose.pose.orientation
@@ -475,6 +551,16 @@ class RecoveryController(Node):
                     self.active_target_wp = None
                     self.aruco_docking_complete = False
                     self._link_restored_timer = None
+                    if self.reset_corr_on_episode:
+                        self.corr_x = 0.0
+                        self.corr_y = 0.0
+                        self.corr_th = 0.0
+                        self.scan_match_count = 0
+                        self.current_x = self.raw_odom_x
+                        self.current_y = self.raw_odom_y
+                        self.current_theta = self.raw_odom_theta
+                    if self.local_planner is not None:
+                        self.local_planner.reset()
                     self.get_logger().info(">>> Heartbeat link restored! Controller reset to NORMAL_TELEOP mode. <<<")
             else:
                 self._link_restored_timer = None
@@ -488,6 +574,15 @@ class RecoveryController(Node):
 
         # 2. Watchdog Fault Detection (Active in NORMAL_TELEOP)
         if self.state == SystemState.NORMAL_TELEOP:
+            if (
+                self.recovery_strategy == 'proposed'
+                and self.local_planner is not None
+                and self.odom_initialized
+                and self.latest_scan_pts is not None
+            ):
+                self.local_planner.observe(
+                    self.current_x, self.current_y, self.current_theta, self.latest_scan_pts
+                )
             fault_triggered = False
             if dt_heartbeat > self.heartbeat_timeout:
                 self.fault_reason = f"HEARTBEAT_TIMEOUT ({dt_heartbeat:.2f}s > {self.heartbeat_timeout}s)"
@@ -540,6 +635,49 @@ class RecoveryController(Node):
                     f"Remaining in stack: {len(self.waypoint_stack)} | Initial state: {self.state}"
                 )
             return
+
+        # 3b. Proposed Strategy: Rolling 2D Grid A* + Topological Shortcut + Unstuck Escape
+        if (
+            self.recovery_strategy == 'proposed'
+            and self.local_planner is not None
+            and self.state in [
+                SystemState.BACKTRACKING_ROTATE,
+                SystemState.BACKTRACKING_TRANSLATE,
+                SystemState.BACKTRACKING_HYBRID,
+                SystemState.LOCAL_TD3_AVOIDANCE,
+                SystemState.OBSTACLE_HOLD,
+            ]
+        ):
+            now_sec = now.nanoseconds / 1e9
+            status_tag, v_cmd, w_cmd, _ = self.local_planner.step(
+                rx=self.current_x,
+                ry=self.current_y,
+                rth=self.current_theta,
+                waypoint_stack=self.waypoint_stack,
+                start_pose=self.start_pose,
+                scan_pts=self.latest_scan_pts,
+                v_max=self.v_max,
+                w_max=self.w_max,
+                now_sec=now_sec,
+                wp_reach_radius=self.wp_reach_radius,
+                docking_dist_th=self.docking_dist_th,
+            )
+            if status_tag == "ARRIVED":
+                self.waypoint_stack.clear()
+                self.active_target_wp = None
+                self.state = SystemState.BACKTRACKING_HYBRID
+            else:
+                self.state = SystemState.BACKTRACKING_HYBRID
+                self.active_target_wp = (
+                    self.waypoint_stack[-1] if len(self.waypoint_stack) > 0 else self.start_pose
+                )
+                cmd = Twist()
+                cmd.linear.x = float(v_cmd)
+                cmd.angular.z = float(w_cmd)
+                self.last_cmd_v = cmd.linear.x
+                self.last_cmd_w = cmd.angular.z
+                self.pub_cmd_vel.publish(cmd)
+                return
 
         # 4. Obstacle Hold / TD3 Bypass Check during Backtracking
         if self.state in [SystemState.BACKTRACKING_ROTATE, SystemState.BACKTRACKING_TRANSLATE]:

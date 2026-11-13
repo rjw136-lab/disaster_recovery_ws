@@ -1,0 +1,32 @@
+{
+  "tunnel": {
+    "baseline": {
+      "scenario": "tunnel",
+      "label_ko": "지하 터널 (협소 험지·차량 잔해)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 9,
+      "success_rate_pct": 90.0,
+      "mean_error_cm_all": 42.09,
+      "mean_error_cm_pass": 10.72,
+      "mean_time_s_all": 98.47,
+      "mean_time_s_pass": 83.84,
+      "mean_ret_path_m_pass": 12.0,
+      "mean_explored_m": 12.46
+    },
+    "proposed": {
+      "scenario": "tunnel",
+      "label_ko": "지하 터널 (협소 험지·차량 잔해)",
+      "strategy": "proposed",
+      "trials": 10,
+      "passes": 10,
+      "success_rate_pct": 100.0,
+      "mean_error_cm_all": 8.18,
+      "mean_error_cm_pass": 8.18,
+      "mean_time_s_all": 87.51,
+      "mean_time_s_pass": 87.51,
+      "mean_ret_path_m_pass": 12.69,
+      "mean_explored_m": 12.46
+    }
+  }
+}

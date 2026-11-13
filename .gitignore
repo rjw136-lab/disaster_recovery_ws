@@ -21,6 +21,7 @@ frames_*.gv
 frames_*.pdf
 cam_test.png
 *.mp4
+*.partial.json
 /tmp/
 
 # Editors / OS

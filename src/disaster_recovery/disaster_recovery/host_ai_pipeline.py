@@ -159,6 +159,7 @@ class HostAIPipelineNode(Node):
 
         # Latest-frame zero-lag buffer
         self.latest_frame = None
+        self.latest_raw_msg = None
         self.latest_compressed_bytes = None
         self.frame_lock = threading.Lock()
         self.new_frame_event = threading.Event()
@@ -166,6 +167,8 @@ class HostAIPipelineNode(Node):
 
         # GUI display buffer & thread synchronization (ensures main-thread rendering for WSLg)
         self.display_frame = None
+        self.display_seq = 0
+        self._last_rendered_seq = -1
         self.display_lock = threading.Lock()
 
         # Distress keywords dictionary for emergency spotter
@@ -310,30 +313,10 @@ class HostAIPipelineNode(Node):
         return img
 
     def cb_image(self, msg: Image):
-        cv_img = None
-        if self.bridge is not None:
-            try:
-                cv_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-            except Exception:
-                cv_img = None
-
-        if cv_img is None:
-            try:
-                # Robust pure-NumPy fallback (immune to OpenCV/NumPy version conflicts)
-                img_array = np.frombuffer(msg.data, dtype=np.uint8)
-                if msg.encoding in ('rgb8', 'bgr8'):
-                    cv_img = img_array.reshape((msg.height, msg.width, 3))
-                    if msg.encoding == 'rgb8':
-                        cv_img = cv2.cvtColor(cv_img, cv2.COLOR_RGB2BGR)
-                elif msg.encoding == 'mono8':
-                    cv_img = img_array.reshape((msg.height, msg.width))
-                    cv_img = cv2.cvtColor(cv_img, cv2.COLOR_GRAY2BGR)
-            except Exception as e:
-                self.get_logger().error(f"Image conversion error: {e}")
-                return
-
+        # Defer RGB->BGR conversion until worker pops a frame to avoid wasting CPU on skipped frames
         with self.frame_lock:
-            self.latest_frame = cv_img
+            self.latest_raw_msg = (bytes(msg.data), int(msg.height), int(msg.width), str(msg.encoding))
+            self.latest_frame = None
         self.new_frame_event.set()
 
     def cb_compressed_image(self, msg: CompressedImage):
@@ -342,29 +325,34 @@ class HostAIPipelineNode(Node):
         self.new_frame_event.set()
 
     def vision_worker_loop(self):
-        """Dedicated thread to process only the latest frame, preventing network/queue lag."""
+        """Dedicated thread to process only the latest frame at steady target FPS."""
         last_infer_t = 0.0
         infer_interval = 1.0 / self.yolo_max_fps
 
         while self.vision_thread_running:
-            if not self.new_frame_event.wait(timeout=0.1):
+            # Pace BEFORE popping latest frame so frames arriving just before deadline are kept, not dropped
+            remaining = infer_interval - (time.time() - last_infer_t)
+            if last_infer_t > 0.0 and remaining > 0.002:
+                time.sleep(min(remaining, 0.02))
+                continue
+
+            if not self.new_frame_event.wait(timeout=0.05):
                 continue
             self.new_frame_event.clear()
 
             with self.frame_lock:
                 raw_bytes = self.latest_compressed_bytes
                 self.latest_compressed_bytes = None
+                raw_img = self.latest_raw_msg
+                self.latest_raw_msg = None
                 frame = self.latest_frame
                 self.latest_frame = None
 
-            if raw_bytes is None and frame is None:
+            if raw_bytes is None and raw_img is None and frame is None:
                 continue
 
-            # Throttle heavy decode/rotate/YOLO rate without overwriting HUD
             now = time.time()
-            if now - last_infer_t < infer_interval:
-                continue
-            last_infer_t = now
+            last_infer_t = now if last_infer_t == 0.0 else max(now - infer_interval, last_infer_t + infer_interval)
 
             if raw_bytes is not None:
                 try:
@@ -372,6 +360,19 @@ class HostAIPipelineNode(Node):
                     frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
                 except Exception as e:
                     self.get_logger().error(f"Compressed image decode error: {e}")
+                    continue
+            elif raw_img is not None:
+                try:
+                    buf, h, w, enc = raw_img
+                    arr = np.frombuffer(buf, dtype=np.uint8)
+                    if enc == 'rgb8':
+                        frame = cv2.cvtColor(arr.reshape((h, w, 3)), cv2.COLOR_RGB2BGR)
+                    elif enc == 'bgr8':
+                        frame = arr.reshape((h, w, 3)).copy()
+                    elif enc == 'mono8':
+                        frame = cv2.cvtColor(arr.reshape((h, w)), cv2.COLOR_GRAY2BGR)
+                except Exception as e:
+                    self.get_logger().error(f"Image conversion error: {e}")
                     continue
 
             if frame is None:
@@ -399,12 +400,14 @@ class HostAIPipelineNode(Node):
 
         results = self.yolo_model(cv_img, **inference_kwargs)
 
-        annotated_frame = cv_img.copy()
+        has_boxes = any(len(r.boxes) > 0 for r in results)
+        annotated_frame = cv_img if not has_boxes else None
         person_detected = False
         highest_conf = 0.0
 
         for r in results:
-            annotated_frame = r.plot()
+            if has_boxes and annotated_frame is None:
+                annotated_frame = r.plot()
             for box in r.boxes:
                 cls_id = int(box.cls[0])
                 conf = float(box.conf[0])
@@ -457,41 +460,45 @@ class HostAIPipelineNode(Node):
             2,
         )
 
-        # Publish visualized inference stream for RViz2 / Monitoring UI
-        try:
-            if self.bridge is not None:
-                out_msg = self.bridge.cv2_to_imgmsg(annotated_frame, encoding='bgr8')
-            else:
-                out_msg = Image()
-                out_msg.header.stamp = self.get_clock().now().to_msg()
-                out_msg.header.frame_id = 'camera_link'
-                out_msg.height = annotated_frame.shape[0]
-                out_msg.width = annotated_frame.shape[1]
-                out_msg.encoding = 'bgr8'
-                out_msg.is_bigendian = 0
-                out_msg.step = annotated_frame.shape[1] * 3
-                out_msg.data = annotated_frame.tobytes()
-            self.pub_detection_img.publish(out_msg)
-        except Exception:
-            pass
+        # Publish visualized inference stream only when a subscriber (e.g. RViz2) is connected
+        if self.pub_detection_img.get_subscription_count() > 0:
+            try:
+                if self.bridge is not None:
+                    out_msg = self.bridge.cv2_to_imgmsg(annotated_frame, encoding='bgr8')
+                else:
+                    out_msg = Image()
+                    out_msg.header.stamp = self.get_clock().now().to_msg()
+                    out_msg.header.frame_id = 'camera_link'
+                    out_msg.height = annotated_frame.shape[0]
+                    out_msg.width = annotated_frame.shape[1]
+                    out_msg.encoding = 'bgr8'
+                    out_msg.is_bigendian = 0
+                    out_msg.step = annotated_frame.shape[1] * 3
+                    out_msg.data = annotated_frame.tobytes()
+                self.pub_detection_img.publish(out_msg)
+            except Exception:
+                pass
 
         # Dedicated Standalone AI Station Window buffer update
         if self.show_window:
             with self.display_lock:
                 self.display_frame = annotated_frame
+                self.display_seq += 1
 
     def render_gui_window(self):
-        """Render GUI frame from the main thread at ~30Hz, fully compatible with WSLg/X11."""
+        """Render GUI frame from the main thread only when a new inference frame arrives."""
         with self.display_lock:
+            if self.display_seq == self._last_rendered_seq or self.display_frame is None:
+                return
             frame = self.display_frame
-        if frame is not None:
-            win_name = "Disaster Recovery - YOLO26n Vision AI Station"
-            if not hasattr(self, '_window_initialized'):
-                cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
-                cv2.resizeWindow(win_name, 960, 720)
-                self._window_initialized = True
-            cv2.imshow(win_name, frame)
-            cv2.waitKey(1)
+            self._last_rendered_seq = self.display_seq
+        win_name = "Disaster Recovery - YOLO26n Vision AI Station"
+        if not hasattr(self, '_window_initialized'):
+            cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
+            cv2.resizeWindow(win_name, 960, 720)
+            self._window_initialized = True
+        cv2.imshow(win_name, frame)
+        cv2.waitKey(1)
 
     # -----------------------------------------------------------------------------
     # Audio STT Pipeline & Keyword Spotter
