@@ -6,6 +6,7 @@ Plots trajectory and quantitative benchmark performance for 10-trial disaster re
 =================================================================================================
 """
 
+import argparse
 import os
 import json
 import numpy as np
@@ -14,7 +15,10 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
-def plot_benchmark(json_path="/tmp/tunnel_trials_result.json", output_path="/home/lab/disaster_recovery_ws/docs/images/tunnel_disaster_benchmark_trajectories.png"):
+def plot_benchmark(
+    json_path="/tmp/collapsed_trials_result.json",
+    output_path="/home/lab/disaster_recovery_ws/docs/images/collapsed_disaster_benchmark_trajectories.png",
+):
     if not os.path.exists(json_path):
         print(f"[오류] 데이터 파일이 존재하지 않습니다: {json_path}")
         return
@@ -22,6 +26,7 @@ def plot_benchmark(json_path="/tmp/tunnel_trials_result.json", output_path="/hom
     with open(json_path, 'r') as f:
         data = json.load(f)
 
+    world_name = data.get("world", "collapsed")
     trials = data.get("trials", [])
     base_x = data.get("base_camp_x", 0.0)
     base_y = data.get("base_camp_y", 0.0)
@@ -50,9 +55,17 @@ def plot_benchmark(json_path="/tmp/tunnel_trials_result.json", output_path="/hom
         if len(out_pts) > 0:
             ax_traj.scatter(out_pts[-1, 0], out_pts[-1, 1], marker='^', color='red', s=45, zorder=5)
 
-        deb_pt = t.get("debris_pos")
-        if deb_pt:
-            circle_deb = patches.Circle((deb_pt[0], deb_pt[1]), 0.18, facecolor='crimson', edgecolor='black', alpha=0.75, zorder=6, label="Fallen Debris Obstacle" if idx == 0 else None)
+        deb_pts = t.get("debris_positions") or ([t["debris_pos"]] if t.get("debris_pos") else [])
+        for deb_idx, deb_pt in enumerate(deb_pts):
+            circle_deb = patches.Circle(
+                (deb_pt[0], deb_pt[1]),
+                0.18,
+                facecolor='crimson',
+                edgecolor='black',
+                alpha=0.75,
+                zorder=6,
+                label="Fallen Debris Obstacle (3-6 Random)" if (idx == 0 and deb_idx == 0) else None,
+            )
             ax_traj.add_patch(circle_deb)
 
     # Base camp anchor and tolerance circles
@@ -60,9 +73,14 @@ def plot_benchmark(json_path="/tmp/tunnel_trials_result.json", output_path="/hom
     circle_pass = patches.Circle((base_x, base_y), 0.25, fill=False, edgecolor='green', linestyle=':', linewidth=2.0, label="Pass Margin (< 25 cm)")
     ax_traj.add_patch(circle_pass)
 
-    ax_traj.set_title(f"{len(trials)}-Trial Autonomous Deep Tunnel Trajectories (Dynamic Debris Drop & TD3 Bypass)\n(Dashed: Outbound Exploration | Solid: 4-Layer Backtracking Return | Crimson: Fallen Debris)", fontsize=12, fontweight='bold', pad=12)
+    env_title = {
+        "collapsed": "Collapsed Building Trajectories (12-20m Penetration & 3-6 Random Debris)",
+        "house": "House World Trajectories (Dynamic Debris & TD3 Bypass)",
+        "tunnel": "Autonomous Deep Tunnel Trajectories (Dynamic Debris Drop & TD3 Bypass)",
+    }.get(world_name, "Disaster Recovery Trajectories")
+    ax_traj.set_title(f"{len(trials)}-Trial {env_title}\n(Dashed: Outbound Exploration | Solid: 4-Layer Backtracking Return | Crimson: Fallen Debris)", fontsize=12, fontweight='bold', pad=12)
     ax_traj.set_xlabel("X Position (meters)", fontsize=11)
-    ax_traj.set_ylabel("Y Position (meters - Tunnel Depth)", fontsize=11)
+    ax_traj.set_ylabel("Y Position (meters)", fontsize=11)
     ax_traj.grid(True, linestyle='--', alpha=0.5)
     ax_traj.legend(loc='lower left', fontsize=9)
     ax_traj.axis('equal')
@@ -117,8 +135,9 @@ def plot_benchmark(json_path="/tmp/tunnel_trials_result.json", output_path="/hom
     print(f"[성공] 벤치마크 결과 그래프가 저장되었습니다: {output_path}")
 
     # Copy to Windows Desktop & OneDrive Desktop
-    desktop_win = "/mnt/c/Users/lab/Desktop/tunnel_disaster_benchmark_trajectories.png"
-    onedrive_win = "/mnt/c/Users/lab/OneDrive - 경북대학교/바탕 화면/tunnel_disaster_benchmark_trajectories.png"
+    out_basename = os.path.basename(output_path)
+    desktop_win = f"/mnt/c/Users/lab/Desktop/{out_basename}"
+    onedrive_win = f"/mnt/c/Users/lab/OneDrive - 경북대학교/바탕 화면/{out_basename}"
     try:
         import shutil
         shutil.copyfile(output_path, desktop_win)
@@ -130,8 +149,8 @@ def plot_benchmark(json_path="/tmp/tunnel_trials_result.json", output_path="/hom
         import subprocess
         bat_content = (
             '@echo off\r\n'
-            'copy /Y "C:\\Users\\lab\\Desktop\\tunnel_disaster_benchmark_trajectories.png" '
-            '"C:\\Users\\lab\\OneDrive - 경북대학교\\바탕 화면\\tunnel_disaster_benchmark_trajectories.png" > nul\r\n'
+            f'copy /Y "C:\\Users\\lab\\Desktop\\{out_basename}" '
+            f'"C:\\Users\\lab\\OneDrive - 경북대학교\\바탕 화면\\{out_basename}" > nul\r\n'
         )
         bat_path = "/mnt/c/Users/lab/copy_plots.bat"
         with open(bat_path, "wb") as f:
@@ -144,4 +163,8 @@ def plot_benchmark(json_path="/tmp/tunnel_trials_result.json", output_path="/hom
         print(f"[경고] OneDrive 바탕화면 복사 실패: {e}")
 
 if __name__ == '__main__':
-    plot_benchmark()
+    parser = argparse.ArgumentParser(description="Plot Disaster Recovery Benchmark Trajectories")
+    parser.add_argument("--json", default="/tmp/collapsed_trials_result.json", help="Input benchmark JSON path")
+    parser.add_argument("--output", default="/home/lab/disaster_recovery_ws/docs/images/collapsed_disaster_benchmark_trajectories.png", help="Output plot PNG path")
+    args = parser.parse_args()
+    plot_benchmark(json_path=args.json, output_path=args.output)

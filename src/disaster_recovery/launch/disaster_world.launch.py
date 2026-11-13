@@ -31,12 +31,20 @@ def generate_launch_description():
     yaw_pose = LaunchConfiguration('yaw_pose', default='0.0')
 
     model = os.environ.get('TURTLEBOT3_MODEL', 'burger')
-    local_sdf = os.path.join(get_package_share_directory('disaster_recovery'), 'models', f'turtlebot3_{model}', 'model.sdf')
+    pkg_share = get_package_share_directory('disaster_recovery')
+    local_sdf = os.path.join(pkg_share, 'models', f'turtlebot3_{model}', 'model.sdf')
+    local_burger_sdf = os.path.join(pkg_share, 'models', 'turtlebot3_burger', 'model.sdf')
     src_sdf = os.path.join('/home/lab/disaster_recovery_ws/src/disaster_recovery/models', f'turtlebot3_{model}', 'model.sdf')
+    src_burger_sdf = '/home/lab/disaster_recovery_ws/src/disaster_recovery/models/turtlebot3_burger/model.sdf'
     if os.path.exists(local_sdf):
         urdf_path = local_sdf
     elif os.path.exists(src_sdf):
         urdf_path = src_sdf
+    elif model == 'burger_cam' and os.path.exists(local_burger_sdf):
+        # Custom burger model includes both camera sensor and LiDAR <visualize>true</visualize>
+        urdf_path = local_burger_sdf
+    elif model == 'burger_cam' and os.path.exists(src_burger_sdf):
+        urdf_path = src_burger_sdf
     else:
         urdf_path = os.path.join(pkg_tb3_gazebo, 'models', f'turtlebot3_{model}', 'model.sdf')
 

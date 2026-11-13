@@ -337,12 +337,9 @@ class HostAIPipelineNode(Node):
             # 1. Rotate to upright orientation (e.g. 270 degrees)
             frame = self.rotate_image(frame)
 
-            # Throttle heavy YOLO inference rate to preserve CPU
+            # Throttle heavy YOLO inference rate to preserve CPU without overwriting HUD
             now = time.time()
             if now - last_infer_t < infer_interval:
-                if self.show_window:
-                    with self.display_lock:
-                        self.display_frame = frame
                 continue
             last_infer_t = now
 
@@ -408,9 +405,19 @@ class HostAIPipelineNode(Node):
             self.fps_counter = 0
             self.fps_time = now
 
+        h_img, w_img = annotated_frame.shape[:2]
+        font_scale = max(0.45, min(0.70, w_img / 820.0))
+        bar_h = max(28, int(34 * (w_img / 640.0)))
+        cv2.rectangle(annotated_frame, (0, 0), (w_img, bar_h), (15, 15, 15), -1)
+        hb_str = "HB:ON" if self.enable_heartbeat else "HB:CUT"
         cv2.putText(
-            annotated_frame, f"FPS: {self.current_fps:.1f} | YOLO26n AI Vision Station",
-            (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 0), 2
+            annotated_frame,
+            f"FPS:{self.current_fps:.1f} | YOLO26n | {hb_str} | Person:{self.consecutive_person_count}",
+            (10, int(bar_h * 0.72)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            font_scale,
+            (0, 255, 0) if self.enable_heartbeat else (0, 120, 255),
+            2,
         )
 
         # Publish visualized inference stream for RViz2 / Monitoring UI

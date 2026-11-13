@@ -5,8 +5,9 @@ Project: Disaster Recovery TurtleBot3 Burger System
 Script : sim.py (One-Touch Gazebo Simulation Cockpit, SLAM Mapping & Odometry Verification)
 Author : Kyungpook National University / Jong Woo Ro
 Usage  : 
-    sim.py                     # Standard Mode (Gazebo World + SLAM Mapping + RViz + Teleop)
+    sim.py                     # Standard Mode (Collapsed Building World + SLAM Mapping + RViz + Teleop)
     sim.py --house             # Run in TurtleBot3 House World (Rooms & Corridors)
+    sim.py --tunnel            # Run in Tunnel World (Legacy)
     sim.py --yolo              # Also run YOLO26n Vision AI (Spawns camera & detection window)
     sim.py --no-slam           # Disable Cartographer SLAM (Odometry only)
     sim.py --stop              # Stop all active simulation processes
@@ -23,6 +24,16 @@ import tty
 import argparse
 import subprocess
 import threading
+
+_HOST_DIR = os.path.dirname(os.path.abspath(__file__))
+if _HOST_DIR not in sys.path:
+    sys.path.insert(0, _HOST_DIR)
+
+from debris_utils import (
+    delete_debris_entities,
+    select_random_debris_positions,
+    spawn_random_debris_cluster,
+)
 
 # -----------------------------------------------------------------------------------------------
 # CRITICAL GRAPHICS ENVIRONMENT FOR WSL2 / WSLg (HARDWARE ACCELERATION SUPPORT)
@@ -163,9 +174,14 @@ class GazeboSimulationRunner:
                 f"GAZEBO_MODEL_PATH='{user_models}:{tb3_models}' && "
             )
         else:
+            os.environ.pop("LIBGL_ALWAYS_SOFTWARE", None)
+            os.environ.pop("GALLIUM_DRIVER", None)
+            os.environ.pop("MESA_LOADER_DRIVER_OVERRIDE", None)
+            os.environ["MESA_D3D12_DEFAULT_ADAPTER_NAME"] = "NVIDIA"
             env_prefix = (
                 net_env +
-                "export GAZEBO_MODEL_DATABASE_URI='' "
+                "unset LIBGL_ALWAYS_SOFTWARE GALLIUM_DRIVER MESA_LOADER_DRIVER_OVERRIDE && "
+                "export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA GAZEBO_MODEL_DATABASE_URI='' "
                 f"GAZEBO_MODEL_PATH='{user_models}:{tb3_models}' && "
             )
 
@@ -250,12 +266,12 @@ class GazeboSimulationRunner:
   • [ Space ]         : 긴급 제동 (정지)
   • {Colors.BG_RED}{Colors.WHITE}[ H ]{Colors.RESET}{Colors.BOLD}             : 통신 단절(Heartbeat DROP) 트리거 (오도메트리 복귀 테스트!){Colors.RESET}
   • {Colors.BG_GREEN}{Colors.WHITE}[ R ]{Colors.RESET}{Colors.BOLD}             : 통신 복구(Heartbeat RESUME){Colors.RESET}
-  • {Colors.BG_BLUE}{Colors.WHITE}[ O ]{Colors.RESET}{Colors.BOLD}             : 붕괴 잔해(Debris) 투입 / 제거 토글 (신규 장애물 테스트){Colors.RESET}
+  • {Colors.BG_BLUE}{Colors.WHITE}[ O ]{Colors.RESET}{Colors.BOLD}             : 랜덤 붕괴 암석(3~6개) 투입 / 제거 토글 (신규 장애물 테스트){Colors.RESET}
   • [ Q ] 또는 Ctrl+C : 시뮬레이션 정상 종료
 
 {Colors.YELLOW}👉 [테스트 시나리오]:
-   1. [W],[A],[S],[D]로 로봇을 5~10m 전진 운전합니다 (RViz2에서 실시간 지도가 그려집니다).
-   2. [ O ] 키를 누르면 로봇이 지나온 복귀 경로에 붉은색 붕괴 잔해(Debris)가 낙하 스폰됩니다.
+   1. [W],[A],[S],[D]로 로봇을 12~20m 전진 운전합니다 (RViz2에서 실시간 지도가 그려집니다).
+   2. [ O ] 키를 누르면 로봇이 지나온 복귀 경로에 3~6개의 붉은색 붕괴 암석(Debris)이 랜덤 투하됩니다.
    3. [ H ] 키를 누르면 통신 단절이 발생하고 3초 후 자율복귀가 발동합니다.
    4. 장애물 접근 시 TD3 국소 회피 제어기가 부드러운 우회 기동을 수행하고, 2D ICP가 슬립을 리셋하여 원점으로 복귀합니다.{Colors.RESET}
 """)
@@ -320,7 +336,7 @@ class GazeboSimulationRunner:
         cur_y = 0.0
         cur_yaw = 0.0
         path_history = []
-        obstacle_spawned = False
+        spawned_debris_names = []
         last_known_state = ""
 
         def cb_odom(msg: Odometry):
@@ -401,30 +417,35 @@ class GazeboSimulationRunner:
                         sys.stdout.write(f"\r\n>>> [HEARTBEAT] 통신 강제 복구 (ACTIVE) <<<\r\n")
                         sys.stdout.flush()
                     elif key in ['o', 'O']:
-                        sdf_path = "/home/lab/disaster_recovery_ws/src/disaster_recovery/config/debris_obstacle.sdf"
-                        if not obstacle_spawned:
-                            if len(path_history) >= 2:
-                                obs_x, obs_y = path_history[-2]
-                            else:
-                                obs_x = cur_x - 0.75 * math.cos(cur_yaw)
-                                obs_y = cur_y - 0.75 * math.sin(cur_yaw)
-
-                            spawn_cmd = (
-                                "source /opt/ros/humble/setup.bash && "
-                                f"ros2 run gazebo_ros spawn_entity.py -entity disaster_debris -file {sdf_path} -x {obs_x:.2f} -y {obs_y:.2f} -z 0.225"
+                        if not spawned_debris_names:
+                            debris_pts = select_random_debris_positions(
+                                path_history,
+                                min_count=3,
+                                max_count=6,
+                                min_spacing=1.2,
+                                end_margin=1.0,
+                                fallback_pose=(cur_x, cur_y, cur_yaw),
                             )
-                            subprocess.Popen(f"bash -c '{spawn_cmd}'", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                            obstacle_spawned = True
-                            sys.stdout.write(f"\r\n>>> {Colors.BG_RED}{Colors.WHITE}[OBSTACLE]{Colors.RESET} {Colors.RED}{Colors.BOLD}⚠️ 붕괴 잔해(Debris) 투입! 위치: ({obs_x:.2f}, {obs_y:.2f}) - 복귀 경로 폐쇄!{Colors.RESET}\r\n")
+                            spawned_debris_names = spawn_random_debris_cluster(
+                                debris_pts, wait=False
+                            )
+                            coords_str = ", ".join(
+                                f"({px:.2f}, {py:.2f})" for px, py in debris_pts
+                            )
+                            sys.stdout.write(
+                                f"\r\n>>> {Colors.BG_RED}{Colors.WHITE}[OBSTACLE]{Colors.RESET} "
+                                f"{Colors.RED}{Colors.BOLD}⚠️ 랜덤 붕괴 암석 {len(debris_pts)}개 투하! "
+                                f"위치: [{coords_str}] - 복귀 경로 장애물 생성!{Colors.RESET}\r\n"
+                            )
                             sys.stdout.flush()
                         else:
-                            del_cmd = (
-                                "source /opt/ros/humble/setup.bash && "
-                                "ros2 service call /delete_entity gazebo_msgs/srv/DeleteEntity \"{name: 'disaster_debris'}\""
+                            delete_debris_entities(spawned_debris_names, wait=False)
+                            removed_cnt = len(spawned_debris_names)
+                            spawned_debris_names = []
+                            sys.stdout.write(
+                                f"\r\n>>> {Colors.BG_GREEN}{Colors.WHITE}[OBSTACLE]{Colors.RESET} "
+                                f"{Colors.GREEN}{Colors.BOLD}🧹 붕괴 암석 {removed_cnt}개 일괄 제거 완료 - 복귀 경로 개방!{Colors.RESET}\r\n"
                             )
-                            subprocess.Popen(f"bash -c '{del_cmd}'", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                            obstacle_spawned = False
-                            sys.stdout.write(f"\r\n>>> {Colors.BG_GREEN}{Colors.WHITE}[OBSTACLE]{Colors.RESET} {Colors.GREEN}{Colors.BOLD}🧹 붕괴 잔해 제거 완료 - 복귀 경로 개방!{Colors.RESET}\r\n")
                             sys.stdout.flush()
                     elif key in ['q', 'Q', '\x03']: # Ctrl+C
                         break
@@ -449,7 +470,7 @@ class GazeboSimulationRunner:
 
 def main():
     parser = argparse.ArgumentParser(description="Disaster Recovery TurtleBot3 Gazebo Simulator")
-    parser.add_argument("--world", type=str, default="world", help="World name (world, house, maze, tunnel, collapsed, empty)")
+    parser.add_argument("--world", type=str, default="collapsed", help="World name (collapsed, world, house, maze, tunnel, empty)")
     parser.add_argument("--house", action="store_true", help="Shortcut for --world house (Corridors & Rooms)")
     parser.add_argument("--maze", action="store_true", help="Shortcut for --world maze (Complex Inner Walls & Obstacles)")
     parser.add_argument("--tunnel", action="store_true", help="Shortcut for --world tunnel (Subterranean Tunnel & Rubble)")

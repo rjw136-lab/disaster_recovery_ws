@@ -78,6 +78,7 @@
 - [`docs/DISASTER_RECOVERY_GUIDEBOOK.md`](docs/DISASTER_RECOVERY_GUIDEBOOK.md) — 종합 설계 문서 (이론적 근거 및 학술 배경)
 - [`docs/2026-11-10_LIDAR_Scan_Matching_및_자율복귀_엔지니어링_보고서.md`](docs/2026-11-10_LIDAR_Scan_Matching_및_자율복귀_엔지니어링_보고서.md) — 2D ICP 스캔 매칭 설계 보고서
 - [`docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md`](docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md) — 트러블슈팅 백서
+- [`docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_논문형_분석보고서.md`](docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_논문형_분석보고서.md) — 붕괴 건물 15회 벤치마크 논문형 분석 보고서 (알고리즘 명세 · 실패 전수 분석 · CPU/GPU 프로파일링)
 - [`docs/PATENT_ANALYSIS_AND_PRIOR_ART.md`](docs/PATENT_ANALYSIS_AND_PRIOR_ART.md) — 선행 특허 분석 보고서
 
 ---
@@ -335,6 +336,8 @@ disaster_recovery_ws/
 │   ├── PATENT_ANALYSIS_AND_PRIOR_ART.md # 선행 특허 분석 보고서
 │   ├── 2026-11-10_LIDAR_Scan_Matching_및_자율복귀_엔지니어링_보고서.md
 │   ├── 2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md
+│   ├── 2026-11-13_붕괴건물_15회_자율복귀_벤치마크_논문형_분석보고서.md
+│   ├── images/collapsed_disaster_benchmark_trajectories.png
 │   └── Disaster_Recovery_TurtleBot3_Integration_Report.{md,docx}
 └── src/disaster_recovery/
     ├── package.xml / setup.py / setup.cfg
