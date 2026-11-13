@@ -19,6 +19,9 @@ __pycache__/
 blackbox_logs/
 frames_*.gv
 frames_*.pdf
+cam_test.png
+*.mp4
+/tmp/
 
 # Editors / OS
 .vscode/

@@ -76,7 +76,6 @@
 ### 관련 문서
 
 - [`docs/DISASTER_RECOVERY_GUIDEBOOK.md`](docs/DISASTER_RECOVERY_GUIDEBOOK.md) — 종합 설계 문서 (이론적 근거 및 학술 배경)
-- [`docs/2026-11-12_지하터널_재난환경_자율복귀_시뮬레이션_및_트러블슈팅_종합보고서.md`](docs/2026-11-12_지하터널_재난환경_자율복귀_시뮬레이션_및_트러블슈팅_종합보고서.md) — 🪨 지하 터널 재난환경 자율복귀 시뮬레이션 및 트러블슈팅 종합보고서
 - [`docs/2026-11-10_LIDAR_Scan_Matching_및_자율복귀_엔지니어링_보고서.md`](docs/2026-11-10_LIDAR_Scan_Matching_및_자율복귀_엔지니어링_보고서.md) — 2D ICP 스캔 매칭 설계 보고서
 - [`docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md`](docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md) — 트러블슈팅 백서
 - [`docs/PATENT_ANALYSIS_AND_PRIOR_ART.md`](docs/PATENT_ANALYSIS_AND_PRIOR_ART.md) — 선행 특허 분석 보고서
@@ -260,72 +259,6 @@ flowchart TD
 # 4대 비교군 정량 벤치마크 직접 재현 실행
 python3 scripts/host/verify_hybrid_recovery.py --trials 50
 ```
-
----
-
-### 4. 🪨 지하 터널 험지 환경 (Subterranean Tunnel World) 20회 연속 심층 침투 및 동적 낙석(Fallen Debris) 불시 투하 벤치마크
-
-GPS 및 무선 통신(Wi-Fi/LTE)이 전면 차단된 실제 지하 붕괴 갱도 환경을 모사한 **CMU CERLAB Subterranean Tunnel World (`Gazebo-Tunnel-World`)**에서, 통신 두절 워치독과 4계층 하이브리드 자율복귀 제어기의 신뢰성을 정량적으로 입증하기 위해 **20회 연속 심층 침투(Deep Penetration) 및 복귀로 상 동적 낙석(Dynamic Fallen Debris) 불시 투하 스트레스 벤치마크**를 수행하였다.
-
-<p align="center">
-  <img src="docs/images/tunnel_disaster_benchmark_trajectories.png" alt="20-Trial Autonomous Deep Tunnel Trajectories with Dynamic Debris Drop" width="94%">
-  <br>
-  <em>▲ 지하 터널 20회 연속 심층 자율복귀 궤적(점선: AI 탐사 진입, 실선: 4계층 자율복귀, 진홍색 원통: 복귀로 상 불시 투하된 동적 낙석 장애물)</em>
-</p>
-
-#### ⚙️ 20회차 심층 침투 벤치마크 핵심 실험 파라미터
-- **총 시험 회차**: 20회차 연속 무인 자율 기동 (인간 개입 0회)
-- **회차당 심층 진입 거리**: $6.0\,\text{m} \sim 18.0\,\text{m}$ (평균 $11.5\,\text{m}$, 왕복 $12\,\text{m} \sim 36\,\text{m}$)
-- **총 누적 주행 거리**: **$400\,\text{m}+$ 달성** (회차별 탐사 및 복귀 전수 누적 주행)
-- **동적 낙석 투하 (Dynamic Debris Drop)**: 통신 단절(Heartbeat Timeout) 시점마다 기동 복귀로(Breadcrumb Corridor) 상에 직경 $0.36\,\text{m}$, 높이 $0.45\,\text{m}$의 적색 원통형 붕괴 낙석(`disaster_debris`) 무작위 불시 투하
-- **복귀 계층 연계**: Layer 1 LIFO Breadcrumb 역추적 $\rightarrow$ Layer 2 TD3 국소 반응 회피(ONNX, $0.077\,\text{ms}$) $\rightarrow$ Layer 3 2D LiDAR ICP 슬립 리셋 $\rightarrow$ Layer 4 베이스캠프 원점 안착
-- **실시간 관제 GUI 동기화**: Gazebo 3D Viewport 및 RViz2 SLAM 점유 격자 지도(`/map`, `Volatile` QoS 적용) 실시간 동시 렌더링
-
-#### 📐 터널 맵 규격 및 탐사 거리 공학 분석
-- **터널 물리 CAD 규격 (`model.dae`)**: $X \in [-10.28, +12.14]\,\text{m}$ (폭 $22.4\,\text{m}$), $Y \in [-4.38, +42.50]\,\text{m}$ (총 연장 **$46.88\,\text{m}$**).
-- **심층 침투 가능 구간**: 실제 메인 갱도 입구($y=-3.0$)부터 SUV 차량($y=0.82$), 대형 굴삭기($y=10.78$)를 통과하여 최심부 챔버($y=35.0$)까지 약 **$38\,\text{m}$ 직진 심층 침투**가 물리적으로 가능하며, 본 20회차 시험에서는 안전 여유폭을 고려하여 $6.0\sim 18.0\,\text{m}$ 심도로 순환 왕복 주행하여 총 400m+의 주행 거리를 성공적으로 누적하였다.
-
----
-
-### 5. 🔬 시뮬레이션 기반 검증의 공학적 기대점 및 가치 (Simulation Engineering Expectations)
-
-본 프로젝트에서 고충실도(High-Fidelity) 물리 시뮬레이션(Gazebo + ODE + Cartographer SLAM)을 구축하고 수백 미터 단위의 가상 재난 벤치마크를 선행한 공학적 기대 효과 및 실차 전이(Sim-to-Real) 타당성은 다음과 같다:
-
-1. **물리적 파손 없는 극한 재난 한계 검증 (Zero-Risk Extreme Stress Testing)**:
-   - 실제 갱도 붕괴, 불시 낙석 투하, 통신 급단절, 미끄러운 암반 노면에서의 휠 슬립 등 실차 하드웨어(TurtleBot3 Burger, LDS-01, RPi 4)를 투입했을 때 전복·파손·장비 손실 위험이 극도로 높은 극한 스트레스 시나리오를 소프트웨어적으로 100% 무손실 검증한다.
-2. **Sim-to-Real 간극(Gap) 최소화 및 99KB ONNX 경량화 검증**:
-   - 물리 엔진 내 로봇의 관성 모멘트, 무게중심($z=0.059\,\text{m}$), LDS-01 라이다 노이즈 가우시안 분포, 휠-지면 접촉 마찰 계수($\mu=0.8$)를 실차 물리 사양과 정합하였다.
-   - Host PC(NVIDIA GTX 1050 Ti)에서 사전 학습된 심층 강화학습(TD3) Actor 네트워크를 99.07 KB의 초경량 ONNX로 최적화하여, 실차 임베디드 단말(RPi 4 단일 코어)에서도 $0.077\,\text{ms}$ 저지연으로 폐루프 제어가 가능함을 보장한다.
-3. **인간 개입이 배제된 완전 무인 자율성(Full Autonomy) 입증**:
-   - 통신 두절 발생 후 기지국의 수동 개입이나 조종사의 시야 확보 없이, 워치독 감지 $\rightarrow$ 제어권 차단 $\rightarrow$ 역추종 $\rightarrow$ 동적 장애물 감지 $\rightarrow$ 국소 우회 $\rightarrow$ ICP 오차 보정 $\rightarrow$ 원점 복귀의 전 과정이 단 하나의 외부 명령 없이 독립적으로 완결됨을 통계적으로 입증한다.
-4. **도메인 랜덤화(Domain Randomization) 기반 일반화 성능 확보**:
-   - 단일 직선 통로에 국한되지 않고, 갱도 폭 변화, 굴삭기 및 장애물 밀집도, 통신 두절 깊이($6\sim 18\,\text{m}$), 낙석 투하 위치의 무작위 변량을 인가함으로써 환경 변화에 과적합(Overfitting)되지 않는 강인한 제어 안정성을 획득한다.
-
----
-
-### 6. 👁️ YOLO 비전 AI 시뮬레이션 연동 구조 및 확장성 (Vision AI Simulation with YOLO)
-
-본 시스템은 라이다/오도메트리 기반 자율복귀뿐만 아니라, **가상 카메라 센서를 탑재한 YOLO 기반 비전 AI 시뮬레이션을 완벽히 지원**하도록 설계되어 있다.
-
-#### 1) 실행 아키텍처 및 원터치 옵션 (`--yolo`)
-```bash
-# 가상 카메라 탑재 로봇(burger_cam) + YOLO26n 실시간 객체 인식 창 기동
-python3 scripts/host/sim.py --tunnel --yolo
-```
-- **가상 카메라 모델 (`burger_cam`)**: TurtleBot3 Burger 전면에 Gazebo `libgazebo_ros_camera.so` 플러그인을 탑재하여 실차 CSI 카메라와 동일한 $640\times 480$ @ 30 FPS 해상도로 `/camera/image_raw`를 퍼블리시한다.
-- **호스트 AI 파이프라인 연동**: Host PC의 `host_ai_pipeline.py` 노드가 `/camera/image_raw`를 구독하여 GPU(NVIDIA TensorRT/CUDA) 또는 CPU 환경에서 YOLO 추론을 실시간 수행한다.
-
-#### 2) 시뮬레이션 상 YOLO의 핵심 역할 및 기대 기능
-1. **재난 조난자(Human Survivor) 탐지**:
-   - 가상 월드 내 배치된 조난자 3D 메쉬(`person` 클래스) 감지 시 실시간 바운딩 박스 및 `SURVIVOR LOCATED` 경보 배너를 시각화하고 관제국 알림(`/disaster/victim_alert`)을 자동 발행한다.
-2. **동적 붕괴 낙석 및 유해 장애물 시각적 분류 (Hazard Identification)**:
-   - 라이다가 감지한 2D 거리 정보에 더해, 비전 AI가 낙석(Rock/Debris), 화재(Fire/Smoke), 구조물 균열(Crack) 등을 시각적으로 다중 분류하여 2차 재난 위험도를 평가한다.
-3. **베이스캠프 ArUco 광학 마커 도킹 (Visual Servoing)**:
-   - 가상 카메라 영상을 통해 원점에 배치된 ArUco 마커(ID 0)를 `solvePnP`로 추정하여 $\pm 2\,\text{cm}$ 이내의 초정밀 최종 도킹을 달성한다.
-4. **합성 데이터셋(Synthetic Dataset) 자동 구축 가능성**:
-   - Gazebo 환경의 조도 변화, 연기/안개 플러그인, 텍스처 무작위 변조를 활용하여 실제 재난 현장에서 취득하기 어려운 위험 시각 데이터를 대량 생성하고 맞춤형 재난 특화 YOLO 모델을 파인튜닝할 수 있다.
-
-> 📄 **상세 트러블슈팅 및 5대 병목 패치 내역 전문**: [`docs/2026-11-12_지하터널_재난환경_자율복귀_시뮬레이션_및_트러블슈팅_종합보고서.md`](docs/2026-11-12_지하터널_재난환경_자율복귀_시뮬레이션_및_트러블슈팅_종합보고서.md)
 
 ---
 
@@ -559,12 +492,14 @@ ros2 topic echo /disaster/audio_alert
 실차 없이 Host PC에서 복귀 제어기와 스캔 매칭 보정을 검증하기 위한 환경이다. Gazebo + Cartographer SLAM + RViz2 + `recovery_controller` + 가상 Heartbeat를 한 번에 실행한다.
 
 ```bash
-python3 scripts/host/sim.py            # turtlebot3_world 맵
-python3 scripts/host/sim.py --house    # 방·복도 구조의 house 맵
-python3 scripts/host/sim.py --yolo     # 카메라 장착 모델(burger_cam) + YOLO26n 탐지 창
-python3 scripts/host/sim.py --no-slam  # SLAM/RViz 없이 실행
-python3 scripts/host/sim.py --stop     # 시뮬레이션 프로세스 일괄 종료
-python3 scripts/host/start.py --sim    # start.py 경유 실행
+python3 scripts/host/sim.py --collapsed # 지진 붕괴 건물 재난 맵 (ros2-disaster-robot-sim 기반)
+python3 scripts/host/sim.py --tunnel    # 지하 터널 재난 맵
+python3 scripts/host/sim.py --house     # 방·복도 구조의 house 맵
+python3 scripts/host/sim.py             # turtlebot3_world 맵
+python3 scripts/host/sim.py --yolo      # 가상 카메라(/camera/image_raw) + YOLO26n 탐지 창
+python3 scripts/host/sim.py --no-slam   # SLAM/RViz 없이 실행
+python3 scripts/host/sim.py --stop      # 시뮬레이션 프로세스 일괄 종료
+python3 scripts/host/start.py --sim     # start.py 경유 실행
 ```
 
 | 키 | 동작 |
