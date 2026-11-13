@@ -28,7 +28,7 @@
 ## 📑 목차
 
 1. [개요](#-개요)
-   - [최근 변경사항 (Patch Notes)](#최근-변경사항-patch-notes)
+   - [최근 변경사항 (Patch Notes · 최근 6건)](#최근-변경사항-patch-notes--최근-6건)
 2. [핵심 기능](#-핵심-기능)
 3. [시스템 아키텍처](#-시스템-아키텍처)
 4. [상태 머신](#-상태-머신-recovery_controller)
@@ -74,7 +74,7 @@
 | 센서 | MQ-2 + ADS1115 가스 센서 | ⏳ 드라이버 완료, 결선 예정 |
 | 고도화 | 계층적 하이브리드 자율복귀 (Regulated Pure Pursuit + Residual TD3 + 2D ICP + ArUco) | ✅ 구현 · 벤치마크 검증 완료 |
 
-### 최근 변경사항 (Patch Notes)
+### 최근 변경사항 (Patch Notes · 최근 6건)
 
 | 일자 (커밋) | 핵심 변경 요약 |
 | :--- | :--- |
@@ -85,8 +85,11 @@
 | **2026-11-13** (`7e04510`) | **Regulated Pure Pursuit + Residual TD3 하이브리드 추종** — `BACKTRACKING_HYBRID` 연속 곡률 추종(`lookahead_dist_m=0.45`, `v_max=0.20 m/s`, `w_max=0.65 rad/s`) 및 `recovery_params.yaml` 파라미터 고도화, 통합 테스트 5개(총 13개) 통과 |
 | **2026-11-12** (`2daa1ff`~`07d151c`) | **지하 터널 통합 & 시뮬레이터 모드 확장** — `sim.py` `--software`·`--headless` 옵션 추가, `wasd_teleop.py` 이중 발행/내장 하트비트 개선, 동적 낙석 투하 20회 터널 벤치마크 검증 |
 
+> 📜 **전체 누적 변경 이력 (`2026-11-05` ~ 최신):** 나머지 과거 패치 및 커밋별 전체 내역은 [`CHANGELOG.md`](CHANGELOG.md)에서 한눈에 확인할 수 있습니다.
+
 ### 관련 문서
 
+- [`CHANGELOG.md`](CHANGELOG.md) — 초기 업로드(`2026-11-05`)부터 최신 커밋까지의 전체 누적 패치노트
 - [`docs/DISASTER_RECOVERY_GUIDEBOOK.md`](docs/DISASTER_RECOVERY_GUIDEBOOK.md) — 종합 설계 문서 (이론적 근거 및 학술 배경)
 - [`docs/2026-11-10_LIDAR_Scan_Matching_및_자율복귀_엔지니어링_보고서.md`](docs/2026-11-10_LIDAR_Scan_Matching_및_자율복귀_엔지니어링_보고서.md) — 2D ICP 스캔 매칭 설계 보고서
 - [`docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md`](docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md) — 트러블슈팅 백서
@@ -355,6 +358,7 @@ i2cdetect -y 1        # 48 이 보여야 정상
 ```
 disaster_recovery_ws/
 ├── README.md
+├── CHANGELOG.md                         # 초기 업로드~최신 전체 누적 변경 이력
 ├── LICENSE
 ├── scripts/
 │   ├── host/                            # Host PC 관제·AI·시뮬레이션·벤치마크 스크립트
