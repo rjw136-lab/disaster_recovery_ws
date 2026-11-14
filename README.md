@@ -90,15 +90,12 @@
 
 ### 관련 문서
 
-- [`AGENTS.md`](AGENTS.md) — 저장소 상시 작업 규칙 (트러블슈팅 `#30+` 누적 · 이식성 · 병렬 격리 · 3D 증거)
-- [`SERVER_MISSION.md`](SERVER_MISSION.md) — V100 GPU 서버 Phase 1·2 실행 지침서
 - [`CHANGELOG.md`](CHANGELOG.md) — 초기 업로드(`2026-11-05`)부터 최신 커밋까지의 전체 누적 패치노트
 - [`docs/DISASTER_RECOVERY_GUIDEBOOK.md`](docs/DISASTER_RECOVERY_GUIDEBOOK.md) — 종합 설계 문서 (전체 구조 및 동작 원리)
 - [`docs/2026-11-10_LIDAR_Scan_Matching_및_자율복귀_엔지니어링_보고서.md`](docs/2026-11-10_LIDAR_Scan_Matching_및_자율복귀_엔지니어링_보고서.md) — 2D ICP 스캔 매칭 설계 보고서
 - [`docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md`](docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md) — 트러블슈팅 백서 (`#01` ~ `#36` 전수 통합)
 - [`docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_분석보고서.md`](docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_분석보고서.md) — 붕괴 건물 15회 벤치마크 분석 보고서
 - [`docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md`](docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md) — **5대 재난환경 A/B (`49/50 = 98.0%`) & Phase 2-A Sim-to-Sim (`48/50 = 96.0%`) 보고서**
-- [`docs/2026-11-14_중간상황_및_서버이관_체크포인트.md`](docs/2026-11-14_중간상황_및_서버이관_체크포인트.md) — 중간 벤치마크(`house` 7/10) 및 V100 서버 이관 체크포인트
 - [`docs/PATENT_ANALYSIS_AND_PRIOR_ART.md`](docs/PATENT_ANALYSIS_AND_PRIOR_ART.md) — 선행 특허 분석 보고서
 
 ---
@@ -379,8 +376,6 @@ i2cdetect -y 1        # 48 이 보여야 정상
 
 ```
 disaster_recovery_ws/
-├── AGENTS.md                            # 상시 프로젝트 규칙 (트러블슈팅 누적 · 이식성 · 병렬 격리 · 3D 증거)
-├── SERVER_MISSION.md                    # Tesla V100 32GB 서버 Phase 1·2 실행 지침서
 ├── README.md
 ├── CHANGELOG.md                         # 초기 업로드~최신 전체 누적 변경 이력
 ├── LICENSE
@@ -424,7 +419,6 @@ disaster_recovery_ws/
 │   ├── 2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md
 │   ├── 2026-11-13_붕괴건물_15회_자율복귀_벤치마크_분석보고서.md
 │   ├── 2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md
-│   ├── 2026-11-14_중간상황_및_서버이관_체크포인트.md
 │   ├── Disaster_Recovery_TurtleBot3_Integration_Report.{md,docx}
 │   └── images/                          # 배너, 3D 쉘, A/B 그래프 5종 & evidence/(3D 스냅샷·데모 GIF·RL 학습곡선)
 ├── benchmark_results/                   # ab_comparison(Phase 1) · phase2_sim2sim · phase2a_sim2sim 결과 JSON
