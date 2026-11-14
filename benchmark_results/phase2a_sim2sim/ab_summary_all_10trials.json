@@ -1,0 +1,152 @@
+{
+  "collapsed": {
+    "baseline": {
+      "scenario": "collapsed",
+      "label_ko": "붕괴 건물 (기본 재난환경)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 5,
+      "success_rate_pct": 50.0,
+      "mean_error_cm_all": 366.55,
+      "mean_error_cm_pass": 10.19,
+      "mean_time_s_all": 164.48,
+      "mean_time_s_pass": 102.18,
+      "mean_ret_path_m_pass": 13.38,
+      "mean_explored_m": 14.63
+    },
+    "proposed": {
+      "scenario": "collapsed",
+      "label_ko": "붕괴 건물 (기본 재난환경)",
+      "strategy": "proposed_rl",
+      "trials": 10,
+      "passes": 10,
+      "success_rate_pct": 100.0,
+      "mean_error_cm_all": 8.32,
+      "mean_error_cm_pass": 8.32,
+      "mean_time_s_all": 98.05,
+      "mean_time_s_pass": 98.05,
+      "mean_ret_path_m_pass": 15.26,
+      "mean_explored_m": 15.28
+    }
+  },
+  "collapsed_heavy": {
+    "baseline": {
+      "scenario": "collapsed_heavy",
+      "label_ko": "붕괴 건물 (고밀도 다중 낙석)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 2,
+      "success_rate_pct": 20.0,
+      "mean_error_cm_all": 475.56,
+      "mean_error_cm_pass": 3.88,
+      "mean_time_s_all": 238.49,
+      "mean_time_s_pass": 171.35,
+      "mean_ret_path_m_pass": 18.57,
+      "mean_explored_m": 16.46
+    },
+    "proposed": {
+      "scenario": "collapsed_heavy",
+      "label_ko": "붕괴 건물 (고밀도 다중 낙석)",
+      "strategy": "proposed_rl",
+      "trials": 10,
+      "passes": 9,
+      "success_rate_pct": 90.0,
+      "mean_error_cm_all": 38.97,
+      "mean_error_cm_pass": 8.47,
+      "mean_time_s_all": 125.29,
+      "mean_time_s_pass": 110.32,
+      "mean_ret_path_m_pass": 16.27,
+      "mean_explored_m": 15.76
+    }
+  },
+  "house": {
+    "baseline": {
+      "scenario": "house",
+      "label_ko": "실내 가옥 (다실 문틀·직각 복도)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 9,
+      "success_rate_pct": 90.0,
+      "mean_error_cm_all": 33.65,
+      "mean_error_cm_pass": 5.04,
+      "mean_time_s_all": 135.51,
+      "mean_time_s_pass": 123.57,
+      "mean_ret_path_m_pass": 15.7,
+      "mean_explored_m": 16.35
+    },
+    "proposed": {
+      "scenario": "house",
+      "label_ko": "실내 가옥 (다실 문틀·직각 복도)",
+      "strategy": "proposed_rl",
+      "trials": 10,
+      "passes": 9,
+      "success_rate_pct": 90.0,
+      "mean_error_cm_all": 29.54,
+      "mean_error_cm_pass": 8.67,
+      "mean_time_s_all": 112.63,
+      "mean_time_s_pass": 98.22,
+      "mean_ret_path_m_pass": 14.03,
+      "mean_explored_m": 16.62
+    }
+  },
+  "tunnel": {
+    "baseline": {
+      "scenario": "tunnel",
+      "label_ko": "지하 터널 (협소 험지·차량 잔해)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 9,
+      "success_rate_pct": 90.0,
+      "mean_error_cm_all": 42.09,
+      "mean_error_cm_pass": 10.72,
+      "mean_time_s_all": 98.47,
+      "mean_time_s_pass": 83.84,
+      "mean_ret_path_m_pass": 12.0,
+      "mean_explored_m": 12.46
+    },
+    "proposed": {
+      "scenario": "tunnel",
+      "label_ko": "지하 터널 (협소 험지·차량 잔해)",
+      "strategy": "proposed_rl",
+      "trials": 10,
+      "passes": 10,
+      "success_rate_pct": 100.0,
+      "mean_error_cm_all": 8.17,
+      "mean_error_cm_pass": 8.17,
+      "mean_time_s_all": 80.1,
+      "mean_time_s_pass": 80.1,
+      "mean_ret_path_m_pass": 12.82,
+      "mean_explored_m": 12.46
+    }
+  },
+  "maze": {
+    "baseline": {
+      "scenario": "maze",
+      "label_ko": "미로 격벽 (동적 이동 장애물 포함)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 9,
+      "success_rate_pct": 90.0,
+      "mean_error_cm_all": 24.6,
+      "mean_error_cm_pass": 2.9,
+      "mean_time_s_all": 110.52,
+      "mean_time_s_pass": 99.46,
+      "mean_ret_path_m_pass": 10.79,
+      "mean_explored_m": 10.68
+    },
+    "proposed": {
+      "scenario": "maze",
+      "label_ko": "미로 격벽 (동적 이동 장애물 포함)",
+      "strategy": "proposed_rl",
+      "trials": 10,
+      "passes": 10,
+      "success_rate_pct": 100.0,
+      "mean_error_cm_all": 8.14,
+      "mean_error_cm_pass": 8.14,
+      "mean_time_s_all": 21.19,
+      "mean_time_s_pass": 21.19,
+      "mean_ret_path_m_pass": 2.5,
+      "mean_explored_m": 10.68
+    }
+  }
+}

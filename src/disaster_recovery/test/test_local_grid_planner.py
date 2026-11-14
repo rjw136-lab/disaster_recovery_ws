@@ -237,6 +237,8 @@ def test_narrow_gap_stall_does_not_seal_corridor_with_virtual_barrier():
     )
     assert tag_esc == "ESCAPE"
     assert len(planner._virtual_obstacles) == 0
+    assert len(planner.last_clearances) == 4
+    assert isinstance(planner.last_used_tight_pass, bool)
 
 
 def test_house_corridor_tight_gap_rock_traversal():

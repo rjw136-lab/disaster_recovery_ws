@@ -14,7 +14,11 @@ import math
 import numpy as np
 import pytest
 
-from disaster_recovery.recovery_controller import icp_match_2d, normalize_angle
+from disaster_recovery.recovery_controller import (
+    compute_rl_blend_weight,
+    icp_match_2d,
+    normalize_angle,
+)
 from disaster_recovery.td3_policy import (
     TD3LocalAvoidancePolicy,
     extract_state_vector,
@@ -174,3 +178,27 @@ def test_context_rl_student_onnx_inference_and_latency():
         v2, w2 = policy.predict(None, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0)
         assert TB3_MIN_V <= v2 <= TB3_MAX_V
         assert -TB3_MAX_W <= w2 <= TB3_MAX_W
+
+        # Verify observe() advances rolling context window with live step_norm without running ONNX
+        policy.reset()
+        prev_last = policy.hist[-1].copy()
+        patch = policy.observe(scan_ranges, 0.0, 0.0, 0.0, 1.0, 0.0, 0.12, 0.1, 0.11, 0.08, step_norm=0.75)
+        assert patch.ndim == 2
+        assert not np.allclose(policy.hist[-1], prev_last)
+        assert abs(float(policy.hist[-1][-1]) - 0.75) < 1e-5
+
+
+def test_clearance_gated_rl_blend_weight():
+    """Verify RL blend smoothly ramps down to 0 in tight corridors/doorways and hits 0.70 in open lanes."""
+    # Tight pass or close front obstacle or narrow lateral pinch -> pure A* (0.0)
+    assert compute_rl_blend_weight(front_min=0.80, side_clearance=1.20, used_tight_pass=True) == 0.0
+    assert compute_rl_blend_weight(front_min=0.25, side_clearance=1.20, used_tight_pass=False) == 0.0
+    assert compute_rl_blend_weight(front_min=0.80, side_clearance=0.58, used_tight_pass=False) == 0.0
+
+    # Wide open corridor -> full max_alpha (0.70)
+    w_open = compute_rl_blend_weight(front_min=0.60, side_clearance=1.05, used_tight_pass=False)
+    assert abs(w_open - 0.70) < 1e-6
+
+    # Intermediate transition -> strictly between 0 and 0.70
+    w_mid = compute_rl_blend_weight(front_min=0.365, side_clearance=0.90, used_tight_pass=False)
+    assert 0.0 < w_mid < 0.70

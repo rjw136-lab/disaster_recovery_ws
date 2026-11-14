@@ -289,6 +289,27 @@ class ContextRLStudentPolicy:
         feat[33] = float(np.clip(step_norm, 0.0, 1.0))
         return feat, patch
 
+    def observe(
+        self,
+        scan_ranges: Optional[Sequence[float]],
+        rx: float,
+        ry: float,
+        rth: float,
+        tx: float,
+        ty: float,
+        cmd_v: float,
+        cmd_w: float,
+        act_v: float,
+        act_w: float,
+        step_norm: float = 0.0,
+    ) -> np.ndarray:
+        """Append the current step feature vector to the rolling context buffer."""
+        feat, patch = self._build_step_and_patch(
+            scan_ranges, rx, ry, rth, tx, ty, cmd_v, cmd_w, act_v, act_w, step_norm
+        )
+        self.hist.append(feat)
+        return patch
+
     def predict(
         self,
         scan_ranges: Optional[Sequence[float]],
@@ -303,10 +324,9 @@ class ContextRLStudentPolicy:
         act_w: float,
         step_norm: float = 0.0,
     ) -> Tuple[float, float]:
-        feat, patch = self._build_step_and_patch(
+        patch = self.observe(
             scan_ranges, rx, ry, rth, tx, ty, cmd_v, cmd_w, act_v, act_w, step_norm
         )
-        self.hist.append(feat)
         hist_arr = np.stack(list(self.hist), axis=0).reshape(1, -1)
         patch_arr = patch.reshape(1, -1)
         flat = np.concatenate([hist_arr, patch_arr], axis=1).astype(np.float32)

@@ -662,7 +662,7 @@ def _apply_hud_overlay(
     strat_label = {
         "baseline": "Baseline (단순 역추적)",
         "proposed": "Phase 1 (proposed A*)",
-        "proposed_rl": "Phase 2 (proposed_rl)",
+        "proposed_rl": "Phase 2-A (proposed_rl)",
     }.get(strategy, strategy)
 
     has_nvenc = False
@@ -718,7 +718,7 @@ def _apply_hud_overlay(
             f"상태: {st_name}  |  경과: {sim_el:5.1f}s  |  잔여: {dist_rem:4.2f}m"
         )
         draw.text((18, 10), top_txt, font=font_top, fill=(248, 250, 252, 255))
-        draw.text((1232, 10), "[RViz2: START(BASE CAMP) & 초록 복귀 궤적 & 노란 낙석 마커]", font=font_top, fill=(134, 239, 172, 255))
+        draw.text((1250, 10), "[RViz2: SLAM /map · 초록 복귀 궤적 · 노란 낙석 마커]", font=font_top, fill=(134, 239, 172, 255))
 
         # Bottom Event Banner
         if sim_el <= 4.5:

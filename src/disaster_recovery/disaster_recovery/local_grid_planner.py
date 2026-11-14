@@ -424,6 +424,8 @@ class ProposedRecoveryPlanner:
         self.escape_count = 0
         self.shortcut_count = 0
         self.last_subgoal = None
+        self.last_clearances: Tuple[float, float, float, float] = (3.5, 3.5, 3.5, 3.5)
+        self.last_used_tight_pass: bool = False
 
     @staticmethod
     def _scan_sector_clearances(scan_pts: Optional[np.ndarray]) -> Tuple[float, float, float, float]:
@@ -677,6 +679,8 @@ class ProposedRecoveryPlanner:
         """
         self.grid.update_scan(rx, ry, rth, scan_pts)
         front_min, left_min, right_min, rear_min = self._scan_sector_clearances(scan_pts)
+        self.last_clearances = (front_min, left_min, right_min, rear_min)
+        self.last_used_tight_pass = False
 
         # Pop already reached breadcrumbs or earlier loop-closure breadcrumbs within 0.55m
         # (non-destructive for distant shortcuts: only prune once physically reached)
@@ -806,6 +810,7 @@ class ProposedRecoveryPlanner:
             if path_t is not None and len(path_t) > 0:
                 path_ij, chosen_idx = path_t, chosen_t
                 hard_blocked, soft_cost = hard_tight, soft_tight
+                self.last_used_tight_pass = True
         self._last_chosen_idx = chosen_idx
 
         # Prune immediate rock-buried breadcrumbs when a downstream WP is already safely targeted

@@ -88,6 +88,20 @@ def normalize_angle(angle: float) -> float:
     return angle
 
 
+def compute_rl_blend_weight(
+    front_min: float,
+    side_clearance: float,
+    used_tight_pass: bool,
+    max_alpha: float = 0.70,
+) -> float:
+    """Gate RL blend weight to 0 in narrow pinches/doorways while preserving RL speed in open corridors."""
+    if used_tight_pass or front_min < 0.28 or side_clearance < 0.62:
+        return 0.0
+    front_gate = min(1.0, max(0.0, (front_min - 0.28) / (0.45 - 0.28)))
+    side_gate = min(1.0, max(0.0, (side_clearance - 0.62) / (0.85 - 0.62)))
+    return float(max_alpha * min(front_gate, side_gate))
+
+
 def quaternion_to_yaw(qx: float, qy: float, qz: float, qw: float) -> float:
     """Extract Euler yaw angle from quaternion."""
     siny_cosp = 2.0 * (qw * qz + qx * qy)
@@ -251,6 +265,7 @@ class RecoveryController(Node):
         self.actual_v = 0.0
         self.actual_w = 0.0
         self.td3_avoid_step = 0
+        self.recovery_step_count = 0
 
         # Initialize TD3 Local Avoidance Policy (Layer 2)
         if self.enable_td3_avoidance:
@@ -460,6 +475,7 @@ class RecoveryController(Node):
         self.last_cmd_w = 0.0
         self.actual_v = 0.0
         self.actual_w = 0.0
+        self.recovery_step_count = 0
         if self.local_planner is not None:
             self.local_planner.reset()
         if self.context_rl_policy is not None:
@@ -613,8 +629,11 @@ class RecoveryController(Node):
                         self.current_x = self.raw_odom_x
                         self.current_y = self.raw_odom_y
                         self.current_theta = self.raw_odom_theta
+                    self.recovery_step_count = 0
                     if self.local_planner is not None:
                         self.local_planner.reset()
+                    if self.context_rl_policy is not None:
+                        self.context_rl_policy.reset()
                     self.get_logger().info(">>> Heartbeat link restored! Controller reset to NORMAL_TELEOP mode. <<<")
             else:
                 self._link_restored_timer = None
@@ -629,7 +648,7 @@ class RecoveryController(Node):
         # 2. Watchdog Fault Detection (Active in NORMAL_TELEOP)
         if self.state == SystemState.NORMAL_TELEOP:
             if (
-                self.recovery_strategy == 'proposed'
+                self.recovery_strategy in ('proposed', 'proposed_rl')
                 and self.local_planner is not None
                 and self.odom_initialized
                 and self.latest_scan_pts is not None
@@ -716,31 +735,61 @@ class RecoveryController(Node):
                 wp_reach_radius=self.wp_reach_radius,
                 docking_dist_th=self.docking_dist_th,
             )
-            if (
-                self.recovery_strategy == 'proposed_rl'
-                and self.context_rl_policy is not None
-                and status_tag == "ASTAR_TRACK"
-                and subgoal_xy is not None
-            ):
-                v_rl, w_rl = self.context_rl_policy.predict(
-                    scan_ranges=self.latest_raw_ranges,
-                    rx=self.current_x,
-                    ry=self.current_y,
-                    rth=self.current_theta,
-                    tx=subgoal_xy[0],
-                    ty=subgoal_xy[1],
-                    cmd_v=self.last_cmd_v,
-                    cmd_w=self.last_cmd_w,
-                    act_v=self.actual_v,
-                    act_w=self.actual_w,
-                )
-                v_cmd = max(-0.10, min(self.v_max, 0.70 * v_rl + 0.30 * v_cmd))
-                w_cmd = max(-self.w_max, min(self.w_max, 0.70 * w_rl + 0.30 * w_cmd))
             if status_tag == "ARRIVED":
                 self.waypoint_stack.clear()
                 self.active_target_wp = None
                 self.state = SystemState.BACKTRACKING_HYBRID
             else:
+                if self.recovery_strategy == 'proposed_rl' and self.context_rl_policy is not None:
+                    self.recovery_step_count += 1
+                    step_norm = min(1.0, self.recovery_step_count / 280.0)
+                    if subgoal_xy is not None:
+                        target_xy = subgoal_xy
+                    elif len(self.waypoint_stack) > 0:
+                        target_xy = (self.waypoint_stack[-1].x, self.waypoint_stack[-1].y)
+                    elif self.start_pose is not None:
+                        target_xy = (self.start_pose.x, self.start_pose.y)
+                    else:
+                        target_xy = (self.current_x, self.current_y)
+
+                    if status_tag == "ASTAR_TRACK" and subgoal_xy is not None:
+                        v_rl, w_rl = self.context_rl_policy.predict(
+                            scan_ranges=self.latest_raw_ranges,
+                            rx=self.current_x,
+                            ry=self.current_y,
+                            rth=self.current_theta,
+                            tx=target_xy[0],
+                            ty=target_xy[1],
+                            cmd_v=self.last_cmd_v,
+                            cmd_w=self.last_cmd_w,
+                            act_v=self.actual_v,
+                            act_w=self.actual_w,
+                            step_norm=step_norm,
+                        )
+                        front_min, left_min, right_min, _ = self.local_planner.last_clearances
+                        alpha_rl = compute_rl_blend_weight(
+                            front_min=front_min,
+                            side_clearance=left_min + right_min,
+                            used_tight_pass=self.local_planner.last_used_tight_pass,
+                        )
+                        if alpha_rl > 0.0:
+                            alpha_astar = 1.0 - alpha_rl
+                            v_cmd = max(-0.10, min(self.v_max, alpha_rl * v_rl + alpha_astar * v_cmd))
+                            w_cmd = max(-self.w_max, min(self.w_max, alpha_rl * w_rl + alpha_astar * w_cmd))
+                    else:
+                        self.context_rl_policy.observe(
+                            scan_ranges=self.latest_raw_ranges,
+                            rx=self.current_x,
+                            ry=self.current_y,
+                            rth=self.current_theta,
+                            tx=target_xy[0],
+                            ty=target_xy[1],
+                            cmd_v=self.last_cmd_v,
+                            cmd_w=self.last_cmd_w,
+                            act_v=self.actual_v,
+                            act_w=self.actual_w,
+                            step_norm=step_norm,
+                        )
                 self.state = SystemState.BACKTRACKING_HYBRID
                 self.active_target_wp = (
                     self.waypoint_stack[-1] if len(self.waypoint_stack) > 0 else self.start_pose
@@ -1236,6 +1285,9 @@ class RecoveryController(Node):
     def trigger_emergency_transition(self):
         self.stop_robot()
         self.state = SystemState.EMERGENCY_STOP
+        self.recovery_step_count = 0
+        if self.context_rl_policy is not None:
+            self.context_rl_policy.reset()
 
         # Trigger onboard blackbox recorder to save sensor and camera data locally
         bb_msg = Bool()

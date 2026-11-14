@@ -73,7 +73,7 @@
 | 운용 | 원터치 런처 `start.py` / `stop.py`, WASD 텔레옵 | ✅ 구현 |
 | 시뮬레이션 | Gazebo + Cartographer SLAM 검증 환경 `sim.py` (WSLg D3D12 GPU 가속, 붕괴 건물 등 5개 월드) | ✅ 구현 |
 | 센서 | MQ-2 + ADS1115 가스 센서 | ⏳ 드라이버 완료, 결선 예정 |
-| 고도화 | 계층적 하이브리드 자율복귀 (`RollingLocalGrid + 2D A*` · Phase 2 Dual-Track `ContextRLStudent` · 2D ICP · ArUco) | ✅ Phase 1(`49/50`) · Phase 2(`47/50` S2S) 완료 |
+| 고도화 | 계층적 하이브리드 자율복귀 (`RollingLocalGrid + 2D A*` · Phase 2-A Dual-Track `ContextRLStudent` · 2D ICP · ArUco) | ✅ Phase 1(`49/50`) · Phase 2-A(`48/50` S2S) 완료 |
 
 ### 최근 변경사항 (Patch Notes · 최근 6건)
 
@@ -259,17 +259,34 @@ V100 서버 병렬 워커(`--gz-port`/`--ros-domain-id`)에서 저상 `cafe_tabl
 | :--- | :---: | :---: | :---: | :--- |
 | **1. 붕괴 건물 (`collapsed`)** | 5/10 (50.0%) | **10/10 (100.0%, `8.30cm`)** | **10/10 (100.0%, `8.21cm`)** | U자 포켓 돌파 · `97.44 s` |
 | **2. 고밀도 낙석 (`collapsed_heavy`)** | 2/10 (20.0%) | **10/10 (100.0%, `8.05cm`)** | **9/10 (90.0%, `8.29cm`)** | 6~9개 연쇄 낙석 전수 돌파 |
-| **3. 다실 가옥 (`house`, 15~19m)** | 9/10 (90.0%) | **9/10 (90.0%, `104.09s`)** | 8/10 (80.0%, `118.29s`) | 문틀·저상 받침대 탈출 가속 |
-| **4. 지하 터널 (`tunnel`)** | 9/10 (90.0%) | **10/10 (100.0%, `8.17cm`)** | **10/10 (100.0%, `8.20cm`)** | SUV·굴삭기 협로 무충돌 |
-| **5. 동적 미로 (`maze`, ~10.7m)** | 9/10 (90.0%) | **10/10 (100.0%, `21.02s`)** | **10/10 (100.0%, `21.14s`)** | 복귀 시간 **110.5s ➔ 21.0s (5.3배)** |
-| **50쌍 종합 (`Total`)** | **34/50 (68.0%)** | **49/50 (98.0%, `16.43cm`)** | **47/50 (94.0% Zero-Shot)** | 평균 오차 **-91.3%**, 시간 **-41.3%** |
+| **3. 다실 가옥 (`house`, 15~19m)** | 9/10 (90.0%) | **9/10 (90.0%, `104.09s`)** | **9/10 (90.0%, `98.22s` Phase 2-A)** | 문틀·저상 받침대 Clearance-Gated 관통 |
+| **4. 지하 터널 (`tunnel`)** | 9/10 (90.0%) | **10/10 (100.0%, `8.17cm`)** | **10/10 (100.0%, `8.17cm`)** | SUV·굴삭기 협로 무충돌 |
+| **5. 동적 미로 (`maze`, ~10.7m)** | 9/10 (90.0%) | **10/10 (100.0%, `21.02s`)** | **10/10 (100.0%, `21.19s`)** | 복귀 시간 **110.5s ➔ 21.0s (5.3배)** |
+| **50쌍 종합 (`Total`)** | **34/50 (68.0%)** | **49/50 (98.0%, `16.43cm`)** | **48/50 (96.0% Phase 2-A Zero-Shot)** | 평균 오차 **-91.3%**, 시간 **-41.3%** |
 
 <p align="center">
   <img src="docs/images/evidence/p1_collapsed_baseline_t03_outcome.png" alt="Baseline Fail collapsed t03" width="48%">
-  <img src="docs/images/evidence/p2_sim2sim_collapsed_t03_outcome.png" alt="Phase 2 Sim-to-Sim Pass collapsed t03" width="48%">
+  <img src="docs/images/evidence/p2_sim2sim_collapsed_t03_outcome.png" alt="Phase 2-A Sim-to-Sim Pass collapsed t03" width="48%">
   <br>
-  <em>▲ 3D Gazebo+RViz2 실측 비교 — (좌) Baseline 낙석 교착 실패(802.6cm) vs (우) Phase 2 `proposed_rl` Sim-to-Sim 완주(8.7cm)</em>
+  <em>▲ 3D Gazebo+RViz2 (`slam_toolbox /map`) 실측 비교 — (좌) Baseline 낙석 교착 실패(719.6cm) vs (우) Phase 2-A `proposed_rl` Sim-to-Sim 완주(8.6cm)</em>
 </p>
+
+### 🎬 3D Gazebo + RViz2 (`slam_toolbox /map`) 비교 & RL 학습 과정 데모
+
+#### 1) 붕괴 건물 (`collapsed #03`) A/B vs Phase 1 A\* vs Phase 2-A RL 실시간 주행 비교
+| Baseline (`FAIL · 719.6 cm`) | Phase 1 `proposed A*` (`PASS · 8.4 cm`) | Phase 2-A `proposed_rl` (`PASS · 8.6 cm`) |
+| :---: | :---: | :---: |
+| <img src="docs/images/evidence/p1_collapsed_baseline_t03.gif" width="100%" alt="Baseline collapsed t03"> | <img src="docs/images/evidence/p1_collapsed_proposed_t03.gif" width="100%" alt="Phase 1 A* collapsed t03"> | <img src="docs/images/evidence/p2_sim2sim_collapsed_t03.gif" width="100%" alt="Phase 2-A RL collapsed t03"> |
+
+#### 2) 다실 문틀 (`house #03`) & 동적 미로 (`maze #07`) Phase 2-A Zero-Shot 주행
+| 실내 다실 문틀 (`house #03 · 58.2 s PASS`) | 동적 미로 지름길 (`maze #07 · 23.6 s PASS`) |
+| :---: | :---: |
+| <img src="docs/images/evidence/p2_sim2sim_house_t03.gif" width="100%" alt="Phase 2-A house t03"> | <img src="docs/images/evidence/p2_sim2sim_maze_t07.gif" width="100%" alt="Phase 2-A maze t07"> |
+
+#### 3) V100 Dual-Track RL 절차적 환경 학습 진화 과정 (`Early → Mid → Final Student`)
+| Early (`upd 25`) | Mid (`upd 150`) | Final Sim Student (`75.0%`) | Final Real-TB3 Student (`63.3%`) |
+| :---: | :---: | :---: | :---: |
+| <img src="docs/images/evidence/phase2_sim_early_upd25.gif" width="100%" alt="Phase 2 Early upd25"> | <img src="docs/images/evidence/phase2_sim_mid_upd150.gif" width="100%" alt="Phase 2 Mid upd150"> | <img src="docs/images/evidence/phase2_sim_final_student.gif" width="100%" alt="Phase 2 Sim Final Student"> | <img src="docs/images/evidence/phase2_real_tb3_final_student.gif" width="100%" alt="Phase 2 Real TB3 Final Student"> |
 
 > 📄 5대 환경 상세 비교·3D 스냅샷 보고서: [`docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md`](docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md)
 
@@ -278,7 +295,7 @@ V100 서버 병렬 워커(`--gz-port`/`--ros-domain-id`)에서 저상 `cafe_tabl
 - **학습 규모 및 과적합 차단:** 절차적 랜덤 맵 4종에서 3시드(`101/202/303`) × 300업데이트 = **총 `88,473,600` 스텝 (`392,119` 에피소드: Track A `204,403` + Track B `187,716`)** 학습 후 미학습 60시드 & 공식 Gazebo 50쌍으로 Zero-Shot 일반화 검증.
 - **Track A (`sim_policy_student.onnx`, `231.6 KB`):** Teacher(최대 `83.3%`) → **Agreement-Preserving Selective DAgger** 증류 후 미학습 60시드 **`75.0%`**(`collapsed_debris 93.3%`, `tight_corridor 93.3%`), CPU 1스텝 **`0.036 ms`** (`p99 0.0531 ms`).
 - **Track B (`real_tb3_policy_student.onnx`, `231.6 KB`):** 2D ICP 잔차(`±5%` 스케일·`±0.03 rad` yaw bias·데드존·빔 누락) 환경에서 Teacher(`55.0~61.7%`)를 능가하는 **Unseen `63.3%`** 달성, CPU 1스텝 **`0.0385 ms`** (`p99 0.0551 ms`).
-- **단위 및 통합 테스트:** `python3 -m pytest -p no:anyio src/disaster_recovery/test` **`23 passed`** (ADS1115 8 + Hybrid/Dual-ONNX 6 + LocalGrid A\* 9).
+- **단위 및 통합 테스트:** `python3 -m pytest -p no:anyio src/disaster_recovery/test` **`24 passed`** (ADS1115 8 + Hybrid/Dual-ONNX/Clearance-Gate 7 + LocalGrid A\* 9).
 
 <p align="center">
   <img src="docs/images/evidence/phase2_learning_curves_sim.png" alt="Phase 2 V100 SIM Track Learning Curves" width="48%">

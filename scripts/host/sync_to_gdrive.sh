@@ -64,6 +64,13 @@ if [[ -d "${WS_DIR}/benchmark_results/phase2_sim2sim" ]]; then
     --transfers 4 --checkers 8 --progress
 fi
 
+if [[ -d "${WS_DIR}/benchmark_results/phase2a_sim2sim" ]]; then
+  echo "[GDRIVE] Uploading Phase 2-A Sim-to-Sim JSONs..."
+  "${RCLONE_BIN}" copy "${WS_DIR}/benchmark_results/phase2a_sim2sim" "${REMOTE_NAME}:${PROJECT_SUB}/benchmark_results/phase2a_sim2sim" \
+    --filter "- *.partial.json" --filter "- *.tmp" --filter "+ *.json" --filter "- *" \
+    --transfers 4 --checkers 8 --progress
+fi
+
 if [[ -f "${WS_DIR}/benchmark_results/phase2_training_summary.json" ]]; then
   echo "[GDRIVE] Uploading Phase 2 training summary JSON..."
   "${RCLONE_BIN}" copyto "${WS_DIR}/benchmark_results/phase2_training_summary.json" \
