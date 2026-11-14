@@ -72,28 +72,32 @@
 | 운용 | 원터치 런처 `start.py` / `stop.py`, WASD 텔레옵 | ✅ 구현 |
 | 시뮬레이션 | Gazebo + Cartographer SLAM 검증 환경 `sim.py` (WSLg D3D12 GPU 가속, 붕괴 건물 등 5개 월드) | ✅ 구현 |
 | 센서 | MQ-2 + ADS1115 가스 센서 | ⏳ 드라이버 완료, 결선 예정 |
-| 고도화 | 계층적 하이브리드 자율복귀 (Regulated Pure Pursuit + Residual TD3 + 2D ICP + ArUco) | ✅ 구현 · 벤치마크 검증 완료 |
+| 고도화 | 계층적 하이브리드 자율복귀 (`RollingLocalGrid + 2D A*` · Pure Pursuit · TD3 · 2D ICP · ArUco) | ✅ 구현 · 🔄 서버 Phase 1·2 진행 중 |
 
 ### 최근 변경사항 (Patch Notes · 최근 6건)
 
 | 일자 (커밋) | 핵심 변경 요약 |
 | :--- | :--- |
-| **2026-11-13** (`b212688`) | **RViz2 `RobotModel` 연동 & YOLO 15 FPS 상향** — `disaster_cartographer.rviz` 분리(`start.py`/`sim.py`에서 `use_rviz:=false` 연동), `host_ai_pipeline`에 `yolo_max_fps`(기본 `15.0`) 추가 |
-| **2026-11-13** (`0871c58`) | **Faster-Whisper CUDA INT8 GPU 가속** — cuBLAS/cuDNN 프리로드(`_preload_nvidia_cuda_libs()`) 기반 `whisper_device:=cuda` 기본 활성화 및 CPU 자동 폴백 지원 |
-| **2026-11-13** (`dde535c`) | **WSLg GPU 렌더링 기본화 & 붕괴 건물 15회 벤치마크** — `sim.py`에서 `LIBGL_ALWAYS_SOFTWARE` 해제 + `MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA` 기본 적용(소프트웨어 전환은 `--software`), 기본 맵 `--collapsed` 전환, `[O]` 랜덤 3~6개 낙석 투하(`debris_utils.py`), 15회 붕괴 건물 분석 보고서(11/15 PASS · 실패 원인 · 자원 프로파일링) 추가 |
-| **2026-11-13** (`bdc4bfe`) | **붕괴 건물 재난 월드 & 커스텀 모델 통합** — `disaster_collapsed_building.world`, LiDAR 시각화 포함 커스텀 `turtlebot3_burger` SDF, `disaster_world.launch.py` 동적 인자 바인딩 |
-| **2026-11-13** (`7e04510`) | **Regulated Pure Pursuit + Residual TD3 하이브리드 추종** — `BACKTRACKING_HYBRID` 연속 곡률 추종(`lookahead_dist_m=0.45`, `v_max=0.20 m/s`, `w_max=0.65 rad/s`) 및 `recovery_params.yaml` 파라미터 고도화, 통합 테스트 5개(총 13개) 통과 |
-| **2026-11-12** (`2daa1ff`~`07d151c`) | **지하 터널 통합 & 시뮬레이터 모드 확장** — `sim.py` `--software`·`--headless` 옵션 추가, `wasd_teleop.py` 이중 발행/내장 하트비트 개선, 동적 낙석 투하 20회 터널 벤치마크 검증 |
+| **2026-11-14** (`b151a4f`) | **상시 프로젝트 규칙(`AGENTS.md`) & 서버 동기화 지침 보완** — 트러블슈팅 누적 기록(`#30+`)·Go2-X 보류·경로 이식성·3D 증거 규칙을 `AGENTS.md` 및 `SERVER_MISSION.md`에 영구 등록 |
+| **2026-11-14** (`d9168e8`) | **트러블슈팅 총정리 백서 `#23~#29` 통합 & 상대경로 정정** — 1·1.5차 이후 시뮬·TD3 한계 돌파·로컬 2D A\*·이식성 패치 전수 현행화 (`docs/2026-11-10_...총정리.md`) |
+| **2026-11-14** (`65fce0d`~`a115dc7`) | **V100 32GB Phase 2 대규모 RL · Dual-Track · 3D 증거 규칙 확정** — `100k~500k+` 에피소드 과적합 방지 프로토콜, RMA/GRU+PLR 능동 적응, `sim_policy` + 실물 휠오돔용 `real_tb3_policy` 이원화 (`SERVER_MISSION.md`, 체크포인트 문서) |
+| **2026-11-14** (`bbe1d5a`) | **병렬 Gazebo 포트/도메인 격리 & 하드코딩 경로 제거** — `--gz-port`, `--ros-domain-id`, `_kill_matching_gazebo_procs`, `--kill-stale` 추가 및 7개 파일 동적 경로 탐색 전환 |
+| **2026-11-14** (`f1966bf`~`7de5747`) | **`RollingLocalGrid`(`0.04m`) + 2D `A*` + 5대 재난 A/B 벤치마크 & YOLO 15 FPS 안정화** — 위상 지름길·벽 너머 단축 차단·전방 unpin·`_virtual_obstacles`, `.partial.json` 체크포인트, `house` 7/10 재검증 기록(`20 passed`) |
+| **2026-11-13** (`0871c58`~`b212688`) | **Faster-Whisper CUDA INT8 GPU 가속 · YOLO 15 FPS · RViz2 `RobotModel`** — cuBLAS/cuDNN 프리로드(`CPU` 폴백) 및 `disaster_cartographer.rviz` 분리 |
 
 > 📜 **전체 누적 변경 이력 (`2026-11-05` ~ 최신):** 나머지 과거 패치 및 커밋별 전체 내역은 [`CHANGELOG.md`](CHANGELOG.md)에서 한눈에 확인할 수 있습니다.
 
 ### 관련 문서
 
+- [`AGENTS.md`](AGENTS.md) — 저장소 상시 작업 규칙 (트러블슈팅 `#30+` 누적 · Go2-X 보류 · 이식성 · 3D 증거)
+- [`SERVER_MISSION.md`](SERVER_MISSION.md) — V100 GPU 서버 Phase 1·2 실행 지침서
 - [`CHANGELOG.md`](CHANGELOG.md) — 초기 업로드(`2026-11-05`)부터 최신 커밋까지의 전체 누적 패치노트
 - [`docs/DISASTER_RECOVERY_GUIDEBOOK.md`](docs/DISASTER_RECOVERY_GUIDEBOOK.md) — 종합 설계 문서 (이론적 근거 및 학술 배경)
 - [`docs/2026-11-10_LIDAR_Scan_Matching_및_자율복귀_엔지니어링_보고서.md`](docs/2026-11-10_LIDAR_Scan_Matching_및_자율복귀_엔지니어링_보고서.md) — 2D ICP 스캔 매칭 설계 보고서
-- [`docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md`](docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md) — 트러블슈팅 백서
-- [`docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_논문형_분석보고서.md`](docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_논문형_분석보고서.md) — 붕괴 건물 15회 벤치마크 논문형 분석 보고서 (알고리즘 명세 · 실패 전수 분석 · CPU/GPU 프로파일링)
+- [`docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md`](docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md) — 트러블슈팅 백서 (`#01` ~ `#29`)
+- [`docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_논문형_분석보고서.md`](docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_논문형_분석보고서.md) — 붕괴 건물 15회 벤치마크 논문형 분석 보고서
+- [`docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md`](docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md) — 5대 재난환경 A/B 비교 보고서 *(서버 Phase 1·2 완료 후 최종 수치 갱신 예정)*
+- [`docs/2026-11-14_중간상황_및_서버이관_체크포인트.md`](docs/2026-11-14_중간상황_및_서버이관_체크포인트.md) — 중간 벤치마크(`house` 7/10) 및 V100 서버 이관 체크포인트
 - [`docs/PATENT_ANALYSIS_AND_PRIOR_ART.md`](docs/PATENT_ANALYSIS_AND_PRIOR_ART.md) — 선행 특허 분석 보고서
 
 ---
@@ -105,7 +109,7 @@
 | Heartbeat 워치독 | `/heartbeat` 3.0 s 미수신 시 즉시 정지(v=0, ω=0) 후 원격 명령 차단 | RPi 4 |
 | 가스 워치독 | MQ-2 → ADS1115(I2C) → `/gas/level` ≥ 0.40 이면 동일한 비상 복귀 시퀀스 진입 | RPi 4 |
 | 오도메트리 로거 | 탐색 중 Δd ≥ 0.3 m 또는 \|Δθ\| ≥ 25°마다 (x, y, θ, scan_pts)를 LIFO 스택에 push | RPi 4 |
-| LIFO 백트래킹 | 스택을 pop하며 회전 정렬 후 Regulated Pure Pursuit + Residual TD3 연속 추종(`BACKTRACKING_HYBRID`) 또는 직진 추종 | RPi 4 |
+| LIFO 백트래킹 & 로컬 A\* | 스택 pop 및 비파괴 위상 지름길, `RollingLocalGrid(0.04m) + 2D A*` 우회, `ESCAPE` 탈출, Regulated Pure Pursuit + Residual TD3 하이브리드 추종 | RPi 4 |
 | LiDAR 스캔 매칭 (ICP) | 경유지 45 cm 이내에서 저장 스캔과 현재 스캔을 대조해 바퀴 슬립 누적 오차를 보정 | RPi 4 |
 | LiDAR 긴급 정지 | 복귀 중 전방 ±20°, 0.12–0.25 m 장애물 감지 시 정지·대기, 해제 시 재개 | RPi 4 |
 | ArUco 정밀 도킹 | 원점 0.5 m 진입 시 ArUco(ID 0, 10 cm)를 `solvePnP`로 추정해 2 cm 이내 도킹 | RPi 4 |
@@ -357,6 +361,8 @@ i2cdetect -y 1        # 48 이 보여야 정상
 
 ```
 disaster_recovery_ws/
+├── AGENTS.md                            # 상시 프로젝트 규칙 (트러블슈팅 누적 · Go2-X 보류 · 이식성 · 3D 증거)
+├── SERVER_MISSION.md                    # Tesla V100 32GB 서버 Phase 1·2 실행 지침서
 ├── README.md
 ├── CHANGELOG.md                         # 초기 업로드~최신 전체 누적 변경 이력
 ├── LICENSE
@@ -366,9 +372,12 @@ disaster_recovery_ws/
 │   │   ├── stop.py                      # 호스트 + 로봇 프로세스 일괄 종료
 │   │   ├── sim.py                       # Gazebo + SLAM + 복귀 제어기 + 랜덤 낙석([O]키) 시뮬레이터
 │   │   ├── wasd_teleop.py               # WASD 텔레옵 (/cmd_vel_remote 발행)
-│   │   ├── auto_disaster_trials.py      # Gazebo 실측 다회차 자율복귀 & 동적 낙석 자동 벤치마크
+│   │   ├── ab_disaster_benchmark.py     # 5대 재난환경 고정 시드 A/B 하네스 (--gz-port, --ros-domain-id, --resume)
+│   │   ├── plot_ab_comparison.py        # 5대 환경 맵·KPI·10회 궤적 비교 시각화 생성기
+│   │   ├── world_map_geometry.py        # Gazebo .world/.sdf/.dae/.obj 충돌 벽체 단면 추출기
+│   │   ├── auto_disaster_trials.py      # Gazebo 다회차 자율복귀 & 동적 낙석 자동 벤치마크
 │   │   ├── debris_utils.py              # Gazebo 동적 붕괴 암석 스폰/정리 유틸리티
-│   │   ├── plot_tunnel_trials.py        # 벤치마크 궤적·오차 고해상도 시각화 스크립트
+│   │   ├── plot_tunnel_trials.py        # 터널 벤치마크 궤적·오차 고해상도 시각화 스크립트
 │   │   ├── train_td3.py                 # TD3 국소 회피 제어기 Sim-to-Real DRL 학습 & ONNX 변환기
 │   │   ├── verify_hybrid_recovery.py    # 4대 비교군 50회 몬테카를로 재난 복귀 정량 검증기
 │   │   └── verify_extreme_stress.py     # 다중 낙석·고슬립·라이다 노이즈 극한 스트레스 검증기
@@ -390,6 +399,8 @@ disaster_recovery_ws/
 │   ├── 2026-11-10_LIDAR_Scan_Matching_및_자율복귀_엔지니어링_보고서.md
 │   ├── 2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md
 │   ├── 2026-11-13_붕괴건물_15회_자율복귀_벤치마크_논문형_분석보고서.md
+│   ├── 2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md
+│   ├── 2026-11-14_중간상황_및_서버이관_체크포인트.md
 │   ├── Disaster_Recovery_TurtleBot3_Integration_Report.{md,docx}
 │   └── images/                          # 배너, 3D 쉘, 벤치마크 궤적 그래프 이미지
 └── src/disaster_recovery/
@@ -397,7 +408,7 @@ disaster_recovery_ws/
     ├── config/
     │   ├── recovery_params.yaml         # 임계값, 속도, Pure Pursuit/TD3, ICP, 도킹, 오디오 파라미터
     │   ├── debris_obstacle.sdf          # Gazebo 시뮬레이션용 낙하 붕괴 잔해(Debris) SDF 모델
-    │   ├── recovery_td3.onnx            # RPi 4 온보드 배포용 99KB 초경량 TD3 Actor 신경망
+    │   ├── recovery_td3.onnx            # RPi 4 온보드 배포용 초경량 TD3 Actor 신경망
     │   ├── recovery_td3.pth             # PyTorch 학습 가중치 체크포인트
     │   ├── camera_info_sample.yaml      # 예시값 (직접 캘리브레이션 값으로 교체 권장)
     │   ├── disaster_cartographer.rviz   # SLAM + RobotModel (/robot_description) RViz2 레이아웃
@@ -409,17 +420,19 @@ disaster_recovery_ws/
     ├── models/turtlebot3_burger/        # LiDAR <visualize>true</visualize> 및 카메라 포함 SDF
     ├── worlds/                          # 붕괴 건물/터널/하우스/미로/기본 재난 Gazebo 월드 (5종)
     ├── disaster_recovery/
-    │   ├── recovery_controller.py       # 4계층 복귀 제어기 (Pure Pursuit + TD3 + 2D ICP + LIFO)
+    │   ├── recovery_controller.py       # 계층형 복귀 제어기 (로컬 격자 A* · Pure Pursuit · TD3 · 2D ICP · LIFO)
+    │   ├── local_grid_planner.py        # RollingLocalGrid(0.04m) + 2D A* + 위상 지름길 + ESCAPE/_virtual_obstacles
     │   ├── td3_policy.py                # 28차원 상태 추출기 및 TD3 ONNX 엣지 추론 엔진
     │   ├── aruco_docking.py             # solvePnP 도킹 P-제어 + 10초 세이프티 가드
-    │   ├── host_ai_pipeline.py          # YOLO26n + Faster-Whisper(CUDA INT8) + Heartbeat 10Hz
+    │   ├── host_ai_pipeline.py          # YOLO26n(15 FPS 안정화) + Faster-Whisper(CUDA INT8) + Heartbeat 10Hz
     │   ├── gas_sensor_node.py           # ADS1115 → EMA → /gas/level
     │   ├── ads1115_mq2.py               # ADS1115 드라이버 + MQ-2 계산 (ROS 비의존)
     │   ├── blackbox_recorder.py         # MicroSD 영상·CSV 기록
     │   └── audio_capture_node.py        # arecord → /audio/raw
     └── test/
         ├── test_ads1115_mq2.py          # ADS1115/MQ-2 단위 테스트 (8개)
-        └── test_hybrid_recovery.py      # 2D ICP, TD3, Pure Pursuit 블렌딩 통합 테스트 (5개)
+        ├── test_hybrid_recovery.py      # 2D ICP, TD3, Pure Pursuit 블렌딩 통합 테스트 (5개)
+        └── test_local_grid_planner.py   # 로컬 격자 A*, 벽 너머 단축 차단, unpin/저상 받침대 회귀 테스트 (7개)
 ```
 
 ---
@@ -482,10 +495,11 @@ colcon build --symlink-install --packages-select disaster_recovery
 source install/setup.bash
 ```
 
-### 단위 테스트 (ROS·하드웨어 불필요)
+### 단위 테스트
 
 ```bash
-cd src/disaster_recovery && python3 -m pytest test -q   # ADS1115/MQ-2(8개) + 2D ICP·TD3·Pure Pursuit(5개) 총 13개 테스트
+source /opt/ros/humble/setup.bash && source install/setup.bash
+python3 -m pytest -p no:anyio src/disaster_recovery/test -q   # ADS1115/MQ-2(8) + 하이브리드 복귀(5) + 로컬 격자 A*(7) 총 20개
 ```
 
 ---
@@ -670,17 +684,20 @@ Host AI 파라미터 (`host_ai_pipeline` 코드 기본값): `yolo_max_fps=15.0`,
 
 본 저장소는 실차 검증 및 고도화가 진행 중인 프로토타입이다.
 
-**현재 남아 있는 한계**
+**현재 남아 있는 한계 및 진행 중인 서버 작업**
 
 1. **도킹 기하 가정**: 마커가 출발 위치 정면 벽에 있다고 가정한다. 출발 자세와 마커의 상대 위치는 현장에서 실측해 `target_dock_dist_m`을 조정해야 한다.
 2. **가스 센서 미결선**: 회로 설계와 드라이버는 완료되었으나 실물 결선 전이므로 `gas_stale_triggers_recovery: false`로 둔다.
 3. **블랙박스 Wi-Fi 스트리밍 차단 미구현**: 현재는 로컬 기록만 시작한다.
-4. **복합 붕괴 협소 구간 정체 (`BACKTRACKING_HYBRID`) 및 다회차 리셋 오프셋 누적**: 15회 붕괴 건물 벤치마크([분석 보고서](docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_논문형_분석보고서.md))에서 확인된 바와 같이, 현재 커밋된 `recovery_controller.py`에서는 `BACKTRACKING_HYBRID` 상태에서 `LOCAL_TD3_AVOIDANCE` 전이 및 차단 웨이포인트 스킵이 연결되어 있지 않고 최소 전진 속도(`0.08 m/s`)가 유지되며, 다회차 텔레포트 리셋 시 누적 `SE(2)` 오프셋(`corr_x/y/th`) 초기화 인터페이스가 없어 협소 통로 교착이 발생할 수 있다.
+4. **협소 틈새 `_virtual_obstacles` 튜닝 & V100 서버 Phase 1·2 진행 중**: `RollingLocalGrid(0.04m)` + `_virtual_obstacles` 적용으로 저상 `cafe_table` 받침대 탈출에는 성공(`house` `7/10`)했으나, `~0.28m` 복도 틈새에서의 가상 장벽 폭/TTL 축소 튜닝, 5대 환경 병렬 최종 재검증(Phase 1), 및 Tesla V100 32GB 대규모 Dual-Track RL 학습(Phase 2)이 서버에서 진행 중이다([체크포인트 문서](docs/2026-11-14_중간상황_및_서버이관_체크포인트.md), [SERVER_MISSION.md](SERVER_MISSION.md)).
 
 **해결된 이슈**
 
 | 이슈 | 해결 방법 |
 | :--- | :--- |
+| 붕괴 건물 교착 및 다회차 `corr_y` 오프셋 누적 | `/recovery/reset_episode`로 에피소드 상태 초기화 및 `RollingLocalGrid(0.04m) + 2D A* + 위상 지름길 + ESCAPE` 도입 |
+| 저상 장애물·벽 너머 단축 및 전방 밀착 정지 | 진입(`NORMAL_TELEOP`) 선행 관측, 실내 벽 너머 단축 차단, 전방 unpin 및 `_virtual_obstacles` 가상 접촉 장벽 추가 |
+| 병렬 벤치마크 포트 충돌 및 `/home/lab` 경로 하드코딩 | `--gz-port` / `--ros-domain-id` 워커별 격리 및 7개 파일 동적 경로 탐색 전환 |
 | 복귀로 상 신규 낙하 잔해 앞 영구 대기 | 초경량 TD3 연속 제어 국소 우회(Layer 2) 및 2D ICP 슬립 소거(Layer 3)를 연동한 4계층 하이브리드 아키텍처 구현 및 회피 복귀 검증 완료 |
 | OpenCR 펌웨어 충돌 | MQ-2를 ADS1115(I2C)로 RPi 4에 직결, OpenCR은 순정 펌웨어 유지 |
 | `audio_capture_node` 스텁 | `arecord` 기반 48 kHz PCM 스트리밍 및 Host 측 VAD + Whisper 연동 구현 |

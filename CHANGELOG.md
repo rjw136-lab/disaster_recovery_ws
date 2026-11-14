@@ -14,10 +14,24 @@
 | **Phase 1.5. 2D ICP & 특허·텔레옵** | `2026-11-11` | 2D LiDAR 키프레임 SVD ICP 슬립 보정, ArUco 10초 가드, WASD 텔레옵, 선행 특허 14선 분석 | `da2aa5b`~`557b9ab` |
 | **Phase 2. TD3 DRL 하이브리드 복귀** | `2026-11-12` | `sim.py` 시뮬레이터, 99KB TD3 ONNX 엣지 추론, 50회 몬테카를로 100% 검증, 터널 20회 벤치마크 | `29a6695`~`07d151c` |
 | **Phase 3. 붕괴 건물 & GPU 가속 고도화** | `2026-11-13` | `BACKTRACKING_HYBRID`(Pure Pursuit+TD3), 붕괴 건물 15회 벤치마크, WSLg D3D12·Whisper CUDA·YOLO 15FPS | `7e04510`~`73bb888` |
+| **Phase 4. 로컬 2D A\* 하이브리드 · 5대 A/B · 서버 이관** | `2026-11-14` | `RollingLocalGrid + 2D A* + 위상 지름길 + ESCAPE`, 50쌍 A/B 하네스, 병렬 격리·경로 이식성, V100 Dual-Track 미션 및 백서/규칙 동기화 *(서버 Phase 1·2 진행 중)* | `f1966bf`~`b151a4f` |
 
 ---
 
 ## 📅 일자별 상세 누적 패치노트 (최신순)
+
+### 2026-11-14 — 로컬 2D A\* 하이브리드 · 병렬 격리 · V100 서버 이관 · 문서 현행화
+
+| 커밋 | 구분 | 변경 내용 및 주요 파일 |
+| :--- | :---: | :--- |
+| `b151a4f` | `docs` | **상시 프로젝트 규칙(`AGENTS.md`) & 서버 트러블슈팅 기록 의무화** — 모든 에이전트 공용 `AGENTS.md` 신설 및 `SERVER_MISSION.md`에 `#30+` 트러블슈팅 누적 기록 규칙 추가 |
+| `d9168e8` | `docs` | **트러블슈팅 총정리 백서 `#23~#29` 통합 & 상대경로 정정** — Whisper CUDA, 15회 교착 해결, TD3→로컬 2D A\* 전환, 저상 `cafe_table` 보완, `.partial.json`/병렬 격리까지 전수 반영 및 `file://` 링크 제거 (`docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md`) |
+| `65fce0d`~`a115dc7` | `docs` | **V100 32GB Phase 2 대규모 RL · Dual-Track · 3D 증거 규칙 확정** — `100k~500k+` 에피소드 과적합 방지 프로토콜, RMA/GRU+PLR 능동 적응, `sim_policy` + 실물 휠오돔용 `real_tb3_policy` 이원화 및 3D 사진·`.mp4` 증거 의무화 (`SERVER_MISSION.md`, `docs/2026-11-14_중간상황_및_서버이관_체크포인트.md`) |
+| `bbe1d5a` | `feat` | **병렬 Gazebo 포트/도메인 격리 & 하드코딩 경로 제거** — `--gz-port`, `--ros-domain-id`, `_kill_matching_gazebo_procs`, `--kill-stale` 추가 및 7개 파일의 `/home/lab/...` 절대경로 동적 탐색 전환 (`ab_disaster_benchmark.py`, `debris_utils.py`, `plot_ab_comparison.py`, `world_map_geometry.py`, `disaster_world.launch.py`, `recovery_controller.py`, `recovery_params.yaml`) |
+| `7de5747` | `chore/docs` | **`house` 7/10 재검증 기록 & 서버 이관 체크포인트 작성** — `_virtual_obstacles`로 `#07` `cafe_table` 받침대 탈출 확인 및 `~0.28m` 틈새 튜닝 포인트 정리 (`SERVER_MISSION.md`, `ab_summary_house_10trials.json`, `docs/2026-11-14_중간상황_및_서버이관_체크포인트.md`) |
+| `f1966bf` | `feat` | **`RollingLocalGrid` (`0.04m`) + 2D `A*` + 5대 재난 A/B 벤치마크 & YOLO 병목 제거** — `local_grid_planner.py`(위상 지름길·선행 관측·벽 너머 단축 차단·전방 unpin·`_virtual_obstacles`), `/recovery/reset_episode`, `ab_disaster_benchmark.py`(`.partial.json`, `--resume`, `--reuse-baseline`), `plot_ab_comparison.py`, `world_map_geometry.py`, `host_ai_pipeline.py` 15 FPS 안정화 및 `test_local_grid_planner.py` 확장(`20 passed`) |
+
+---
 
 ### 2026-11-13 — 하이브리드 추종 · 붕괴 건물 벤치마크 · GPU 통합 가속
 
