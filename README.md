@@ -339,7 +339,7 @@ python3 scripts/host/ab_disaster_benchmark.py --scenario all --trials 10 --reuse
 
 | 구분 | 사양 |
 | :--- | :--- |
-| 로봇 | TurtleBot3 Burger (OpenCR 1.0 + Raspberry Pi 4 4/8GB) |
+| 로봇 | TurtleBot3 Burger (OpenCR 1.0 + Raspberry Pi 4 4GB) |
 | LiDAR | LDS-01 (USB2LDS) |
 | 카메라 | Raspberry Pi Camera Module (CSI, 640×480) — 케이블 배선상 90° 옆으로 장착, 소프트웨어에서 270° 회전 보정 |
 | 가스 센서 | MQ-2 (5 V 구동) → 10k/20k 분압 → ADS1115 16-bit I2C ADC → RPi 4 |
