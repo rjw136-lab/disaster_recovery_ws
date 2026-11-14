@@ -14,16 +14,29 @@
 | **Phase 1.5. 2D ICP & 특허·텔레옵** | `2026-11-11` | 2D LiDAR 키프레임 SVD ICP 슬립 보정, ArUco 10초 가드, WASD 텔레옵, 선행 특허 14선 분석 | `da2aa5b`~`557b9ab` |
 | **Phase 2. TD3 DRL 하이브리드 복귀** | `2026-11-12` | `sim.py` 시뮬레이터, 99KB TD3 ONNX 엣지 추론, 50회 몬테카를로 100% 검증, 터널 20회 벤치마크 | `29a6695`~`07d151c` |
 | **Phase 3. 붕괴 건물 & GPU 가속 고도화** | `2026-11-13` | `BACKTRACKING_HYBRID`(Pure Pursuit+TD3), 붕괴 건물 15회 벤치마크, WSLg D3D12·Whisper CUDA·YOLO 15FPS | `7e04510`~`73bb888` |
-| **Phase 4. 로컬 2D A\* · V100 서버 완주 & Dual-Track RL** | `2026-11-14` | `RollingLocalGrid + 2D A*` **5대 환경 `49/50 (98.0%)`**, V100 **8,847만 스텝 Dual-Track RL & Gazebo Sim-to-Sim `47/50 (94.0%)`**, 3D `.mp4`/`.png` 증거, 트러블슈팅 `#23~#36` 완결 | `f1966bf`~`4dd00f1` |
+| **Phase 4. 로컬 2D A\* · V100 서버 완주 & Dual-Track RL** | `2026-11-14` | `RollingLocalGrid + 2D A*` **5대 환경 `49/50 (98.0%)`**, V100 **8,847만 스텝 Dual-Track RL & Gazebo Sim-to-Sim `47/50 (94.0%)`**, 3D `.mp4`/`.png` 증거, 트러블슈팅 `#23~#36` 완결 | `f1966bf`~`e455a74` |
+| **Phase 4.5 (2-A). Clearance-Gated RL & 30 FPS `/map` 증거·문서 고도화** | `2026-11-15` | `compute_rl_blend_weight` 협소 구간 적응형 블렌딩(**Gazebo S2S `48/50 = 96.0%`**), `slam_toolbox` `/map` + VirtualGL 30 FPS 재녹화 & README GIF, 알고리즘 장단점·하드웨어 사양·선행특허/참고논문 27선 정비 (`24 passed`) | `0560e21`~`HEAD` |
 
 ---
 
 ## 📅 일자별 상세 누적 패치노트 (최신순)
 
+### 2026-11-15 — Phase 2-A Clearance-Gated RL(`48/50 = 96.0%`) · `/map` 30 FPS 재녹화 · 문서 및 참고문헌 정비
+
+| 커밋 | 구분 | 변경 내용 및 주요 파일 |
+| :--- | :---: | :--- |
+| `HEAD` | `docs` | **선행 특허 중복 제거 · 참고 논문 27선 대폭 확충 · 내부 마크다운 문서 일괄 정비** — `README.md` 하단 선행 특허 2회 중복 표기를 단일 통합 분석표(14건, 동일 패밀리 `#02/#07` 병기 · 독립 문헌 13건)로 통합하고, 프로젝트에 적용된 전 핵심 알고리즘(SVD ICP, Occupancy Grid, `A*`, Pure Pursuit, Regulated Pure Pursuit, Stanley, TD3, PPO, PLR, RMA, Domain Randomization, DAgger, Policy Distillation, Cartographer, `slam_toolbox`, ROS 2, Gazebo, YOLO, Whisper, ArUco, IPPE `solvePnP`, Camera Calibration) 학술 논문 27편 추가 및 내부 문서(`docs/*.md`, `CHANGELOG.md`) 링크·수치·오탈자 일괄 다듬기 |
+| `16e7948`~`2b5dfce` | `docs` | **3대 연산 노드 하드웨어 사양 정밀화** — Onboard Edge(`Raspberry Pi 4 Model B 4GB`), Host PC(`Intel Core i7-8700 6C/12T` · `DDR4 16GB 2666MHz` · `GTX 1050 Ti 4GB`), V100 Training Server(`Intel Core i9-10900X 10C/20T` · `DDR4 256GB 2666MHz Non-ECC` · `Tesla V100-PCIE-32GB`) 실측 반영 (`README.md`) |
+| `49ade0b`~`2984627` | `docs` | **Phase 1 / Phase 2 / Phase 2-A / Zero-Shot 용어 해설 및 알고리즘별 작동 방식·장단점 비교표 신설** — `Baseline` vs `Phase 1 (Proposed A*)` vs `Phase 2 (v1.0)` vs `Phase 2-A (Clearance-Gated RL)` 작동 원리와 유리한 점·한계점을 체계적으로 정리 (`README.md`) |
+| `0560e21` | `feat/docs` | **Phase 2-A Clearance-Gated RL 블렌딩(`48/50 = 96.0%`) · `/map` 30 FPS 전수 재녹화 · README GIF 내장** — `local_grid_planner.py`(`last_clearances`, `last_used_tight_pass`), `rl_context_policy.py`(`observe()` 전용 갱신 분리), `recovery_controller.py`(`compute_rl_blend_weight` 협소 문틀 `c_path < 0.30 m` 시 2D `A*` 100% 이양 + 에피소드 리셋 시 `reset()`), Gazebo 50회 Sim-to-Sim **`48/50 (96.0%)`** 달성(`house` `8/10 → 9/10`, `98.22 s`), `slam_toolbox` 실시간 `/map` 포함 30 FPS NVENC `.mp4` 10종 재녹화 및 `docs/images/evidence/*.gif` 9종 생성, 단위 테스트 `24 passed` |
+
+---
+
 ### 2026-11-14 — V100 서버 Phase 1(`49/50`) & Phase 2 Dual-Track RL(`88.47M` 스텝 · S2S `47/50`) 완주
 
 | 커밋 | 구분 | 변경 내용 및 주요 파일 |
 | :--- | :---: | :--- |
+| `e455a74` | `feat/docs` | **30 FPS VirtualGL/noVNC HUD 증거 고도화 · `slam_toolbox` 연동 · 보고서 `§6.1` 심층 분석 추가** — `record_3d_evidence.py` VirtualGL V100 30 FPS + `h264_nvenc` + 한글 HUD 파이프라인 구축, `start_novnc_gui.sh` 추가, `train_phase2_v100.py` PASS 롤아웃 범례 보강, 5대 환경 보고서 `§6.1` 원인 분석 추가 |
 | `4dd00f1` | `feat/docs` | **V100 서버 Phase 1·2 완주 및 최종 보고서 · 트러블슈팅 `#30~#36` 통합** — `_virtual_obstacles` `±0.03m`/9s 튜닝으로 **5대 환경 `49/50 (98.0%)`** 확정(`collapsed`·`collapsed_heavy`·`tunnel`·`maze` 40/40), FastDDS/`debris_utils` 격리(`#31`), 3D Gazebo+RViz2 지연 `gzclient` 캡처(`record_3d_evidence.py`, `#32`), Tesla V100 32GB **`88,473,600` 스텝(392,119 에피소드) Dual-Track RL**(`train_phase2_v100.py`, `rl_procedural_env.py`, `rl_context_policy.py`) 및 **`sim`/`real_tb3_policy_student.onnx` (`231.6 KB`, `0.036~0.039 ms`)**, `proposed_rl` 공식 Gazebo Zero-Shot Sim-to-Sim **`47/50 (94.0%)`**, `sync_to_gdrive.sh`, `test_hybrid_recovery.py`(`23 passed`), `README.md`, 5대 A/B 보고서, 트러블슈팅 `#30~#36` 최종 현행화 |
 | `03e8a22`~`917f324` | `docs` | **문서 제목·용어 정리 & Tesla V100 배지 반영** — 15회 보고서 제목 정비, V100 32GB 사양 표기, 타 플랫폼 무관 언급 제거 |
 | `b151a4f` | `docs` | **상시 프로젝트 규칙(`AGENTS.md`) & 서버 트러블슈팅 기록 의무화** — 모든 에이전트 공용 `AGENTS.md` 신설 및 `SERVER_MISSION.md`에 `#30+` 트러블슈팅 누적 기록 규칙 추가 |

@@ -26,17 +26,17 @@
 
 ## 2. 생성 및 구성된 주요 파일
 
-| 파일 경로 | 구분 | 역할 및 설명 |
+| 파일 경로 (RPi 온보드 / 저장소) | 구분 | 역할 및 설명 |
 | :--- | :--- | :--- |
-| [`/home/lab/start.py`](file:///home/lab/start.py) | 올인원 시작 | 하드웨어 점검 + Bringup + 카메라 + 오디오 + ArUco 3D 추정 원클릭 시작 |
-| [`/home/lab/stop.py`](file:///home/lab/stop.py) | 올인원 종료 | 실행 중인 모든 로봇 및 센서 노드 일괄 안전 종료 |
-| [`/home/lab/start_all.sh`](file:///home/lab/start_all.sh) | 통합 스크립트 | 로봇 Bringup + 카메라 구동 + ArUco 감지 + 웹 스트리밍을 한 번에 실행 |
-| [`/home/lab/stop_all.sh`](file:///home/lab/stop_all.sh) | 통합 스크립트 | 실행 중인 모든 로봇 및 카메라 노드 일괄 종료 |
-| [`/home/lab/start_aruco.sh`](file:///home/lab/start_aruco.sh) | 단독 스크립트 | 카메라 노드 구동 + ArUco 감지 + 웹 스트리밍 실행 |
-| [`/home/lab/stop_aruco.sh`](file:///home/lab/stop_aruco.sh) | 단독 스크립트 | 카메라 및 ArUco 관련 노드만 종료 |
-| [`/home/lab/aruco_detector.py`](file:///home/lab/aruco_detector.py) | 핵심 노드 | OpenCV 기반 ArUco 감지, 3D 거리/포즈 추정(Option B), 270도 회전, 고속 웹 스트리밍 |
-| [`/home/lab/generate_marker.py`](file:///home/lab/generate_marker.py) | 유틸리티 | 테스트용 ArUco 마커 이미지(PNG) 생성 도구 |
-| [`/home/lab/detected_result.jpg`](file:///home/lab/detected_result.jpg) | 결과 사진 | 마커가 감지된 순간 자동으로 저장되는 최종 3D 좌표축 포함 캡처 이미지 |
+| [`scripts/rpi/start.py`](../scripts/rpi/start.py) (`/home/lab/start.py`) | 올인원 시작 | 하드웨어 점검 + Bringup + 카메라 + 오디오 + ArUco 3D 추정 원클릭 시작 |
+| [`scripts/rpi/stop.py`](../scripts/rpi/stop.py) (`/home/lab/stop.py`) | 올인원 종료 | 실행 중인 모든 로봇 및 센서 노드 일괄 안전 종료 |
+| [`scripts/rpi/start_all.sh`](../scripts/rpi/start_all.sh) (`/home/lab/start_all.sh`) | 통합 스크립트 | 로봇 Bringup + 카메라 구동 + ArUco 감지 + 웹 스트리밍을 한 번에 실행 |
+| [`scripts/rpi/stop_all.sh`](../scripts/rpi/stop_all.sh) (`/home/lab/stop_all.sh`) | 통합 스크립트 | 실행 중인 모든 로봇 및 카메라 노드 일괄 종료 |
+| `/home/lab/start_aruco.sh` | 단독 스크립트 | 카메라 노드 구동 + ArUco 감지 + 웹 스트리밍 실행 |
+| `/home/lab/stop_aruco.sh` | 단독 스크립트 | 카메라 및 ArUco 관련 노드만 종료 |
+| [`scripts/rpi/aruco_detector.py`](../scripts/rpi/aruco_detector.py) (`/home/lab/aruco_detector.py`) | 핵심 노드 | OpenCV 기반 ArUco 감지, 3D 거리/포즈 추정(Option B), 270도 회전, 고속 웹 스트리밍 |
+| [`scripts/rpi/generate_marker.py`](../scripts/rpi/generate_marker.py) (`/home/lab/generate_marker.py`) | 유틸리티 | 테스트용 ArUco 마커 이미지(PNG) 생성 도구 |
+| `/home/lab/detected_result.jpg` | 결과 사진 | 마커가 감지된 순간 자동으로 저장되는 최종 3D 좌표축 포함 캡처 이미지 |
 
 ---
 
@@ -79,7 +79,7 @@
 3. 카메라 앞에 ArUco 마커(기본: `DICT_4X4_50`, ID 0번)를 비추면:
    - **웹 화면**: 마커 위에 **3D 직교 좌표축**(빨강: X 좌우, 초록: Y 상하, 파랑: Z 전방깊이)과 실제 계산된 거리(예: `Dist: 45.2cm`, `Z: 45.1 (X:+2.1, Y:-1.0)`)가 실시간 오버레이됩니다.
    - **터미널**: 마커 감지 즉시 `[3D 포즈 측정 완료]` 로그와 함께 cm 단위 3차원 상대 좌표가 딱 1회 출력됩니다.
-   - **스냅샷 저장**: 3D 축과 거리 정보가 렌더링된 캡처 사진이 [`/home/lab/detected_result.jpg`](file:///home/lab/detected_result.jpg) 파일로 자동 저장됩니다.
+   - **스냅샷 저장**: 3D 축과 거리 정보가 렌더링된 캡처 사진이 `/home/lab/detected_result.jpg` 파일로 자동 저장됩니다.
 
 ### 마커 실제 크기 설정 방법
 기본값은 한 변의 길이가 **5.0 cm** (`0.05 m`)로 설정되어 있습니다. 소지하신 마커의 실제 크기에 맞춰 아래와 같이 지정할 수 있습니다:
