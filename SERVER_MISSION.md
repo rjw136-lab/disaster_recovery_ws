@@ -13,3 +13,7 @@
    - **최종 산출물 이원화 (시뮬용 + 실물 TurtleBot3 배포용 2트랙):**
      - **Track A (시뮬레이션용 `sim_policy`):** 미학습 홀드아웃 50+ 시드 및 공식 Gazebo 5종 교차 검증 최고 점수(Early Stopping) 체크포인트 채택 + 경량 `Student ONNX` 추출.
      - **Track B (실물 TurtleBot3용 `real_tb3_policy`):** 실물 **휠 오도메트리 드리프트·좌우 슬립·회전 바이어스**, **모터 데드존/지연**, **실물 LiDAR(LDS-01/LD08) 노이즈·빔 누락·난반사**를 극강 도메인 무작위화로 학습해, `/odom`이 틀어져도 LiDAR 기하·`enable_scan_matching`(ICP)·시계열 문맥으로 강인하게 복귀하는 라즈베리파이 온보드용(`10~20 Hz` CPU) 경량 `ONNX` 별도 추출·검증.
+5. **사진 · 3D 동영상 증거 의무 기록 (필수 — 누락 금지):**
+   - **벤치마크 중 3D 증거:** 5대 환경(`collapsed`, `collapsed_heavy`, `tunnel`, `house`, `maze`)의 실제 **Gazebo 3D(`gzclient` / Follow-Cam) 및 RViz2 3D 뷰**에서 Baseline 실패 vs Proposed/RL 성공 주행 장면을 `Xvfb` + `ffmpeg` 등으로 **반드시 고화질 `.mp4` 동영상 및 핵심 프레임 `.png` 사진** 으로 녹화·캡처한다.
+   - **학습 중 증거:** V100 학습 중 **초기/중기/후기 롤아웃 시각화 영상(`.mp4`) 및 스냅샷(`.png`)**, **학습 곡선(보상·성공률·Generalization Gap PNG)**, **V100 GPU(`nvidia-smi`) 실제 가동 기록**을 남긴다.
+   - 모든 원본 영상·대용량 캡처는 `/hdd/evidence/`에 보관하고, 대표 스냅샷은 육안 검수(검은 화면 여부 확인) 후 보고서에 링크할 수 있게 `docs/images/evidence/`에도 정리한다.
