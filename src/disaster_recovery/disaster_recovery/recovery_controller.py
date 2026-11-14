@@ -251,11 +251,22 @@ class RecoveryController(Node):
         if self.enable_td3_avoidance:
             model_path = self.td3_model_path
             if not model_path or not os.path.exists(model_path):
-                candidates = [
-                    "/home/lab/disaster_recovery_ws/src/disaster_recovery/config/recovery_td3.onnx",
-                    "/home/lab/disaster_recovery_ws/install/disaster_recovery/share/disaster_recovery/config/recovery_td3.onnx",
-                    "/home/lab/disaster_recovery_ws/src/disaster_recovery/config/recovery_td3.pth",
-                ]
+                candidates = []
+                try:
+                    from ament_index_python.packages import get_package_share_directory
+                    pkg_cfg = os.path.join(get_package_share_directory("disaster_recovery"), "config")
+                    candidates.extend([
+                        os.path.join(pkg_cfg, "recovery_td3.onnx"),
+                        os.path.join(pkg_cfg, "recovery_td3.pth"),
+                    ])
+                except Exception:
+                    pass
+                mod_dir = os.path.dirname(os.path.abspath(__file__))
+                src_cfg = os.path.abspath(os.path.join(mod_dir, "..", "config"))
+                candidates.extend([
+                    os.path.join(src_cfg, "recovery_td3.onnx"),
+                    os.path.join(src_cfg, "recovery_td3.pth"),
+                ])
                 for c in candidates:
                     if os.path.exists(c):
                         model_path = c

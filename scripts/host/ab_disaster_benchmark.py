@@ -27,9 +27,8 @@ import time
 from dataclasses import dataclass, asdict
 from typing import Callable, Dict, List, Optional, Tuple
 
-os.environ["ROS_LOCALHOST_ONLY"] = "1"
-os.environ["GAZEBO_IP"] = "127.0.0.1"
-os.environ["GAZEBO_MASTER_URI"] = "http://127.0.0.1:11345"
+os.environ.setdefault("ROS_LOCALHOST_ONLY", "1")
+os.environ.setdefault("GAZEBO_IP", "127.0.0.1")
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(line_buffering=True)
 
@@ -44,8 +43,9 @@ from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Bool, Header, String
 from std_srvs.srv import Empty
 
+WS_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, "/home/lab/disaster_recovery_ws/src/disaster_recovery")
+sys.path.insert(0, os.path.join(WS_ROOT, "src", "disaster_recovery"))
 from debris_utils import (  # noqa: E402
     delete_debris_entities,
     select_random_debris_positions,
@@ -85,7 +85,7 @@ class ScenarioConfig:
     doorway_keepouts: Tuple[Tuple[float, float, float], ...] = ()
 
 
-WS_WORLDS = "/home/lab/disaster_recovery_ws/src/disaster_recovery/worlds"
+WS_WORLDS = os.path.join(WS_ROOT, "src", "disaster_recovery", "worlds")
 
 SCENARIOS: Dict[str, ScenarioConfig] = {
     "collapsed": ScenarioConfig(
@@ -493,26 +493,64 @@ def run_cmd_bounded(cmd: str, timeout_s: float = 4.0) -> int:
         return -1
 
 
-def launch_stack(cfg: ScenarioConfig, strategy: str, rtf: float):
-    subprocess.call(
-        "killall -9 gzserver gzclient recovery_controller 2>/dev/null || true",
-        shell=True,
-    )
+def _kill_matching_gazebo_procs(gz_master_uri: str) -> None:
+    """Terminate leftover Gazebo/ROS processes matching only this worker's GAZEBO_MASTER_URI."""
+    target_env = f"GAZEBO_MASTER_URI={gz_master_uri}".encode()
+    targets = ("gzserver", "gzclient", "recovery_controller", "robot_state_publish")
+    my_pid = os.getpid()
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        pid = int(entry)
+        if pid == my_pid:
+            continue
+        try:
+            with open(f"/proc/{pid}/comm", "rb") as f:
+                comm = f.read().decode(errors="ignore").strip()
+            if not any(comm.startswith(t[:15]) for t in targets):
+                continue
+            with open(f"/proc/{pid}/environ", "rb") as f:
+                env_entries = f.read().split(b"\x00")
+            if target_env in env_entries:
+                os.kill(pid, signal.SIGKILL)
+        except (FileNotFoundError, PermissionError, ProcessLookupError, ValueError):
+            continue
+
+
+def launch_stack(
+    cfg: ScenarioConfig,
+    strategy: str,
+    rtf: float,
+    gz_port: int = 11345,
+    ros_domain_id: Optional[int] = None,
+    kill_stale: bool = False,
+):
+    gz_master_uri = f"http://127.0.0.1:{gz_port}"
+    if kill_stale:
+        subprocess.call(
+            "killall -9 gzserver gzclient recovery_controller 2>/dev/null || true",
+            shell=True,
+        )
+    else:
+        _kill_matching_gazebo_procs(gz_master_uri)
     time.sleep(1.0)
 
     os.makedirs("/tmp/disaster_recovery", exist_ok=True)
-    log_gz = open(f"/tmp/disaster_recovery/ab_gz_{cfg.name}_{strategy}.log", "w")
-    log_ctrl = open(f"/tmp/disaster_recovery/ab_ctrl_{cfg.name}_{strategy}.log", "w")
+    log_gz = open(f"/tmp/disaster_recovery/ab_gz_{cfg.name}_{strategy}_{gz_port}.log", "w")
+    log_ctrl = open(f"/tmp/disaster_recovery/ab_ctrl_{cfg.name}_{strategy}_{gz_port}.log", "w")
 
     rx, ry, ryaw = cfg.reset_pose
+    gazebo_models = os.path.expanduser("~/.gazebo/models")
+    pkg_models = os.path.join(WS_ROOT, "src", "disaster_recovery", "models")
+    domain_export = f"ROS_DOMAIN_ID={ros_domain_id} " if ros_domain_id is not None else ""
     env_prefix = (
-        "export ROS_LOCALHOST_ONLY=1 GAZEBO_IP=127.0.0.1 "
-        "GAZEBO_MASTER_URI=http://127.0.0.1:11345 "
+        f"export ROS_LOCALHOST_ONLY=1 {domain_export}GAZEBO_IP=127.0.0.1 "
+        f"GAZEBO_MASTER_URI={gz_master_uri} "
         "GAZEBO_MODEL_DATABASE_URI='' "
-        "GAZEBO_MODEL_PATH='/home/lab/.gazebo/models:/opt/ros/humble/share/turtlebot3_gazebo/models' "
+        f"GAZEBO_MODEL_PATH='{gazebo_models}:{pkg_models}:/opt/ros/humble/share/turtlebot3_gazebo/models' "
         "TURTLEBOT3_MODEL=burger && "
         "source /opt/ros/humble/setup.bash && "
-        "source /home/lab/disaster_recovery_ws/install/setup.bash && "
+        f"source {WS_ROOT}/install/setup.bash && "
     )
 
     gz_cmd = (
@@ -533,10 +571,11 @@ def launch_stack(cfg: ScenarioConfig, strategy: str, rtf: float):
         if p_gz.poll() is not None:
             raise RuntimeError(f"Gazebo launch exited prematurely for {cfg.name}/{strategy}")
 
+    params_file = os.path.join(WS_ROOT, "src", "disaster_recovery", "config", "recovery_params.yaml")
     ctrl_cmd = (
         env_prefix
         + "ros2 run disaster_recovery recovery_controller --ros-args "
-        "--params-file /home/lab/disaster_recovery_ws/src/disaster_recovery/config/recovery_params.yaml "
+        f"--params-file {params_file} "
         f"-p use_sim_time:=true -p use_aruco_docking:=false -p recovery_strategy:={strategy}"
     )
     p_ctrl = subprocess.Popen(
@@ -549,13 +588,19 @@ def launch_stack(cfg: ScenarioConfig, strategy: str, rtf: float):
     return [p_gz, p_ctrl], [log_gz, log_ctrl]
 
 
-def stop_stack(procs, logs):
+def stop_stack(procs, logs, gz_port: int = 11345):
     for p in procs:
         try:
             os.killpg(os.getpgid(p.pid), signal.SIGTERM)
         except Exception:
             pass
-    subprocess.call("killall -9 gzserver gzclient recovery_controller 2>/dev/null || true", shell=True)
+    time.sleep(0.5)
+    for p in procs:
+        try:
+            os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+        except Exception:
+            pass
+    _kill_matching_gazebo_procs(f"http://127.0.0.1:{gz_port}")
     for f in logs:
         try:
             f.close()
@@ -631,6 +676,9 @@ def run_strategy_suite(
     save_debris_into_specs: bool,
     initial_results: Optional[List[dict]] = None,
     on_trial_done: Optional[Callable[[dict, List[dict]], None]] = None,
+    gz_port: int = 11345,
+    ros_domain_id: Optional[int] = None,
+    kill_stale: bool = False,
 ) -> dict:
     results: List[dict] = list(initial_results) if initial_results else []
     done_trials = {int(r["trial"]) for r in results}
@@ -645,7 +693,15 @@ def run_strategy_suite(
     if not pending_specs:
         return _summarize_results(cfg, strategy, results)
 
-    procs, logs = launch_stack(cfg, strategy, rtf)
+    gz_master_uri = f"http://127.0.0.1:{gz_port}"
+    procs, logs = launch_stack(
+        cfg,
+        strategy,
+        rtf,
+        gz_port=gz_port,
+        ros_domain_id=ros_domain_id,
+        kill_stale=kill_stale,
+    )
     rclpy.init()
     node = SimHarnessNode()
 
@@ -656,14 +712,14 @@ def run_strategy_suite(
         if node.odom_ready and node.scan_ready and node.sim_now() > 0.1:
             break
     if not (node.odom_ready and node.scan_ready):
-        stop_stack(procs, logs)
+        stop_stack(procs, logs, gz_port=gz_port)
         node.destroy_node()
         rclpy.shutdown()
         raise RuntimeError("Sensors failed to become ready in benchmark suite")
 
     u_rate = int(round(rtf / cfg.max_step_size))
     run_cmd_bounded(
-        f"GAZEBO_MASTER_URI=http://127.0.0.1:11345 timeout -k 1 2 gz physics -u {u_rate} >/dev/null 2>&1",
+        f"GAZEBO_MASTER_URI={gz_master_uri} timeout -k 1 2 gz physics -u {u_rate} >/dev/null 2>&1",
         timeout_s=4.0,
     )
 
@@ -687,7 +743,7 @@ def run_strategy_suite(
             delete_debris_entities(max_count=12)
             node.reset_gazebo_world(timeout_s=3.0)
             run_cmd_bounded(
-                f"GAZEBO_MASTER_URI=http://127.0.0.1:11345 timeout -k 1 2 gz physics -u {u_rate} >/dev/null 2>&1",
+                f"GAZEBO_MASTER_URI={gz_master_uri} timeout -k 1 2 gz physics -u {u_rate} >/dev/null 2>&1",
                 timeout_s=4.0,
             )
             node.sim_sleep(0.6)
@@ -933,7 +989,7 @@ def run_strategy_suite(
         delete_debris_entities(max_count=12)
         node.destroy_node()
         rclpy.shutdown()
-        stop_stack(procs, logs)
+        stop_stack(procs, logs, gz_port=gz_port)
 
     return _summarize_results(cfg, strategy, results)
 
@@ -951,7 +1007,7 @@ def main():
     parser.add_argument("--rtf", type=float, default=4.0, help="Target Gazebo RTF factor (default 4.0)")
     parser.add_argument(
         "--out-dir",
-        default="/home/lab/disaster_recovery_ws/benchmark_results/ab_comparison",
+        default=os.path.join(WS_ROOT, "benchmark_results", "ab_comparison"),
         help="Output JSON directory",
     )
     parser.add_argument(
@@ -964,7 +1020,28 @@ def main():
         action="store_true",
         help="Resume unfinished trials from .partial.json checkpoint in --out-dir",
     )
+    parser.add_argument(
+        "--gz-port",
+        type=int,
+        default=11345,
+        help="Unique Gazebo master TCP port for parallel runs (default 11345)",
+    )
+    parser.add_argument(
+        "--ros-domain-id",
+        type=int,
+        default=None,
+        help="Unique ROS_DOMAIN_ID for parallel runs (optional)",
+    )
+    parser.add_argument(
+        "--kill-stale",
+        action="store_true",
+        help="Kill all global gzserver/recovery_controller before start (unsafe during parallel runs)",
+    )
     args = parser.parse_args()
+
+    os.environ["GAZEBO_MASTER_URI"] = f"http://127.0.0.1:{args.gz_port}"
+    if args.ros_domain_id is not None:
+        os.environ["ROS_DOMAIN_ID"] = str(args.ros_domain_id)
 
     os.makedirs(args.out_dir, exist_ok=True)
     selected = list(SCENARIOS.keys()) if args.scenario == "all" else [args.scenario]
@@ -1024,6 +1101,9 @@ def main():
                 save_debris_into_specs=True,
                 initial_results=base_trials_init,
                 on_trial_done=lambda rec, cur: _save_checkpoint(rec, cur, phase="baseline"),
+                gz_port=args.gz_port,
+                ros_domain_id=args.ros_domain_id,
+                kill_stale=args.kill_stale,
             )
             base_trials_init = list(base_res["trials"])
             _save_checkpoint({}, base_trials_init, phase="baseline")
@@ -1036,6 +1116,9 @@ def main():
             save_debris_into_specs=False,
             initial_results=prop_trials_init,
             on_trial_done=lambda rec, cur: _save_checkpoint(rec, cur, phase="proposed"),
+            gz_port=args.gz_port,
+            ros_domain_id=args.ros_domain_id,
+            kill_stale=args.kill_stale,
         )
 
         # Save fixed specs and A/B comparison JSON

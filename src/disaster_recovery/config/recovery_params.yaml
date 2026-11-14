@@ -26,7 +26,7 @@ recovery_controller:
     enable_hybrid_tracking: true      # Continuous Pure Pursuit + Residual RL hybrid tracking
     lookahead_dist_m: 0.45            # Pure pursuit lookahead distance (m)
     enable_td3_avoidance: true        # TD3 neural local reactive avoidance & barrier
-    td3_model_path: "/home/lab/disaster_recovery_ws/src/disaster_recovery/config/recovery_td3.onnx"
+    td3_model_path: ""                # Auto-resolve from package share/config unless explicitly overridden
     td3_clearance_dist_m: 0.42        # Obstacle bypass clearance threshold
     td3_max_avoid_steps: 250          # 25s avoidance timeout at 10Hz before advancing WP
 

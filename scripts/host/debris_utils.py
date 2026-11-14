@@ -5,13 +5,15 @@ obstacles in Gazebo Classic simulations.
 """
 
 import math
+import os
 import random
 import subprocess
 import time
 from typing import Callable, List, Optional, Sequence, Tuple
 
-DEBRIS_SDF_PATH = (
-    "/home/lab/disaster_recovery_ws/src/disaster_recovery/config/debris_obstacle.sdf"
+WS_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+DEBRIS_SDF_PATH = os.path.join(
+    WS_ROOT, "src", "disaster_recovery", "config", "debris_obstacle.sdf"
 )
 
 

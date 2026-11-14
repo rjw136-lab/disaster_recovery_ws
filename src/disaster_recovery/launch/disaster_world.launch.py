@@ -34,8 +34,9 @@ def generate_launch_description():
     pkg_share = get_package_share_directory('disaster_recovery')
     local_sdf = os.path.join(pkg_share, 'models', f'turtlebot3_{model}', 'model.sdf')
     local_burger_sdf = os.path.join(pkg_share, 'models', 'turtlebot3_burger', 'model.sdf')
-    src_sdf = os.path.join('/home/lab/disaster_recovery_ws/src/disaster_recovery/models', f'turtlebot3_{model}', 'model.sdf')
-    src_burger_sdf = '/home/lab/disaster_recovery_ws/src/disaster_recovery/models/turtlebot3_burger/model.sdf'
+    src_models_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'models'))
+    src_sdf = os.path.join(src_models_dir, f'turtlebot3_{model}', 'model.sdf')
+    src_burger_sdf = os.path.join(src_models_dir, 'turtlebot3_burger', 'model.sdf')
     if os.path.exists(local_sdf):
         urdf_path = local_sdf
     elif os.path.exists(src_sdf):

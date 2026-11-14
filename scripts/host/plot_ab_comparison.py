@@ -36,7 +36,8 @@ import numpy as np
 from world_map_geometry import extract_world_footprint
 
 
-WS_WORLDS = "/home/lab/disaster_recovery_ws/src/disaster_recovery/worlds"
+WS_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+WS_WORLDS = os.path.join(WS_ROOT, "src", "disaster_recovery", "worlds")
 WORLD_MAP_SPECS = {
     "collapsed": {
         "world_file": f"{WS_WORLDS}/disaster_collapsed_building.world",
@@ -690,11 +691,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--in-dir",
-        default="/home/lab/disaster_recovery_ws/benchmark_results/ab_comparison",
+        default=os.path.join(WS_ROOT, "benchmark_results", "ab_comparison"),
     )
     parser.add_argument(
         "--img-dir",
-        default="/home/lab/disaster_recovery_ws/docs/images",
+        default=os.path.join(WS_ROOT, "docs", "images"),
     )
     args = parser.parse_args()
     os.makedirs(args.img_dir, exist_ok=True)

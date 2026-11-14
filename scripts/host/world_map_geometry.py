@@ -18,7 +18,9 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 
-DEFAULT_MODELS_ROOT = "/home/lab/.gazebo/models"
+DEFAULT_MODELS_ROOT = os.environ.get(
+    "GAZEBO_MODELS_DIR", os.path.expanduser("~/.gazebo/models")
+)
 SKIP_MODEL_SUBSTRINGS = (
     "ground_plane",
     "asphalt_plane",
