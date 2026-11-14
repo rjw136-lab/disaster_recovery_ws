@@ -1,0 +1,152 @@
+{
+  "collapsed": {
+    "baseline": {
+      "scenario": "collapsed",
+      "label_ko": "\ubd95\uad34 \uac74\ubb3c (\uae30\ubcf8 \uc7ac\ub09c\ud658\uacbd)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 5,
+      "success_rate_pct": 50.0,
+      "mean_error_cm_all": 366.55,
+      "mean_error_cm_pass": 10.19,
+      "mean_time_s_all": 164.48,
+      "mean_time_s_pass": 102.18,
+      "mean_ret_path_m_pass": 13.38,
+      "mean_explored_m": 14.63
+    },
+    "proposed": {
+      "scenario": "collapsed",
+      "label_ko": "\ubd95\uad34 \uac74\ubb3c (\uae30\ubcf8 \uc7ac\ub09c\ud658\uacbd)",
+      "strategy": "proposed",
+      "trials": 10,
+      "passes": 10,
+      "success_rate_pct": 100.0,
+      "mean_error_cm_all": 8.3,
+      "mean_error_cm_pass": 8.3,
+      "mean_time_s_all": 101.76,
+      "mean_time_s_pass": 101.76,
+      "mean_ret_path_m_pass": 15.68,
+      "mean_explored_m": 15.28
+    }
+  },
+  "collapsed_heavy": {
+    "baseline": {
+      "scenario": "collapsed_heavy",
+      "label_ko": "\ubd95\uad34 \uac74\ubb3c (\uace0\ubc00\ub3c4 \ub2e4\uc911 \ub099\uc11d)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 2,
+      "success_rate_pct": 20.0,
+      "mean_error_cm_all": 475.56,
+      "mean_error_cm_pass": 3.88,
+      "mean_time_s_all": 238.49,
+      "mean_time_s_pass": 171.35,
+      "mean_ret_path_m_pass": 18.57,
+      "mean_explored_m": 16.46
+    },
+    "proposed": {
+      "scenario": "collapsed_heavy",
+      "label_ko": "\ubd95\uad34 \uac74\ubb3c (\uace0\ubc00\ub3c4 \ub2e4\uc911 \ub099\uc11d)",
+      "strategy": "proposed",
+      "trials": 10,
+      "passes": 10,
+      "success_rate_pct": 100.0,
+      "mean_error_cm_all": 8.05,
+      "mean_error_cm_pass": 8.05,
+      "mean_time_s_all": 115.31,
+      "mean_time_s_pass": 115.31,
+      "mean_ret_path_m_pass": 17.27,
+      "mean_explored_m": 16.47
+    }
+  },
+  "house": {
+    "baseline": {
+      "scenario": "house",
+      "label_ko": "\uc2e4\ub0b4 \uac00\uc625 (\ub2e4\uc2e4 \ubb38\ud2c0\u00b7\uc9c1\uac01 \ubcf5\ub3c4)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 9,
+      "success_rate_pct": 90.0,
+      "mean_error_cm_all": 33.65,
+      "mean_error_cm_pass": 5.04,
+      "mean_time_s_all": 135.51,
+      "mean_time_s_pass": 123.57,
+      "mean_ret_path_m_pass": 15.7,
+      "mean_explored_m": 16.35
+    },
+    "proposed": {
+      "scenario": "house",
+      "label_ko": "\uc2e4\ub0b4 \uac00\uc625 (\ub2e4\uc2e4 \ubb38\ud2c0\u00b7\uc9c1\uac01 \ubcf5\ub3c4)",
+      "strategy": "proposed",
+      "trials": 10,
+      "passes": 9,
+      "success_rate_pct": 90.0,
+      "mean_error_cm_all": 49.38,
+      "mean_error_cm_pass": 8.52,
+      "mean_time_s_all": 121.33,
+      "mean_time_s_pass": 104.09,
+      "mean_ret_path_m_pass": 14.34,
+      "mean_explored_m": 16.3
+    }
+  },
+  "tunnel": {
+    "baseline": {
+      "scenario": "tunnel",
+      "label_ko": "\uc9c0\ud558 \ud130\ub110 (\ud611\uc18c \ud5d8\uc9c0\u00b7\ucc28\ub7c9 \uc794\ud574)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 9,
+      "success_rate_pct": 90.0,
+      "mean_error_cm_all": 42.09,
+      "mean_error_cm_pass": 10.72,
+      "mean_time_s_all": 98.47,
+      "mean_time_s_pass": 83.84,
+      "mean_ret_path_m_pass": 12.0,
+      "mean_explored_m": 12.46
+    },
+    "proposed": {
+      "scenario": "tunnel",
+      "label_ko": "\uc9c0\ud558 \ud130\ub110 (\ud611\uc18c \ud5d8\uc9c0\u00b7\ucc28\ub7c9 \uc794\ud574)",
+      "strategy": "proposed",
+      "trials": 10,
+      "passes": 10,
+      "success_rate_pct": 100.0,
+      "mean_error_cm_all": 8.17,
+      "mean_error_cm_pass": 8.17,
+      "mean_time_s_all": 79.24,
+      "mean_time_s_pass": 79.24,
+      "mean_ret_path_m_pass": 12.79,
+      "mean_explored_m": 12.46
+    }
+  },
+  "maze": {
+    "baseline": {
+      "scenario": "maze",
+      "label_ko": "\ubbf8\ub85c \uaca9\ubcbd (\ub3d9\uc801 \uc774\ub3d9 \uc7a5\uc560\ubb3c \ud3ec\ud568)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 9,
+      "success_rate_pct": 90.0,
+      "mean_error_cm_all": 24.6,
+      "mean_error_cm_pass": 2.9,
+      "mean_time_s_all": 110.52,
+      "mean_time_s_pass": 99.46,
+      "mean_ret_path_m_pass": 10.79,
+      "mean_explored_m": 10.68
+    },
+    "proposed": {
+      "scenario": "maze",
+      "label_ko": "\ubbf8\ub85c \uaca9\ubcbd (\ub3d9\uc801 \uc774\ub3d9 \uc7a5\uc560\ubb3c \ud3ec\ud568)",
+      "strategy": "proposed",
+      "trials": 10,
+      "passes": 10,
+      "success_rate_pct": 100.0,
+      "mean_error_cm_all": 8.25,
+      "mean_error_cm_pass": 8.25,
+      "mean_time_s_all": 21.02,
+      "mean_time_s_pass": 21.02,
+      "mean_ret_path_m_pass": 2.56,
+      "mean_explored_m": 10.67
+    }
+  }
+}

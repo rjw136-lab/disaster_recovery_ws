@@ -51,6 +51,7 @@ from disaster_recovery.td3_policy import (
     check_line_of_sight_clear
 )
 from disaster_recovery.local_grid_planner import ProposedRecoveryPlanner
+from disaster_recovery.rl_context_policy import ContextRLStudentPolicy
 
 
 class SystemState:
@@ -195,6 +196,7 @@ class RecoveryController(Node):
         self.declare_parameter('unstuck_window_sec', 2.8)
         self.declare_parameter('unstuck_min_disp_m', 0.06)
         self.declare_parameter('reset_corr_on_episode', False)
+        self.declare_parameter('context_rl_onnx_path', '')
 
         # Retrieve parameters
         self.heartbeat_timeout = self.get_parameter('heartbeat_timeout_sec').value
@@ -231,8 +233,9 @@ class RecoveryController(Node):
         self.shortcut_rejoin_dist_m = float(self.get_parameter('shortcut_rejoin_dist_m').value)
         self.unstuck_window_sec = float(self.get_parameter('unstuck_window_sec').value)
         self.unstuck_min_disp_m = float(self.get_parameter('unstuck_min_disp_m').value)
+        self.context_rl_onnx_path = str(self.get_parameter('context_rl_onnx_path').value)
         self.reset_corr_on_episode = bool(self.get_parameter('reset_corr_on_episode').value) or (
-            self.recovery_strategy == 'proposed'
+            self.recovery_strategy in ('proposed', 'proposed_rl')
         )
 
         # -------------------------------------------------------------------------
@@ -245,6 +248,8 @@ class RecoveryController(Node):
         self.latest_raw_ranges = []
         self.last_cmd_v = 0.0
         self.last_cmd_w = 0.0
+        self.actual_v = 0.0
+        self.actual_w = 0.0
         self.td3_avoid_step = 0
 
         # Initialize TD3 Local Avoidance Policy (Layer 2)
@@ -283,7 +288,8 @@ class RecoveryController(Node):
         else:
             self.td3_policy = None
 
-        if self.recovery_strategy == 'proposed':
+        self.context_rl_policy = None
+        if self.recovery_strategy in ('proposed', 'proposed_rl'):
             self.local_planner = ProposedRecoveryPlanner(
                 size_m=self.local_grid_size_m,
                 resolution_m=self.local_grid_res_m,
@@ -293,9 +299,40 @@ class RecoveryController(Node):
                 unstuck_window_sec=self.unstuck_window_sec,
                 unstuck_min_disp_m=self.unstuck_min_disp_m,
             )
-            self.get_logger().info(
-                "[PROPOSED] Rolling 2D Grid A* + Topological Shortcut + Unstuck Escape active"
-            )
+            if self.recovery_strategy == 'proposed_rl':
+                rl_path = self.context_rl_onnx_path
+                if not rl_path or not os.path.exists(rl_path):
+                    rl_cands = []
+                    try:
+                        from ament_index_python.packages import get_package_share_directory
+                        pkg_cfg = os.path.join(get_package_share_directory("disaster_recovery"), "config")
+                        rl_cands.append(os.path.join(pkg_cfg, "sim_policy_student.onnx"))
+                    except Exception:
+                        pass
+                    mod_dir = os.path.dirname(os.path.abspath(__file__))
+                    rl_cands.append(os.path.abspath(os.path.join(mod_dir, "..", "config", "sim_policy_student.onnx")))
+                    for c in rl_cands:
+                        if os.path.exists(c):
+                            rl_path = c
+                            break
+                if rl_path and os.path.exists(rl_path):
+                    try:
+                        self.context_rl_policy = ContextRLStudentPolicy(
+                            onnx_path=rl_path,
+                            v_max=self.v_max,
+                            w_max=self.w_max,
+                        )
+                        self.get_logger().info(
+                            f"[PROPOSED_RL] Context-RL ONNX active: {os.path.basename(rl_path)}"
+                        )
+                    except Exception as exc:
+                        self.get_logger().warn(f"[PROPOSED_RL] ONNX load failed ({exc}), falling back to A*")
+                else:
+                    self.get_logger().warn("[PROPOSED_RL] sim_policy_student.onnx not found, falling back to A*")
+            else:
+                self.get_logger().info(
+                    "[PROPOSED] Rolling 2D Grid A* + Topological Shortcut + Unstuck Escape active"
+                )
         else:
             self.local_planner = None
 
@@ -421,8 +458,12 @@ class RecoveryController(Node):
         self._link_restored_timer = None
         self.last_cmd_v = 0.0
         self.last_cmd_w = 0.0
+        self.actual_v = 0.0
+        self.actual_w = 0.0
         if self.local_planner is not None:
             self.local_planner.reset()
+        if self.context_rl_policy is not None:
+            self.context_rl_policy.reset()
         self.state = (
             SystemState.NORMAL_TELEOP
             if (self.odom_initialized and self.heartbeat_received_once)
@@ -433,6 +474,8 @@ class RecoveryController(Node):
     def cb_odometry(self, msg: Odometry):
         pos = msg.pose.pose.position
         ori = msg.pose.pose.orientation
+        self.actual_v = float(msg.twist.twist.linear.x)
+        self.actual_w = float(msg.twist.twist.angular.z)
         self.raw_odom_x = pos.x
         self.raw_odom_y = pos.y
         self.raw_odom_theta = quaternion_to_yaw(ori.x, ori.y, ori.z, ori.w)
@@ -647,9 +690,9 @@ class RecoveryController(Node):
                 )
             return
 
-        # 3b. Proposed Strategy: Rolling 2D Grid A* + Topological Shortcut + Unstuck Escape
+        # 3b. Proposed / Proposed_RL Strategy: Rolling 2D Grid A* + Topological Shortcut (+ Context RL ONNX)
         if (
-            self.recovery_strategy == 'proposed'
+            self.recovery_strategy in ('proposed', 'proposed_rl')
             and self.local_planner is not None
             and self.state in [
                 SystemState.BACKTRACKING_ROTATE,
@@ -660,7 +703,7 @@ class RecoveryController(Node):
             ]
         ):
             now_sec = now.nanoseconds / 1e9
-            status_tag, v_cmd, w_cmd, _ = self.local_planner.step(
+            status_tag, v_cmd, w_cmd, subgoal_xy = self.local_planner.step(
                 rx=self.current_x,
                 ry=self.current_y,
                 rth=self.current_theta,
@@ -673,6 +716,26 @@ class RecoveryController(Node):
                 wp_reach_radius=self.wp_reach_radius,
                 docking_dist_th=self.docking_dist_th,
             )
+            if (
+                self.recovery_strategy == 'proposed_rl'
+                and self.context_rl_policy is not None
+                and status_tag == "ASTAR_TRACK"
+                and subgoal_xy is not None
+            ):
+                v_rl, w_rl = self.context_rl_policy.predict(
+                    scan_ranges=self.latest_raw_ranges,
+                    rx=self.current_x,
+                    ry=self.current_y,
+                    rth=self.current_theta,
+                    tx=subgoal_xy[0],
+                    ty=subgoal_xy[1],
+                    cmd_v=self.last_cmd_v,
+                    cmd_w=self.last_cmd_w,
+                    act_v=self.actual_v,
+                    act_w=self.actual_w,
+                )
+                v_cmd = max(-0.10, min(self.v_max, 0.70 * v_rl + 0.30 * v_cmd))
+                w_cmd = max(-self.w_max, min(self.w_max, 0.70 * w_rl + 0.30 * w_cmd))
             if status_tag == "ARRIVED":
                 self.waypoint_stack.clear()
                 self.active_target_wp = None

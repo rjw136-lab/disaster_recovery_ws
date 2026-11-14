@@ -33,7 +33,7 @@
 2. [핵심 기능](#-핵심-기능)
 3. [시스템 아키텍처](#-시스템-아키텍처)
 4. [상태 머신](#-상태-머신-recovery_controller)
-5. [차세대 고도화 로드맵](#-차세대-고도화-로드맵-계층적-하이브리드-자율복귀)
+5. [차세대 고도화 로드맵](#-차세대-고도화-phase-1-로컬-a-98--phase-2-v100-dual-track-rl-sim-to-sim-94)
 6. [하드웨어 구성](#-하드웨어-구성)
 7. [저장소 구조](#-저장소-구조)
 8. [설치](#-설치)
@@ -73,18 +73,18 @@
 | 운용 | 원터치 런처 `start.py` / `stop.py`, WASD 텔레옵 | ✅ 구현 |
 | 시뮬레이션 | Gazebo + Cartographer SLAM 검증 환경 `sim.py` (WSLg D3D12 GPU 가속, 붕괴 건물 등 5개 월드) | ✅ 구현 |
 | 센서 | MQ-2 + ADS1115 가스 센서 | ⏳ 드라이버 완료, 결선 예정 |
-| 고도화 | 계층적 하이브리드 자율복귀 (`RollingLocalGrid + 2D A*` · Pure Pursuit · TD3 · 2D ICP · ArUco) | ✅ 구현 · 🔄 서버 Phase 1·2 진행 중 |
+| 고도화 | 계층적 하이브리드 자율복귀 (`RollingLocalGrid + 2D A*` · Phase 2 Dual-Track `ContextRLStudent` · 2D ICP · ArUco) | ✅ Phase 1(`49/50`) · Phase 2(`47/50` S2S) 완료 |
 
 ### 최근 변경사항 (Patch Notes · 최근 6건)
 
 | 일자 (커밋) | 핵심 변경 요약 |
 | :--- | :--- |
+| **2026-11-14** (`HEAD`) | **V100 서버 Phase 1(`49/50 = 98.0%`) · Phase 2 Dual-Track RL(`88.47M` 스텝 · Sim-to-Sim `47/50 = 94.0%`) 완주** — `_virtual_obstacles` `±0.03m/9s` 튜닝, FastDDS/`debris_utils` 격리, `sim`/`real_tb3_policy_student.onnx`(`231.6 KB`, `0.036~0.039 ms`), 3D Gazebo+RViz2 & 롤아웃 `.mp4`/`.png` 증거, 백서 `#30~#36` 통합 |
 | **2026-11-14** (`b151a4f`) | **상시 프로젝트 규칙(`AGENTS.md`) & 서버 동기화 지침 보완** — 트러블슈팅 누적 기록(`#30+`)·경로 이식성·병렬 격리·3D 증거 규칙을 `AGENTS.md` 및 `SERVER_MISSION.md`에 영구 등록 |
 | **2026-11-14** (`d9168e8`) | **트러블슈팅 총정리 백서 `#23~#29` 통합 & 상대경로 정정** — 1·1.5차 이후 시뮬·TD3 한계 돌파·로컬 2D A\*·이식성 패치 전수 현행화 (`docs/2026-11-10_...총정리.md`) |
 | **2026-11-14** (`65fce0d`~`a115dc7`) | **V100 32GB Phase 2 대규모 RL · Dual-Track · 3D 증거 규칙 확정** — `100k~500k+` 에피소드 과적합 방지 프로토콜, RMA/GRU+PLR 능동 적응, `sim_policy` + 실물 휠오돔용 `real_tb3_policy` 이원화 (`SERVER_MISSION.md`, 체크포인트 문서) |
 | **2026-11-14** (`bbe1d5a`) | **병렬 Gazebo 포트/도메인 격리 & 하드코딩 경로 제거** — `--gz-port`, `--ros-domain-id`, `_kill_matching_gazebo_procs`, `--kill-stale` 추가 및 7개 파일 동적 경로 탐색 전환 |
-| **2026-11-14** (`f1966bf`~`7de5747`) | **`RollingLocalGrid`(`0.04m`) + 2D `A*` + 5대 재난 A/B 벤치마크 & YOLO 15 FPS 안정화** — 위상 지름길·벽 너머 단축 차단·전방 unpin·`_virtual_obstacles`, `.partial.json` 체크포인트, `house` 7/10 재검증 기록(`20 passed`) |
-| **2026-11-13** (`0871c58`~`b212688`) | **Faster-Whisper CUDA INT8 GPU 가속 · YOLO 15 FPS · RViz2 `RobotModel`** — cuBLAS/cuDNN 프리로드(`CPU` 폴백) 및 `disaster_cartographer.rviz` 분리 |
+| **2026-11-14** (`f1966bf`~`7de5747`) | **`RollingLocalGrid`(`0.04m`) + 2D `A*` + 5대 재난 A/B 벤치마크 & YOLO 15 FPS 안정화** — 위상 지름길·벽 너머 단축 차단·전방 unpin·`_virtual_obstacles`, `.partial.json` 체크포인트 (`20 passed`) |
 
 > 📜 **전체 누적 변경 이력 (`2026-11-05` ~ 최신):** 나머지 과거 패치 및 커밋별 전체 내역은 [`CHANGELOG.md`](CHANGELOG.md)에서 한눈에 확인할 수 있습니다.
 
@@ -95,9 +95,9 @@
 - [`CHANGELOG.md`](CHANGELOG.md) — 초기 업로드(`2026-11-05`)부터 최신 커밋까지의 전체 누적 패치노트
 - [`docs/DISASTER_RECOVERY_GUIDEBOOK.md`](docs/DISASTER_RECOVERY_GUIDEBOOK.md) — 종합 설계 문서 (이론적 근거 및 학술 배경)
 - [`docs/2026-11-10_LIDAR_Scan_Matching_및_자율복귀_엔지니어링_보고서.md`](docs/2026-11-10_LIDAR_Scan_Matching_및_자율복귀_엔지니어링_보고서.md) — 2D ICP 스캔 매칭 설계 보고서
-- [`docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md`](docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md) — 트러블슈팅 백서 (`#01` ~ `#29`)
+- [`docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md`](docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md) — 트러블슈팅 백서 (`#01` ~ `#36` 전수 통합)
 - [`docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_분석보고서.md`](docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_분석보고서.md) — 붕괴 건물 15회 벤치마크 분석 보고서
-- [`docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md`](docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md) — 5대 재난환경 A/B 비교 보고서 *(서버 Phase 1·2 완료 후 최종 수치 갱신 예정)*
+- [`docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md`](docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md) — **5대 재난환경 A/B (`49/50 = 98.0%`) & Phase 2 Sim-to-Sim (`47/50 = 94.0%`) 보고서**
 - [`docs/2026-11-14_중간상황_및_서버이관_체크포인트.md`](docs/2026-11-14_중간상황_및_서버이관_체크포인트.md) — 중간 벤치마크(`house` 7/10) 및 V100 서버 이관 체크포인트
 - [`docs/PATENT_ANALYSIS_AND_PRIOR_ART.md`](docs/PATENT_ANALYSIS_AND_PRIOR_ART.md) — 선행 특허 분석 보고서
 
@@ -229,87 +229,73 @@ stateDiagram-v2
 
 ---
 
-## 🗺 차세대 고도화: 계층적 하이브리드 자율복귀
+## 🗺 차세대 고도화: Phase 1 로컬 A\* (98%) · Phase 2 V100 Dual-Track RL (Sim-to-Sim 94%)
 
-> 본 프로젝트는 **LIFO Breadcrumb + 2D ICP 오도메트리 보정 + ArUco 비주얼 도킹**의 안정적 베이스라인을 기반으로, 붕괴 및 지형 변형이 극심한 실재난 환경을 돌파하기 위한 **심층강화학습(TD3) 융합 계층적 하이브리드 아키텍처** 구축 및 정량적 벤치마크 검증을 완료하였다.
+> 본 프로젝트는 **LIFO Breadcrumb + 2D ICP 오도메트리 보정 + ArUco 비주얼 도킹** 베이스라인 위에서, Phase 1 **고해상도 `RollingLocalGrid` (`0.04m`) + 2D `A*` + 비파괴 위상 지름길 (`49/50 = 98.0%`)** 및 Phase 2 **Tesla V100 32GB `8,847만 스텝` Dual-Track 능동 적응 RL (`0.036~0.039 ms` ONNX · 미학습 공식 Gazebo Sim-to-Sim `47/50 = 94.0%`)** 검증까지 완결하였다.
 
-### 1. 계층적 하이브리드 아키텍처 개요
+### 1. 계층적 하이브리드 + Dual-Track RL 아키텍처 개요
 
-기존 정적 맵 기반 SLAM 내비게이션(Nav2) 및 수동적 장애물 정지(`OBSTACLE_HOLD`)가 가진 물리적 한계를 극복하기 위해, **연산 분할형 4계층 자율복귀 제어기**를 구현하여 적용했다.
+기존 정적 맵 기반 SLAM 내비게이션(Nav2) 및 수동적 장애물 정지(`OBSTACLE_HOLD`)·메모리리스 TD3의 U자 포켓 교착을 극복하기 위해, **연산 분할형 4계층 + Dual-Track 시계열 문맥 RL 융합 제어기**를 구현하였다.
 
 ```mermaid
 flowchart TD
-    G["Global Layer<br/>LIFO Breadcrumb 역추적"] -->|"복귀로 상 신규 잔해 감지 (<=0.38m)"| L["Local Reactive Layer<br/>초경량 TD3 국소 우회 기동 (ONNX)"]
-    L -->|"우회 완료 및 전방 시야 확보"| D["Drift Reset Layer<br/>2D ICP 슬립 오차 즉각 소거"]
+    G["Global Layer<br/>LIFO Breadcrumb + 비파괴 위상 지름길"] -->|"통신 단절·복귀 진입"| L["Local Geometric + RL Layer<br/>RollingLocalGrid 2D A* (98%) / ContextRLStudent ONNX (0.70*RL+0.30*A*)"]
+    L -->|"우회·ESCAPE 완료"| D["Drift Reset Layer<br/>2D LiDAR SVD ICP (3.5ms) SE(2) 슬립 상쇄"]
     D --> G
-    G -->|"베이스캠프 0.5m 진입"| T["Terminal Layer<br/>ArUco 2cm 정밀 도킹"]
+    G -->|"베이스캠프 0.5m 진입"| T["Terminal Layer<br/>ArUco 2cm 정밀 도킹 (+10s 가드)"]
 ```
 
-1. **Global Layer (골격 경로)**: 진입 시 검증된 LIFO Breadcrumb Waypoint 스택 역추적
-2. **Local Reactive Layer (동적 잔해 우회)**: 복귀로에 신규 낙하 잔해 발생 시 **TD3(Twin Delayed DDPG)** 기반 부드러운 국소 우회 기동
-3. **Drift Reset Layer (오차 소거)**: 우회 조향 중 발생한 추가 바퀴 슬립을 **2D 라이다 스캔 매칭** 으로 즉시 소거 후 본선 궤도 복귀
-4. **Terminal Layer (초정밀 안착)**: ArUco solvePnP 비주얼 서보잉으로 베이스캠프 2 cm 이내 최종 도킹
+### 2. Phase 1: 5대 재난환경 고정 시드 50쌍 A/B 최종 검증 (`68.0% ➔ 98.0%`)
 
-### 2. 핵심 개선 효과 및 달성 성과
-
-**🛡️ 신규 붕괴 잔해 감지 시 국소 우회를 통한 고립 위험 완화 및 복귀 경로 회복성 검증**
-- 기존 규칙 기반 시스템은 복귀 경로에 천장 붕괴나 낙하 잔해 등 신규 장애물이 발생할 경우 12~25 cm 전방에서 비상 정지(`OBSTACLE_HOLD`) 후 대기 상태에 머물러 장시간 고립되는 구조적 한계가 있었다.
-- TD3 강화학습 에이전트를 국소 반응 계층으로 도입하여 차단된 경로 주변의 회피 영역을 연속 곡선으로 선회 우회한 뒤 본선 경로로 재진입하도록 설계함으로써, **단일 낙하 장애물 및 휠 슬립 노이즈가 인가된 시뮬레이션 환경(50회 시험)에서 전수 원점 복귀에 성공하여 고립 위험 완화 효과를 검증**했다.
-
-**🎯 연속 제어 기반 슬립 억제 및 기하학적 2D ICP 보정을 통한 원점 오차 1cm급 수렴**
-- 기존 인공 포텐셜 필드(APF)는 장애물 앞 급격한 반발 조향으로 심각한 바퀴 미끄러짐을 유발하여 사체항법 오차가 57 cm 이상 누적되는 한계가 있었다.
-- 본 시스템은 **TD3의 연속 곡선 제어로 슬립을 최소화**하고, 우회 직후 **2D LiDAR ICP 스캔 매칭이 남은 드리프트를 즉각 리셋 소거**하여, ArUco 도킹 전에도 이미 19 cm 이내로 접근한 뒤 최종 **$1.03 \pm 0.53\,\text{cm}$의 원점 복귀 정밀도**를 달성했다.
-
-**⚡ 초경량 ONNX 모델 설계를 통한 임베디드 온보드 실시간성 극대화**
-- 고가의 외장 GPU 증설 없이, Host PC(GTX 1050 Ti) 가상환경에서 DRL 학습을 완료한 뒤 **99.07 KB 크기의 초경량 Actor ONNX 모델**로 변환했다.
-- 단일 CPU 코어에서도 **1스텝 평균 0.077 ms (P99 0.144 ms)**의 초저지연 온보드 추론 성능을 기록하여 목표 사양(< 1.500 ms)을 19배 이상 초과 달성했다.
-
-### 3. 정량적 4대 비교군 벤치마크 결과 (50회 몬테카를로 재난 시뮬레이션)
-
-낙하 잔해 원통(반경 18cm)과 휠 슬립 노이즈가 투입된 실내 재난 복도 환경에서 50회 몬테카를로 시험을 수행한 정량 비교 결과는 다음과 같다:
-
-| 비교군 (Architecture) | 복귀 방식 | 신규 장애물 대응 | 시험 성공률 (50회 기준)* | 종단 위치 오차 (cm) | 종단 각도 오차 (°) | 조향 평활도 ($\Delta \omega$) |
-| :--- | :--- | :--- | :---: | :---: | :---: | :---: |
-| **Baseline A** | 순수 휠 오도메트리 역추적 | 없음 (단순 직진) | 0.0% (0/50) | 충돌 실패 (Collision) | 충돌 실패 | 0.0047 rad/s |
-| **Baseline B** | 휠 오도메트리 + APF | 수식 기반 반발력 | 96.0% (48/50) | 57.11 ± 6.03 | 11.03 ± 1.78 | 0.0221 rad/s |
-| **Baseline C** | Breadcrumb + 2D ICP | `OBSTACLE_HOLD` 정지 대기 | 0.0% (0/50) | 대기 실패 (Stalled) | 대기 실패 | 0.0051 rad/s |
-| **제안 시스템 (Proposed)** | **Breadcrumb + TD3 + 2D ICP + ArUco** | **TD3 국소 우회 + ICP 슬립 소거** | **100.0% (50/50)** | **1.03 ± 0.53** | **0.52 ± 0.39** | **0.0227 rad/s** |
-
-> \* **시험 조건 및 한계 명시**: 위 수치는 직선 3.6m 복도, 단일 원통 잔해($r=18\,\text{cm}$), 휠 슬립 가우시안 노이즈($v: 1.5\%, \omega: 1.5\%$) 조건의 50회 가상 회귀 시험에서 도출된 결과이다. 복수 잔해 밀집, 완전 통로 폐색, 라이다 난반사 등 복합 환경에서는 성공률 및 오차가 변동될 수 있다.
-
-- **Layer 3 단독 (ArUco 도킹 전 2D ICP 도착 오차)**: **$19.10 \pm 0.25\,\text{cm}$** (50회 시험 전수에서 ArUco 시각 도킹 유효 반경인 50cm 이내 진입 기록)
-- **온보드 모델 크기 및 1스텝 추론 지연**: **99.07 KB**, **평균 0.077 ms / P99 0.144 ms** (스펙 목표 < 1.500 ms 통과)
-- **단위 및 통합 테스트**: `pytest src/disaster_recovery/test` **13개 전수 통과 (13/13 PASS)** (`test_ads1115_mq2.py` 8개 + `test_hybrid_recovery.py` 5개)
-
-```bash
-# 4대 비교군 정량 벤치마크 직접 재현 실행
-python3 scripts/host/verify_hybrid_recovery.py --trials 50
-```
-
-### 4. Gazebo 3D 붕괴 건물 환경 15회 연속 자율복귀 벤치마크 및 원인 규명
-
-`disaster_collapsed_building.world` (20 m × 20 m 지진 붕괴 건물 맵)에서 `sim.py --collapsed --yolo --no-teleop` + `auto_disaster_trials.py --trials 15 --collapsed`로 편도 `12~20 m` 심층 탐사 및 복귀로 상 동적 낙석(`debris_obstacle.sdf`) **3~6개 불시 투하** 연속 벤치마크를 수행했다.
+V100 서버 병렬 워커(`--gz-port`/`--ros-domain-id`)에서 저상 `cafe_table` 가상 접촉 장벽(`±0.03m` · `9.0s` TTL)과 `maze` 심층(`~10.7m`) 조건을 최종 재검증한 결과, **가혹 4종(`collapsed`, `collapsed_heavy`, `tunnel`, `maze`) 40/40 (100.0%) · 전체 49/50 (98.0%)**을 달성했다.
 
 <p align="center">
-  <img src="docs/images/collapsed_disaster_benchmark_trajectories.png" alt="15-Trial Collapsed Building Autonomous Recovery Benchmark" width="92%">
+  <img src="docs/images/ab_kpi_overview.png" alt="5-Env A/B Benchmark KPI Overview" width="94%">
   <br>
-  <em>▲ 붕괴 건물 15회 연속 자율복귀 궤적 및 회차별 종단 오차 (11/15 PASS, 73.3%)</em>
+  <em>▲ 5대 재난환경 고정 시드 50쌍 A/B 정량 지표 및 3D Gazebo+RViz2 주행 증거(docs/images/evidence/)</em>
 </p>
 
-| 지표 | 측정 결과 (`auto_disaster_trials.py --trials 15 --collapsed`) |
-| :--- | :--- |
-| **복귀 성공률** | **73.3% (11 / 15회 PASS)** (최대 6개 낙석·20.05 m 침투 포함) |
-| **성공 회차 평균 종단 오차** | **47.26 cm** (`use_aruco_docking:=true`로 0.50 m 도킹 구역 진입 정지 → 12초 백업 타임아웃 완료) |
-| **성공 회차 평균 복귀 시간** | **142.9 초** (최단 `103.2초` / 최장 `309.5초`) |
-| **실패 4건 원인 규명** | ① `BACKTRACKING_HYBRID` 상태의 `LOCAL_TD3_AVOIDANCE` 미전이 및 `0.08 m/s` 최소 전진 클램프<br>② 다회차 리셋 시 `SE(2)` 오프셋(`corr_y` 최대 `+1.300 m`) 미초기화<br>③ `interior_wall_1a`·`collapsed_wall_B` 협소 포켓 정적 교착 |
-| **자원 프로파일링 실측** | GTX 1050 Ti (`GPU-Util 41%`, `VRAM 1,239 MiB`), CPU 주병목 `cartographer_node` (`125% CPU`, `53% RAM`)·`gzserver/client` (`91%`) → 무인 벤치마크 시 `--no-slam`/`--headless` 권장 |
+| 시나리오 | Baseline (반사형) | Phase 1 Proposed (`A*`) | Phase 2 `proposed_rl` (Sim-to-Sim) | 핵심 개선 |
+| :--- | :---: | :---: | :---: | :--- |
+| **1. 붕괴 건물 (`collapsed`)** | 5/10 (50.0%) | **10/10 (100.0%, `8.30cm`)** | **10/10 (100.0%, `8.21cm`)** | U자 포켓 돌파 · `97.44 s` |
+| **2. 고밀도 낙석 (`collapsed_heavy`)** | 2/10 (20.0%) | **10/10 (100.0%, `8.05cm`)** | **9/10 (90.0%, `8.29cm`)** | 6~9개 연쇄 낙석 전수 돌파 |
+| **3. 다실 가옥 (`house`, 15~19m)** | 9/10 (90.0%) | **9/10 (90.0%, `104.09s`)** | 8/10 (80.0%, `118.29s`) | 문틀·저상 받침대 탈출 가속 |
+| **4. 지하 터널 (`tunnel`)** | 9/10 (90.0%) | **10/10 (100.0%, `8.17cm`)** | **10/10 (100.0%, `8.20cm`)** | SUV·굴삭기 협로 무충돌 |
+| **5. 동적 미로 (`maze`, ~10.7m)** | 9/10 (90.0%) | **10/10 (100.0%, `21.02s`)** | **10/10 (100.0%, `21.14s`)** | 복귀 시간 **110.5s ➔ 21.0s (5.3배)** |
+| **50쌍 종합 (`Total`)** | **34/50 (68.0%)** | **49/50 (98.0%, `16.43cm`)** | **47/50 (94.0% Zero-Shot)** | 평균 오차 **-91.3%**, 시간 **-41.3%** |
 
-> 📄 상세 궤적·회차별 표·로그 해부: [`docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_분석보고서.md`](docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_분석보고서.md)
+<p align="center">
+  <img src="docs/images/evidence/p1_collapsed_baseline_t03_outcome.png" alt="Baseline Fail collapsed t03" width="48%">
+  <img src="docs/images/evidence/p2_sim2sim_collapsed_t03_outcome.png" alt="Phase 2 Sim-to-Sim Pass collapsed t03" width="48%">
+  <br>
+  <em>▲ 3D Gazebo+RViz2 실측 비교 — (좌) Baseline 낙석 교착 실패(802.6cm) vs (우) Phase 2 `proposed_rl` Sim-to-Sim 완주(8.7cm)</em>
+</p>
+
+> 📄 5대 환경 상세 비교·3D 스냅샷 보고서: [`docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md`](docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md)
+
+### 3. Phase 2: Tesla V100 32GB 대규모 Dual-Track RL & 선택적 DAgger 온보드 증류
+
+- **학습 규모 및 과적합 차단:** 절차적 랜덤 맵 4종에서 3시드(`101/202/303`) × 300업데이트 = **총 `88,473,600` 스텝 (`392,119` 에피소드: Track A `204,403` + Track B `187,716`)** 학습 후 미학습 60시드 & 공식 Gazebo 50쌍으로 Zero-Shot 일반화 검증.
+- **Track A (`sim_policy_student.onnx`, `231.6 KB`):** Teacher(최대 `83.3%`) → **Agreement-Preserving Selective DAgger** 증류 후 미학습 60시드 **`75.0%`**(`collapsed_debris 93.3%`, `tight_corridor 93.3%`), CPU 1스텝 **`0.036 ms`** (`p99 0.0531 ms`).
+- **Track B (`real_tb3_policy_student.onnx`, `231.6 KB`):** 2D ICP 잔차(`±5%` 스케일·`±0.03 rad` yaw bias·데드존·빔 누락) 환경에서 Teacher(`55.0~61.7%`)를 능가하는 **Unseen `63.3%`** 달성, CPU 1스텝 **`0.0385 ms`** (`p99 0.0551 ms`).
+- **단위 및 통합 테스트:** `python3 -m pytest -p no:anyio src/disaster_recovery/test` **`23 passed`** (ADS1115 8 + Hybrid/Dual-ONNX 6 + LocalGrid A\* 9).
+
+<p align="center">
+  <img src="docs/images/evidence/phase2_learning_curves_sim.png" alt="Phase 2 V100 SIM Track Learning Curves" width="48%">
+  <img src="docs/images/evidence/phase2_learning_curves_real_tb3.png" alt="Phase 2 V100 REAL_TB3 Track Learning Curves" width="48%">
+  <br>
+  <em>▲ Tesla V100 32GB Dual-Track PPO+PLR 학습 곡선 (좌: `sim_policy` / 우: 실차 잔차 보정 `real_tb3_policy`)</em>
+</p>
 
 ```bash
-# 붕괴 건물 실측 Gazebo 연속 자율복귀 벤치마크 재현 (별도 터미널에서 sim.py --no-teleop 기동 후 실행)
-python3 scripts/host/auto_disaster_trials.py --trials 15 --collapsed
+# 5대 재난환경 A/B 또는 Phase 2 Sim-to-Sim 벤치마크 재현
+python3 scripts/host/ab_disaster_benchmark.py --scenario all --trials 10 --proposed-strategy proposed
+python3 scripts/host/ab_disaster_benchmark.py --scenario all --trials 10 --reuse-baseline --proposed-strategy proposed_rl
 ```
+
+### 4. Gazebo 3D 붕괴 건물 초기 15회 벤치마크 (Baseline 한계 규명 기록)
+
+초기 Residual TD3 기반 15회 연속 벤치마크(`11/15 = 73.3%`)와 실패 원인 4건(후속 `RollingLocalGrid + 2D A*` 설계의 출발점)은 [`docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_분석보고서.md`](docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_분석보고서.md)에 보존되어 있다.
 
 ---
 
@@ -374,13 +360,17 @@ disaster_recovery_ws/
 │   │   ├── stop.py                      # 호스트 + 로봇 프로세스 일괄 종료
 │   │   ├── sim.py                       # Gazebo + SLAM + 복귀 제어기 + 랜덤 낙석([O]키) 시뮬레이터
 │   │   ├── wasd_teleop.py               # WASD 텔레옵 (/cmd_vel_remote 발행)
-│   │   ├── ab_disaster_benchmark.py     # 5대 재난환경 고정 시드 A/B 하네스 (--gz-port, --ros-domain-id, --resume)
+│   │   ├── ab_disaster_benchmark.py     # 5대 재난환경 고정 시드 A/B·RL S2S 하네스 (--gz-port, --ros-domain-id)
 │   │   ├── plot_ab_comparison.py        # 5대 환경 맵·KPI·10회 궤적 비교 시각화 생성기
+│   │   ├── record_3d_evidence.py        # Gazebo 3D + RViz2 동기 고화질 .mp4/.png 자동 증거 캡처기
+│   │   ├── train_phase2_v100.py         # V100 Dual-Track PPO+PLR 대규모 학습 & 선택적 DAgger ONNX 증류기
+│   │   ├── rl_procedural_env.py         # CUDA 벡터 절차적 재난 시뮬레이터 (SIM_TRACK / REAL_TB3_TRACK)
+│   │   ├── sync_to_gdrive.sh            # /hdd 증거 영상·그래프·JSON Google Drive 자동 동기화
 │   │   ├── world_map_geometry.py        # Gazebo .world/.sdf/.dae/.obj 충돌 벽체 단면 추출기
 │   │   ├── auto_disaster_trials.py      # Gazebo 다회차 자율복귀 & 동적 낙석 자동 벤치마크
-│   │   ├── debris_utils.py              # Gazebo 동적 붕괴 암석 스폰/정리 유틸리티
+│   │   ├── debris_utils.py              # Gazebo 동적 붕괴 암석 스폰/정리 유틸리티 (도메인 격리 · 좀비 차단)
 │   │   ├── plot_tunnel_trials.py        # 터널 벤치마크 궤적·오차 고해상도 시각화 스크립트
-│   │   ├── train_td3.py                 # TD3 국소 회피 제어기 Sim-to-Real DRL 학습 & ONNX 변환기
+│   │   ├── train_td3.py                 # Phase 1.5 TD3 국소 회피 제어기 DRL 학습 & ONNX 변환기
 │   │   ├── verify_hybrid_recovery.py    # 4대 비교군 50회 몬테카를로 재난 복귀 정량 검증기
 │   │   └── verify_extreme_stress.py     # 다중 낙석·고슬립·라이다 노이즈 극한 스트레스 검증기
 │   └── rpi/                             # RPi 4 온보드 실행·보조 스크립트
@@ -404,13 +394,15 @@ disaster_recovery_ws/
 │   ├── 2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md
 │   ├── 2026-11-14_중간상황_및_서버이관_체크포인트.md
 │   ├── Disaster_Recovery_TurtleBot3_Integration_Report.{md,docx}
-│   └── images/                          # 배너, 3D 쉘, 벤치마크 궤적 그래프 이미지
+│   ├── images/                          # 배너, 3D 쉘, A/B 그래프 5종 & evidence/(3D 스냅샷·RL 학습곡선)
 └── src/disaster_recovery/
     ├── package.xml / setup.py / setup.cfg
     ├── config/
-    │   ├── recovery_params.yaml         # 임계값, 속도, Pure Pursuit/TD3, ICP, 도킹, 오디오 파라미터
+    │   ├── recovery_params.yaml         # 임계값, 속도, 로컬 A*, Phase 2 RL ONNX 경로, ICP, 도킹 파라미터
     │   ├── debris_obstacle.sdf          # Gazebo 시뮬레이션용 낙하 붕괴 잔해(Debris) SDF 모델
-    │   ├── recovery_td3.onnx            # RPi 4 온보드 배포용 초경량 TD3 Actor 신경망
+    │   ├── sim_policy_student.onnx      # Phase 2 Track A 시뮬용 초경량 신경망 (231.6 KB, 0.036 ms)
+    │   ├── real_tb3_policy_student.onnx # Phase 2 Track B 실물 TurtleBot3 휠/슬립 잔차용 ONNX (231.6 KB, 0.0385 ms)
+    │   ├── recovery_td3.onnx            # Phase 1.5 TD3 Baseline ONNX 신경망
     │   ├── recovery_td3.pth             # PyTorch 학습 가중치 체크포인트
     │   ├── camera_info_sample.yaml      # 예시값 (직접 캘리브레이션 값으로 교체 권장)
     │   ├── disaster_cartographer.rviz   # SLAM + RobotModel (/robot_description) RViz2 레이아웃
@@ -422,12 +414,20 @@ disaster_recovery_ws/
     ├── models/turtlebot3_burger/        # LiDAR <visualize>true</visualize> 및 카메라 포함 SDF
     ├── worlds/                          # 붕괴 건물/터널/하우스/미로/기본 재난 Gazebo 월드 (5종)
     ├── disaster_recovery/
-    │   ├── recovery_controller.py       # 계층형 복귀 제어기 (로컬 격자 A* · Pure Pursuit · TD3 · 2D ICP · LIFO)
+    │   ├── recovery_controller.py       # 계층형 복귀 제어기 (로컬 격자 A* · Phase 2 RL · Pure Pursuit · 2D ICP · LIFO)
     │   ├── local_grid_planner.py        # RollingLocalGrid(0.04m) + 2D A* + 위상 지름길 + ESCAPE/_virtual_obstacles
+    │   ├── rl_context_policy.py         # 16스텝 시계열 + 12×12 Ego 코스트맵 ONNX 추론기 (`ContextRLStudentPolicy`)
     │   ├── td3_policy.py                # 28차원 상태 추출기 및 TD3 ONNX 엣지 추론 엔진
     │   ├── aruco_docking.py             # solvePnP 도킹 P-제어 + 10초 세이프티 가드
     │   ├── host_ai_pipeline.py          # YOLO26n(15 FPS 안정화) + Faster-Whisper(CUDA INT8) + Heartbeat 10Hz
     │   ├── gas_sensor_node.py           # ADS1115 → EMA → /gas/level
+    │   ├── ads1115_mq2.py               # ADS1115 드라이버 + MQ-2 계산 (ROS 비의존)
+    │   ├── blackbox_recorder.py         # MicroSD 영상·CSV 기록
+    │   └── audio_capture_node.py        # arecord → /audio/raw
+    └── test/
+        ├── test_ads1115_mq2.py          # ADS1115/MQ-2 단위 테스트 (8개)
+        ├── test_hybrid_recovery.py      # 2D ICP, TD3, Phase 2 Dual-ONNX 지연 테스트 (6개)
+        └── test_local_grid_planner.py   # RollingLocalGrid, A*, 지름길, 가상 접촉 장벽 테스트 (9개)
     │   ├── ads1115_mq2.py               # ADS1115 드라이버 + MQ-2 계산 (ROS 비의존)
     │   ├── blackbox_recorder.py         # MicroSD 영상·CSV 기록
     │   └── audio_capture_node.py        # arecord → /audio/raw
@@ -501,7 +501,7 @@ source install/setup.bash
 
 ```bash
 source /opt/ros/humble/setup.bash && source install/setup.bash
-python3 -m pytest -p no:anyio src/disaster_recovery/test -q   # ADS1115/MQ-2(8) + 하이브리드 복귀(5) + 로컬 격자 A*(7) 총 20개
+python3 -m pytest -p no:anyio src/disaster_recovery/test -q   # ADS1115/MQ-2(8) + 하이브리드·Dual-ONNX(6) + 로컬 격자 A*(9) 총 23개
 ```
 
 ---
@@ -691,12 +691,13 @@ Host AI 파라미터 (`host_ai_pipeline` 코드 기본값): `yolo_max_fps=15.0`,
 1. **도킹 기하 가정**: 마커가 출발 위치 정면 벽에 있다고 가정한다. 출발 자세와 마커의 상대 위치는 현장에서 실측해 `target_dock_dist_m`을 조정해야 한다.
 2. **가스 센서 미결선**: 회로 설계와 드라이버는 완료되었으나 실물 결선 전이므로 `gas_stale_triggers_recovery: false`로 둔다.
 3. **블랙박스 Wi-Fi 스트리밍 차단 미구현**: 현재는 로컬 기록만 시작한다.
-4. **협소 틈새 `_virtual_obstacles` 튜닝 & V100 서버 Phase 1·2 진행 중**: `RollingLocalGrid(0.04m)` + `_virtual_obstacles` 적용으로 저상 `cafe_table` 받침대 탈출에는 성공(`house` `7/10`)했으나, `~0.28m` 복도 틈새에서의 가상 장벽 폭/TTL 축소 튜닝, 5대 환경 병렬 최종 재검증(Phase 1), 및 Tesla V100 32GB 대규모 Dual-Track RL 학습(Phase 2)이 서버에서 진행 중이다([체크포인트 문서](docs/2026-11-14_중간상황_및_서버이관_체크포인트.md), [SERVER_MISSION.md](SERVER_MISSION.md)).
+4. **실물 TurtleBot3 Burger Track B 필드 실증 예정**: V100 서버 Phase 1(`49/50 = 98.0%`) 및 Phase 2 `8,847만` 스텝 Dual-Track RL 학습·Gazebo Sim-to-Sim(`47/50 = 94.0%`) 검증을 완료했으며, 실물 RPi 4 온보드 환경에서의 Track B(`real_tb3_policy_student.onnx`) 슬립·낙석 현장 주행 검증은 실물 결합 시험에서 수행 예정이다.
 
 **해결된 이슈**
 
 | 이슈 | 해결 방법 |
 | :--- | :--- |
+| Phase 1 `house` `~0.28m` 틈새 과차단 & Phase 2 RL 수렴 정체·앙상블 상쇄 | `_virtual_obstacles` `±0.03m`/9s 튜닝으로 **5대 환경 `49/50 (98.0%)`** 달성; Phase 2 V100 **`ret_norm=25` + `nav_dist` + 선택적 DAgger 증류**로 `sim`/`real_tb3` ONNX 추출 및 **공식 Gazebo S2S `47/50 (94.0%)`** 검증 완료 (`#30~#36`) |
 | 붕괴 건물 교착 및 다회차 `corr_y` 오프셋 누적 | `/recovery/reset_episode`로 에피소드 상태 초기화 및 `RollingLocalGrid(0.04m) + 2D A* + 위상 지름길 + ESCAPE` 도입 |
 | 저상 장애물·벽 너머 단축 및 전방 밀착 정지 | 진입(`NORMAL_TELEOP`) 선행 관측, 실내 벽 너머 단축 차단, 전방 unpin 및 `_virtual_obstacles` 가상 접촉 장벽 추가 |
 | 병렬 벤치마크 포트 충돌 및 `/home/lab` 경로 하드코딩 | `--gz-port` / `--ros-domain-id` 워커별 격리 및 7개 파일 동적 경로 탐색 전환 |

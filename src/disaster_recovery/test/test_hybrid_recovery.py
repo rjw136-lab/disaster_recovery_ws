@@ -142,3 +142,35 @@ def test_hybrid_pure_pursuit_curvature_and_blending():
     # In clear zone: tracking dominance
     w_blend_clear = 0.55 * w_pp + 0.45 * w_td3
     assert abs(w_blend_clear - (0.55 * w_pp + 0.45 * 0.40)) < 1e-4
+
+
+def test_context_rl_student_onnx_inference_and_latency():
+    """Verify distilled Phase 2 ContextRLStudentPolicy ONNX tracks load, stay bounded, and run <1.5ms on CPU."""
+    from disaster_recovery.rl_context_policy import ContextRLStudentPolicy, TB3_MIN_V, TB3_MAX_V, TB3_MAX_W
+
+    cfg_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config"))
+    scan_ranges = [2.4] * 360
+    scan_ranges[0] = 0.55  # obstacle straight ahead
+
+    for fname in ("sim_policy_student.onnx", "real_tb3_policy_student.onnx"):
+        onnx_path = os.path.join(cfg_dir, fname)
+        assert os.path.exists(onnx_path), f"Missing distilled ONNX model: {onnx_path}"
+
+        policy = ContextRLStudentPolicy(onnx_path=onnx_path, v_max=TB3_MAX_V, w_max=TB3_MAX_W)
+        # Warm-up
+        for _ in range(10):
+            policy.predict(scan_ranges, 0.0, 0.0, 0.0, 1.2, 0.2, 0.10, 0.0, 0.09, 0.0)
+
+        t0 = time.perf_counter()
+        for _ in range(200):
+            v, w = policy.predict(scan_ranges, 0.0, 0.0, 0.0, 1.2, 0.2, 0.10, 0.0, 0.09, 0.0)
+        avg_ms = ((time.perf_counter() - t0) / 200.0) * 1000.0
+
+        assert TB3_MIN_V <= v <= TB3_MAX_V, f"{fname}: v out of bounds ({v})"
+        assert -TB3_MAX_W <= w <= TB3_MAX_W, f"{fname}: w out of bounds ({w})"
+        assert avg_ms < 1.5, f"{fname}: latency too high ({avg_ms:.3f} ms)"
+
+        policy.reset()
+        v2, w2 = policy.predict(None, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0)
+        assert TB3_MIN_V <= v2 <= TB3_MAX_V
+        assert -TB3_MAX_W <= w2 <= TB3_MAX_W

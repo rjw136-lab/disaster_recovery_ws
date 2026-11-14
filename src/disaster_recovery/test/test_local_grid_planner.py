@@ -210,3 +210,98 @@ def test_sub_lidar_plinth_virtual_obstacle_detour():
     assert tag_detour in ("ASTAR_TRACK", "ROTATE_ALIGN")
     assert subgoal is not None and abs(subgoal[0]) > 0.10
 
+
+def test_narrow_gap_stall_does_not_seal_corridor_with_virtual_barrier():
+    planner = ProposedRecoveryPlanner(unstuck_window_sec=2.0, unstuck_min_disp_m=0.06)
+    stack = collections.deque([Waypoint(-1.5, 0.0, 0.0), Waypoint(1.5, 0.0, 0.0)])
+
+    # 0.30m narrow pinch visible on 2D LiDAR (walls/rock at y = +/-0.15m in robot frame, open ahead)
+    xs = np.linspace(-0.5, 1.5, 30)
+    pinch_scan = np.vstack([
+        np.column_stack((xs, np.full_like(xs, 0.15))),
+        np.column_stack((xs, np.full_like(xs, -0.15))),
+    ]).astype(np.float32)
+
+    planner.step(
+        rx=0.0, ry=0.0, rth=math.pi,
+        waypoint_stack=stack, start_pose=stack[0],
+        scan_pts=pinch_scan, v_max=0.20, w_max=0.65,
+        now_sec=0.0, wp_reach_radius=0.10, docking_dist_th=0.45,
+    )
+    # Trigger displacement stall inside narrow gap -> should escape WITHOUT sealing the gap
+    tag_esc, _, _, _ = planner.step(
+        rx=0.01, ry=0.0, rth=math.pi,
+        waypoint_stack=stack, start_pose=stack[0],
+        scan_pts=pinch_scan, v_max=0.20, w_max=0.65,
+        now_sec=2.5, wp_reach_radius=0.10, docking_dist_th=0.45,
+    )
+    assert tag_esc == "ESCAPE"
+    assert len(planner._virtual_obstacles) == 0
+
+
+def test_house_corridor_tight_gap_rock_traversal():
+    """Verify TB3 passes a 0.31m corridor rock gap without chord-clipping or rock-WP deadlock."""
+    planner = ProposedRecoveryPlanner(size_m=6.0, resolution_m=0.04, inflation_radius_m=0.085)
+    start = Waypoint(-2.0, -0.5, 0.0)
+    wps = collections.deque([
+        start,
+        Waypoint(0.84, 0.08, 0.0),
+        Waypoint(0.57, 0.22, 0.0),
+        Waypoint(0.28, 0.32, 0.0),
+        Waypoint(0.03, 0.39, 0.0),   # buried inside r=0.18m rock at (0.011, 0.389)
+        Waypoint(-0.26, 0.34, 0.0),
+        Waypoint(-0.56, 0.36, 0.0),
+    ])
+
+    def _scan_corridor(rx: float, ry: float, rth: float) -> np.ndarray:
+        pts = []
+        for k in range(360):
+            ang = -math.pi + 2.0 * math.pi * k / 360.0
+            ga = rth + ang
+            ca, sa = math.cos(ga), math.sin(ga)
+            best_t = 3.5
+            if sa < -1e-6:
+                t = (-0.10 - ry) / sa
+                hx = rx + t * ca
+                if 0.05 < t < best_t and -4.27 <= hx <= 1.52:
+                    best_t = t
+            if sa > 1e-6:
+                t = (0.85 - ry) / sa
+                hx = rx + t * ca
+                if 0.05 < t < best_t and -0.12 <= hx <= 2.38:
+                    best_t = t
+            ocx, ocy = rx - 0.011, ry - 0.389
+            b = ocx * ca + ocy * sa
+            c = ocx * ocx + ocy * ocy - 0.18 * 0.18
+            disc = b * b - c
+            if disc >= 0.0:
+                t_hit = -b - math.sqrt(disc)
+                if 0.05 < t_hit < best_t:
+                    best_t = t_hit
+            if 0.12 <= best_t <= 3.5:
+                pts.append([best_t * math.cos(ang), best_t * math.sin(ang)])
+        return np.array(pts, dtype=np.float32)
+
+    rx, ry, rth = -0.60, 0.36, 0.05
+    passed = False
+    for t_i in range(220):
+        sc_pts = _scan_corridor(rx, ry, rth)
+        _, v, w, _ = planner.step(rx, ry, rth, wps, start, sc_pts, 0.20, 0.65, t_i * 0.1, 0.10, 0.50)
+        rth += w * 0.1
+        rx += v * math.cos(rth) * 0.1
+        ry += v * math.sin(rth) * 0.1
+        dxr, dyr = rx - 0.011, ry - 0.389
+        dr = math.hypot(dxr, dyr)
+        if dr < 0.27:
+            rx = 0.011 + dxr / max(dr, 1e-6) * 0.27
+            ry = 0.389 + dyr / max(dr, 1e-6) * 0.27
+        if ry < -0.01:
+            ry = -0.01
+        if rx > -0.12 and ry > 0.76:
+            ry = 0.76
+        if rx > 0.45:
+            passed = True
+            break
+    assert passed, f"Failed to traverse house corridor gap; stopped at ({rx:.2f}, {ry:.2f})"
+
+

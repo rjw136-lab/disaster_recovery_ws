@@ -7,6 +7,7 @@ obstacles in Gazebo Classic simulations.
 import math
 import os
 import random
+import signal
 import subprocess
 import time
 from typing import Callable, List, Optional, Sequence, Tuple
@@ -72,6 +73,18 @@ def select_random_debris_positions(
     return selected[:target_count]
 
 
+def _kill_proc_group(proc: subprocess.Popen) -> None:
+    """Terminate a spawned subprocess together with its entire process group."""
+    try:
+        pgid = os.getpgid(proc.pid)
+        os.killpg(pgid, signal.SIGKILL)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
 def spawn_random_debris_cluster(
     positions: Sequence[Tuple[float, float]],
     prefix: str = "disaster_debris",
@@ -83,20 +96,22 @@ def spawn_random_debris_cluster(
     """Spawn multiple rock/debris entities in Gazebo in parallel."""
     procs = []
     names: List[str] = []
+    env = os.environ.copy()
+    env.setdefault("ROS_LOCALHOST_ONLY", "1")
     for idx, (x, y) in enumerate(positions, start=1):
         name = f"{prefix}_{idx}"
         names.append(name)
         cmd = (
-            "export ROS_LOCALHOST_ONLY=1 ROS_DOMAIN_ID=0 && "
             "source /opt/ros/humble/setup.bash && "
-            f"ros2 run gazebo_ros spawn_entity.py -entity {name} "
+            f"timeout -k 1 8 ros2 run gazebo_ros spawn_entity.py -entity {name} "
             f"-file {sdf_path} -x {x:.3f} -y {y:.3f} -z {z:.3f} -timeout 6.0"
         )
         p = subprocess.Popen(
-            f"bash -c '{cmd}'",
-            shell=True,
+            ["bash", "-c", cmd],
+            env=env,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            preexec_fn=os.setsid,
         )
         procs.append(p)
 
@@ -108,13 +123,15 @@ def spawn_random_debris_cluster(
                 time.sleep(0.02)
             for p in procs:
                 if p.poll() is None:
-                    p.kill()
+                    _kill_proc_group(p)
+                    p.wait()
         else:
             for p in procs:
                 try:
                     p.wait(timeout=10.0)
                 except subprocess.TimeoutExpired:
-                    p.kill()
+                    _kill_proc_group(p)
+                    p.wait()
 
     return names
 
@@ -131,24 +148,27 @@ def delete_debris_entities(
     else:
         targets = ["disaster_debris"] + [f"{prefix}_{i}" for i in range(1, max_count + 1)]
 
+    env = os.environ.copy()
+    env.setdefault("ROS_LOCALHOST_ONLY", "1")
     procs = []
     for name in targets:
         cmd = (
-            "export ROS_LOCALHOST_ONLY=1 ROS_DOMAIN_ID=0 && "
             "source /opt/ros/humble/setup.bash && "
-            f"ros2 service call /delete_entity gazebo_msgs/srv/DeleteEntity \"{{name: '{name}'}}\""
+            f"timeout -k 1 3 ros2 service call /delete_entity gazebo_msgs/srv/DeleteEntity \"{{name: '{name}'}}\""
         )
         p = subprocess.Popen(
-            f"bash -c '{cmd}'",
-            shell=True,
+            ["bash", "-c", cmd],
+            env=env,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            preexec_fn=os.setsid,
         )
         procs.append(p)
 
     if wait:
         for p in procs:
             try:
-                p.wait(timeout=5.0)
+                p.wait(timeout=4.0)
             except subprocess.TimeoutExpired:
-                p.kill()
+                _kill_proc_group(p)
+                p.wait()

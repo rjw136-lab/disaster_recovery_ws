@@ -29,6 +29,7 @@ recovery_controller:
     td3_model_path: ""                # Auto-resolve from package share/config unless explicitly overridden
     td3_clearance_dist_m: 0.42        # Obstacle bypass clearance threshold
     td3_max_avoid_steps: 250          # 25s avoidance timeout at 10Hz before advancing WP
+    context_rl_onnx_path: ""          # Auto-resolve sim_policy_student.onnx when recovery_strategy=proposed_rl
 
 gas_sensor_node:
   ros__parameters:

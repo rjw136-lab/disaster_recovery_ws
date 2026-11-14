@@ -19,13 +19,13 @@
       "label_ko": "붕괴 건물 (기본 재난환경)",
       "strategy": "proposed",
       "trials": 10,
-      "passes": 9,
-      "success_rate_pct": 90.0,
-      "mean_error_cm_all": 59.49,
-      "mean_error_cm_pass": 7.38,
-      "mean_time_s_all": 118.27,
-      "mean_time_s_pass": 99.83,
-      "mean_ret_path_m_pass": 13.97,
+      "passes": 10,
+      "success_rate_pct": 100.0,
+      "mean_error_cm_all": 8.3,
+      "mean_error_cm_pass": 8.3,
+      "mean_time_s_all": 101.76,
+      "mean_time_s_pass": 101.76,
+      "mean_ret_path_m_pass": 15.68,
       "mean_explored_m": 15.28
     }
   }

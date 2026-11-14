@@ -1,0 +1,32 @@
+{
+  "house": {
+    "baseline": {
+      "scenario": "house",
+      "label_ko": "실내 가옥 (다실 문틀·직각 복도)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 9,
+      "success_rate_pct": 90.0,
+      "mean_error_cm_all": 33.65,
+      "mean_error_cm_pass": 5.04,
+      "mean_time_s_all": 135.51,
+      "mean_time_s_pass": 123.57,
+      "mean_ret_path_m_pass": 15.7,
+      "mean_explored_m": 16.35
+    },
+    "proposed": {
+      "scenario": "house",
+      "label_ko": "실내 가옥 (다실 문틀·직각 복도)",
+      "strategy": "proposed_rl",
+      "trials": 10,
+      "passes": 8,
+      "success_rate_pct": 80.0,
+      "mean_error_cm_all": 72.86,
+      "mean_error_cm_pass": 9.07,
+      "mean_time_s_all": 146.98,
+      "mean_time_s_pass": 118.29,
+      "mean_ret_path_m_pass": 15.66,
+      "mean_explored_m": 16.26
+    }
+  }
+}

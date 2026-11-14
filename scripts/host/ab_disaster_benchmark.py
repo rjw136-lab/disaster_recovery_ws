@@ -707,7 +707,7 @@ def run_strategy_suite(
 
     # Wait for sim clock, odom, scan, and controller status
     t_wait = time.time()
-    while time.time() - t_wait < 35.0:
+    while time.time() - t_wait < 60.0:
         rclpy.spin_once(node, timeout_sec=0.05)
         if node.odom_ready and node.scan_ready and node.sim_now() > 0.1:
             break
@@ -1013,7 +1013,18 @@ def main():
     parser.add_argument(
         "--reuse-baseline",
         action="store_true",
-        help="Reuse saved fixed_specs and baseline results from existing out-dir JSON and run proposed only",
+        help="Reuse saved fixed_specs and baseline results from existing baseline-dir/out-dir JSON and run proposed only",
+    )
+    parser.add_argument(
+        "--baseline-dir",
+        default="",
+        help="Optional directory to read existing fixed_specs & baseline when --out-dir differs (e.g. phase2_sim2sim)",
+    )
+    parser.add_argument(
+        "--proposed-strategy",
+        default="proposed",
+        choices=["proposed", "proposed_rl"],
+        help="Controller recovery_strategy to benchmark for the proposed slot (default proposed)",
     )
     parser.add_argument(
         "--resume",
@@ -1039,6 +1050,7 @@ def main():
     )
     args = parser.parse_args()
 
+    os.environ["ROS_LOCALHOST_ONLY"] = "1"
     os.environ["GAZEBO_MASTER_URI"] = f"http://127.0.0.1:{args.gz_port}"
     if args.ros_domain_id is not None:
         os.environ["ROS_DOMAIN_ID"] = str(args.ros_domain_id)
@@ -1056,13 +1068,16 @@ def main():
         prop_trials_init: List[dict] = []
         base_res: Optional[dict] = None
 
-        if args.reuse_baseline and os.path.exists(out_path):
-            with open(out_path, "r") as f:
+        base_src_dir = args.baseline_dir if args.baseline_dir else args.out_dir
+        base_in_path = os.path.join(base_src_dir, f"ab_{s_name}_{args.trials}trials.json")
+
+        if args.reuse_baseline and os.path.exists(base_in_path):
+            with open(base_in_path, "r") as f:
                 prev = json.load(f)
             specs = prev["fixed_specs"]
             base_res = prev["baseline"]
             base_trials_init = list(base_res.get("trials", []))
-            print(f"\n[REUSE BASELINE] Loaded {len(specs)} fixed scenarios & baseline results from {out_path}")
+            print(f"\n[REUSE BASELINE] Loaded {len(specs)} fixed scenarios & baseline results from {base_in_path}")
             if args.resume and os.path.exists(partial_path):
                 with open(partial_path, "r") as f:
                     part = json.load(f)
@@ -1110,7 +1125,7 @@ def main():
 
         prop_res = run_strategy_suite(
             cfg,
-            "proposed",
+            args.proposed_strategy,
             specs,
             rtf=args.rtf,
             save_debris_into_specs=False,

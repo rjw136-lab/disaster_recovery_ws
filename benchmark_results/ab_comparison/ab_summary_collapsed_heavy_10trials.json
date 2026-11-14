@@ -21,11 +21,11 @@
       "trials": 10,
       "passes": 10,
       "success_rate_pct": 100.0,
-      "mean_error_cm_all": 7.92,
-      "mean_error_cm_pass": 7.92,
-      "mean_time_s_all": 101.9,
-      "mean_time_s_pass": 101.9,
-      "mean_ret_path_m_pass": 15.32,
+      "mean_error_cm_all": 8.05,
+      "mean_error_cm_pass": 8.05,
+      "mean_time_s_all": 115.31,
+      "mean_time_s_pass": 115.31,
+      "mean_ret_path_m_pass": 17.27,
       "mean_explored_m": 16.47
     }
   }

@@ -66,6 +66,13 @@ class RollingLocalGrid:
             for (di, dj, d_cell) in _build_disk_offsets(hard_cells)
             if (d_cell * self.res) <= self.inflation_radius_m + 1e-6
         ] or [(0, 0, 0.0)]
+        tight_radius_m = min(self.inflation_radius_m, 0.058)
+        tight_cells = max(1, int(math.ceil(tight_radius_m / self.res)))
+        self._tight_offsets = [
+            (di, dj, d_cell)
+            for (di, dj, d_cell) in _build_disk_offsets(tight_cells)
+            if (d_cell * self.res) <= tight_radius_m + 1e-6
+        ] or [(0, 0, 0.0)]
         self._soft_offsets = [
             (di, dj, d_cell)
             for (di, dj, d_cell) in _build_disk_offsets(soft_cells)
@@ -201,6 +208,7 @@ class RollingLocalGrid:
         rx: float,
         ry: float,
         extra_world_pts: Optional[List[Tuple[float, float]]] = None,
+        tight: bool = False,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Return (hard_blocked bool[N,N], soft_cost float32[N,N])."""
         raw_occ = self.occ >= 0.45
@@ -213,6 +221,7 @@ class RollingLocalGrid:
         hard_blocked = np.zeros((self.n, self.n), dtype=bool)
         soft_cost = np.zeros((self.n, self.n), dtype=np.float32)
 
+        offsets = self._tight_offsets if tight else self._hard_offsets
         occ_idx = np.argwhere(raw_occ)
         if len(occ_idx) > 0:
             ox = occ_idx[:, 0]
@@ -228,7 +237,7 @@ class RollingLocalGrid:
                 penalty = max(0.3, 5.5 * (1.0 - d_cell / max(1.0, float(self._soft_cells))))
                 soft_cost[nxv, nyv] = np.maximum(soft_cost[nxv, nyv], penalty)
 
-            for di, dj, _ in self._hard_offsets:
+            for di, dj, _ in offsets:
                 nx = ox + di
                 ny = oy + dj
                 valid = (nx >= 0) & (nx < self.n) & (ny >= 0) & (ny < self.n)
@@ -240,7 +249,12 @@ class RollingLocalGrid:
         # so A* can always escape outward into clear space.
         sx, sy = self.world_to_grid(rx, ry)
         if self.in_bounds(sx, sy):
-            guard_r = max(1, int(math.ceil(min(0.22, self.inflation_radius_m + 0.08) / self.res)))
+            guard_rad_m = (
+                min(0.14, 0.06 + 0.04)
+                if tight
+                else min(0.22, self.inflation_radius_m + 0.08)
+            )
+            guard_r = max(1, int(math.ceil(guard_rad_m / self.res)))
             for di in range(-guard_r, guard_r + 1):
                 for dj in range(-guard_r, guard_r + 1):
                     gx, gy = sx + di, sy + dj
@@ -428,8 +442,8 @@ class ProposedRecoveryPlanner:
         xv, yv, rv = x[valid], y[valid], r[valid]
         ang = np.arctan2(yv, xv)
 
-        # Front corridor tightly matching TB3 half-width (0.089m + margin) + immediate front cone
-        corridor = (xv > 0.0) & (xv < 1.2) & (np.abs(yv) <= 0.12)
+        # Front corridor closely matching TB3 half-width (0.089m + 1.6cm margin) + immediate front cone
+        corridor = (xv > 0.0) & (xv < 0.85) & (np.abs(yv) <= 0.105)
         front_cone = np.abs(ang) <= math.radians(18.0)
         left = (ang > math.radians(24.0)) & (ang <= math.radians(95.0))
         right = (ang < -math.radians(24.0)) & (ang >= -math.radians(95.0))
@@ -529,18 +543,19 @@ class ProposedRecoveryPlanner:
         astar_budget = max(4000, int(0.8 * self.grid.n * self.grid.n))
         free_search_r = max(10, int(round(0.80 / self.grid.res)))
 
+        # Pass A: Check candidates WITHOUT relaxing blocked goal cells first so a rock-buried
+        # stack-top breadcrumb (m-1) does not lure the robot against the front face of debris
+        # when an earlier trailing breadcrumb (m-2, m-3, ...) is clearly reachable.
+        blocked_top_candidates: List[int] = []
         for idx in candidates:
             wp = waypoint_list[idx]
             goal_ij = self.grid.world_to_grid(wp.x, wp.y)
             if hard_blocked[goal_ij[0], goal_ij[1]]:
-                # Do not blindly shortcut onto an obstructed waypoint; allow nearest free only for top waypoint
-                if idx < m - 1:
-                    continue
-                goal_ij = self._nearest_free_cell(hard_blocked, goal_ij, max_radius_cells=max(6, int(round(0.60 / self.grid.res))))
-                if goal_ij is None:
-                    continue
+                if idx == m - 1:
+                    blocked_top_candidates.append(idx)
+                continue
 
-            path, cost = astar_2d(hard_blocked, soft_cost, start_ij, goal_ij, max_expansions=astar_budget)
+            path, _cost = astar_2d(hard_blocked, soft_cost, start_ij, goal_ij, max_expansions=astar_budget)
             if path is None or len(path) == 0:
                 continue
 
@@ -558,11 +573,25 @@ class ProposedRecoveryPlanner:
 
             return path, idx
 
+        # Pass B: Only if no unobstructed candidate succeeded, project nearest-free around stack-top
+        for idx in blocked_top_candidates:
+            wp = waypoint_list[idx]
+            goal_ij = self.grid.world_to_grid(wp.x, wp.y)
+            goal_ij = self._nearest_free_cell(
+                hard_blocked, goal_ij, max_radius_cells=max(6, int(round(0.60 / self.grid.res)))
+            )
+            if goal_ij is None:
+                continue
+            path, _cost = astar_2d(hard_blocked, soft_cost, start_ij, goal_ij, max_expansions=astar_budget)
+            if path is not None and len(path) > 0:
+                return path, idx
+
         # Fallback: project strictly along recent trailing breadcrumbs (never blindly jump to idx 0 across walls)
         fallback_order = []
-        for fi in (m - 1, max(0, m - 2), max(0, m - 3), max(0, m - 5)):
-            if fi not in fallback_order:
-                fallback_order.append(fi)
+        for fi in (m - 2, m - 3, m - 5, m - 1):
+            fi_clamped = max(0, fi)
+            if fi_clamped not in fallback_order:
+                fallback_order.append(fi_clamped)
         for fallback_idx in fallback_order:
             wp = waypoint_list[fallback_idx]
             proj_ij = self._project_into_grid(rx, ry, wp.x, wp.y)
@@ -574,6 +603,54 @@ class ProposedRecoveryPlanner:
                 return path, fallback_idx
 
         return None, None
+
+    def _segment_is_clear(
+        self,
+        p0: Tuple[int, int],
+        p1: Tuple[int, int],
+        hard_blocked: np.ndarray,
+        soft_cost: Optional[np.ndarray] = None,
+        max_soft: float = 1e9,
+    ) -> bool:
+        """Check whether straight line between two grid cells avoids hard_blocked (and soft halos)."""
+        x0, y0 = p0
+        x1, y1 = p1
+        steps = max(2, int(math.ceil(2.0 * max(abs(x1 - x0), abs(y1 - y0)))))
+        for s in range(1, steps + 1):
+            t = s / float(steps)
+            ix = int(round(x0 + t * (x1 - x0)))
+            iy = int(round(y0 + t * (y1 - y0)))
+            if not self.grid.in_bounds(ix, iy):
+                return False
+            if hard_blocked[ix, iy]:
+                return False
+            if soft_cost is not None and s >= 2 and float(soft_cost[ix, iy]) > max_soft:
+                return False
+        return True
+
+    def _extract_safe_subgoal(
+        self,
+        path_ij: List[Tuple[int, int]],
+        hard_blocked: np.ndarray,
+        soft_cost: np.ndarray,
+    ) -> Tuple[float, float]:
+        """Pick farthest line-of-sight lookahead cell on A* path so chords never clip obstacle bends."""
+        look_cells = max(2, int(round(self.lookahead_m / self.grid.res)))
+        max_k = min(look_cells, len(path_ij) - 1)
+        start_ij = path_ij[0]
+
+        # Prefer farthest chord that stays clear of both hard_blocked and close soft shoulders
+        for k in range(max_k, 1, -1):
+            if self._segment_is_clear(start_ij, path_ij[k], hard_blocked, soft_cost=soft_cost, max_soft=3.6):
+                return self.grid.grid_to_world(path_ij[k][0], path_ij[k][1])
+
+        # Tight pinch: accept farthest straight segment free of hard_blocked
+        for k in range(max_k, 0, -1):
+            if self._segment_is_clear(start_ij, path_ij[k], hard_blocked):
+                return self.grid.grid_to_world(path_ij[k][0], path_ij[k][1])
+
+        sub_ij = path_ij[min(2, len(path_ij) - 1)]
+        return self.grid.grid_to_world(sub_ij[0], sub_ij[1])
 
     def step(
         self,
@@ -662,27 +739,29 @@ class ProposedRecoveryPlanner:
                 self._repeat_escape_count = 0
             self._last_escape_xy = (rx, ry)
 
-            # Infer a temporary virtual barrier ahead when stalled despite clear 2D LiDAR (e.g. sub-LiDAR plinth)
-            if stuck_by_disp and front_min >= 0.165:
+            # Infer a temporary virtual barrier ahead only when 2D LiDAR is genuinely open
+            # (e.g. sub-LiDAR plinth), never inside a narrow visible rock/wall gap (<0.50m total width).
+            is_narrow_pinch = (left_min + right_min) < 0.50 or min(left_min, right_min) < 0.20
+            if stuck_by_disp and front_min >= 0.26 and not is_narrow_pinch:
                 block_dir = self._last_fwd_pose_dir if self._last_fwd_pose_dir is not None else rth
                 cos_d = math.cos(block_dir)
                 sin_d = math.sin(block_dir)
-                px_n = -sin_d
-                py_n = cos_d
-                ttl = now_sec + 22.0
-                for lat in (-0.08, 0.0, 0.08):
-                    self._virtual_obstacles.append(
-                        (rx + 0.19 * cos_d + lat * px_n, ry + 0.19 * sin_d + lat * py_n, ttl)
-                    )
-                if len(self._virtual_obstacles) > 24:
-                    self._virtual_obstacles = self._virtual_obstacles[-24:]
+                ttl = now_sec + 9.0
+                self._virtual_obstacles.append(
+                    (rx + 0.19 * cos_d, ry + 0.19 * sin_d, ttl)
+                )
+                if len(self._virtual_obstacles) > 8:
+                    self._virtual_obstacles = self._virtual_obstacles[-8:]
 
             base_turn = 1.0 if left_min >= right_min else -1.0
             if self._repeat_escape_count > 0 and (self._repeat_escape_count % 2 == 1):
                 base_turn = -base_turn
 
             self._escape_start = now_sec
-            if self._repeat_escape_count >= 1:
+            if is_narrow_pinch and self._repeat_escape_count == 0:
+                self._escape_reverse_dur = 0.65
+                self._escape_until = now_sec + 1.05
+            elif self._repeat_escape_count >= 1:
                 self._escape_reverse_dur = 1.05
                 self._escape_until = now_sec + 2.25
             else:
@@ -709,18 +788,27 @@ class ProposedRecoveryPlanner:
                 w_esc = max(-w_max, min(w_max, turn_rate * self._escape_turn_dir))
             return "ESCAPE", float(v_esc), float(w_esc), None
 
-        # 2. Rolling 2D A* + Topological Breadcrumb Shortcut
+        # 2. Rolling 2D A* + Topological Breadcrumb Shortcut (2-pass adaptive inflation)
         self._virtual_obstacles = [vo for vo in self._virtual_obstacles if vo[2] > now_sec]
         extra_pts = [(vo[0], vo[1]) for vo in self._virtual_obstacles] if self._virtual_obstacles else None
-        hard_blocked, soft_cost = self.grid.build_cost_maps(rx, ry, extra_world_pts=extra_pts)
+        hard_blocked, soft_cost = self.grid.build_cost_maps(rx, ry, extra_world_pts=extra_pts, tight=False)
         wp_list = list(waypoint_stack)
         allow_shortcuts = now_sec >= self._no_shortcut_until
         path_ij, chosen_idx = self._plan_topological_astar(
             rx, ry, wp_list, hard_blocked, soft_cost, allow_shortcuts=allow_shortcuts
         )
+        if path_ij is None or len(path_ij) == 0:
+            # Pass 2: narrow indoor corridor rock-bypass (~0.28-0.31m gap) with tight C-space margin
+            hard_tight, soft_tight = self.grid.build_cost_maps(rx, ry, extra_world_pts=extra_pts, tight=True)
+            path_t, chosen_t = self._plan_topological_astar(
+                rx, ry, wp_list, hard_tight, soft_tight, allow_shortcuts=allow_shortcuts
+            )
+            if path_t is not None and len(path_t) > 0:
+                path_ij, chosen_idx = path_t, chosen_t
+                hard_blocked, soft_cost = hard_tight, soft_tight
         self._last_chosen_idx = chosen_idx
 
-        # Only permanently prune 1-2 immediate rock-buried waypoints nearby; keep distant stack intact until reached
+        # Prune immediate rock-buried breadcrumbs when a downstream WP is already safely targeted
         if (
             chosen_idx is not None
             and chosen_idx < len(waypoint_stack) - 1
@@ -732,14 +820,16 @@ class ProposedRecoveryPlanner:
                 if len(waypoint_stack) > 1:
                     waypoint_stack.pop()
             self.shortcut_count += 1
+        elif len(waypoint_stack) > 1 and waypoint_stack[-1].distance_to(rx, ry) < 0.70:
+            tix, tiy = self.grid.world_to_grid(waypoint_stack[-1].x, waypoint_stack[-1].y)
+            if self.grid.in_bounds(tix, tiy) and hard_blocked[tix, tiy]:
+                waypoint_stack.pop()
 
-        # Extract smooth lookahead subgoal
+        # Extract line-of-sight safe lookahead subgoal (prevents corner-cutting into rock shoulders)
         if path_ij is not None and len(path_ij) > 0:
-            look_cells = max(2, int(round(self.lookahead_m / self.grid.res)))
-            sub_ij = path_ij[min(look_cells, len(path_ij) - 1)]
-            sub_x, sub_y = self.grid.grid_to_world(sub_ij[0], sub_ij[1])
+            sub_x, sub_y = self._extract_safe_subgoal(path_ij, hard_blocked, soft_cost)
         else:
-            # No A* path even to projected frontier: backup/pivot safely instead of ramming
+            # No A* path even under tight-gap relaxation: backup/pivot safely instead of ramming
             turn_dir = 1.0 if left_min >= right_min else -1.0
             v_fb = -0.09 if (front_min < 0.25 and rear_min > 0.22) else 0.0
             w_fb = max(-w_max, min(w_max, 0.55 * turn_dir))
@@ -757,20 +847,21 @@ class ProposedRecoveryPlanner:
         # Clearance-scaled forward velocity
         ang_scale = max(0.15, math.cos(alpha))
         if front_min < 0.165:
-            # Pivot toward A* subgoal or wider side gap without advancing (unpin if touching)
-            w_dir = 1.0 if alpha >= 0.0 else -1.0
-            if abs(alpha) < 0.15:
+            # Pivot toward A* subgoal when clearly offset, else toward wider side gap (no +/-0.15 chatter)
+            if abs(alpha) >= 0.25:
+                w_dir = 1.0 if alpha >= 0.0 else -1.0
+            else:
                 w_dir = 1.0 if left_min >= right_min else -1.0
             v_unpin = -0.06 if (front_min < 0.14 and rear_min > 0.24) else 0.0
             return "ROTATE_ALIGN", float(v_unpin), float(max(-w_max, min(w_max, 0.55 * w_dir))), (sub_x, sub_y)
 
-        if front_min < 0.36:
-            prox_scale = max(0.25, (front_min - 0.18) / (0.36 - 0.18))
-            v_cmd = min(v_max, 0.14 * prox_scale * ang_scale)
+        if front_min < 0.32:
+            prox_v = 0.075 + (v_max - 0.075) * max(0.0, (front_min - 0.165) / (0.32 - 0.165))
+            v_cmd = min(v_max, prox_v * ang_scale)
         else:
             v_cmd = min(v_max, v_max * ang_scale)
 
         if v_cmd > 0.02:
             self._last_fwd_pose_dir = rth
-        w_cmd = max(-w_max, min(w_max, 1.65 * alpha))
+        w_cmd = max(-w_max, min(w_max, 1.75 * alpha))
         return "ASTAR_TRACK", float(v_cmd), float(w_cmd), (sub_x, sub_y)

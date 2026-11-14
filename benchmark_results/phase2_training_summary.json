@@ -1,0 +1,177 @@
+{
+  "sim": {
+    "total_steps": 44236800,
+    "total_episodes": 204403,
+    "wall_time_s": 88.4,
+    "seeds": [
+      {
+        "track": "sim",
+        "seed": 101,
+        "total_steps": 14745600,
+        "total_episodes": 69291,
+        "best_unseen_sr": 0.8333333730697632,
+        "early_stopped_at": null,
+        "elapsed_s": 628.7,
+        "stage_videos": [
+          {
+            "mp4": "/hdd/evidence/training/phase2_sim_early_upd25.mp4",
+            "png": "/ws/disaster_recovery_ws/docs/images/evidence/phase2_sim_early_upd25.png",
+            "outcome": "TIMEOUT",
+            "steps": 321,
+            "ffprobe": "{\n    \"programs\": [\n\n    ],\n    \"streams\": [\n        {\n            \"width\": 1280,\n            \"height\": 720,\n            \"duration\": \"27.416667\",\n            \"nb_frames\": \"329\"\n        }\n    ]\n}"
+          },
+          {
+            "mp4": "/hdd/evidence/training/phase2_sim_mid_upd150.mp4",
+            "png": "/ws/disaster_recovery_ws/docs/images/evidence/phase2_sim_mid_upd150.png",
+            "outcome": "PASS",
+            "steps": 216,
+            "ffprobe": "{\n    \"programs\": [\n\n    ],\n    \"streams\": [\n        {\n            \"width\": 1280,\n            \"height\": 720,\n            \"duration\": \"18.666667\",\n            \"nb_frames\": \"224\"\n        }\n    ]\n}"
+          }
+        ]
+      },
+      {
+        "track": "sim",
+        "seed": 202,
+        "total_steps": 14745600,
+        "total_episodes": 67392,
+        "best_unseen_sr": 0.7166666984558105,
+        "early_stopped_at": null,
+        "elapsed_s": 530.7,
+        "stage_videos": []
+      },
+      {
+        "track": "sim",
+        "seed": 303,
+        "total_steps": 14745600,
+        "total_episodes": 67720,
+        "best_unseen_sr": 0.7833333611488342,
+        "early_stopped_at": null,
+        "elapsed_s": 523.8,
+        "stage_videos": []
+      }
+    ],
+    "distilled_onnx": {
+      "onnx_path": "/ws/disaster_recovery_ws/src/disaster_recovery/config/sim_policy_student.onnx",
+      "onnx_size_kb": 231.6,
+      "val_mse_pass1": 0.001209,
+      "val_mse_dagger": 0.00156,
+      "onnx_eval": {
+        "unseen_sr": 0.7500000596046448,
+        "collision_rate": 0.1666666716337204,
+        "timeout_rate": 0.08333326876163483,
+        "mean_return": 109.62577056884766,
+        "mean_steps": 190.3833465576172,
+        "per_regime": {
+          "collapsed_debris": 0.9333333969116211,
+          "tight_corridor": 0.9333333969116211,
+          "dynamic_crossing": 0.5333333611488342,
+          "plinth_slip_drift": 0.6000000238418579
+        }
+      },
+      "cpu_latency_ms": {
+        "mean": 0.036,
+        "p95": 0.0377,
+        "p99": 0.0531
+      }
+    },
+    "student_3d_video": {
+      "mp4": "/hdd/evidence/training/phase2_sim_final_student.mp4",
+      "png": "/ws/disaster_recovery_ws/docs/images/evidence/phase2_sim_final_student.png",
+      "outcome": "TIMEOUT",
+      "steps": 321,
+      "ffprobe": "{\n    \"programs\": [\n\n    ],\n    \"streams\": [\n        {\n            \"width\": 1280,\n            \"height\": 720,\n            \"duration\": \"27.416667\",\n            \"nb_frames\": \"329\"\n        }\n    ]\n}"
+    },
+    "learning_curve_png": "/ws/disaster_recovery_ws/docs/images/evidence/phase2_learning_curves_sim.png"
+  },
+  "real_tb3": {
+    "total_steps": 44236800,
+    "total_episodes": 187716,
+    "wall_time_s": 1778.5,
+    "seeds": [
+      {
+        "track": "real_tb3",
+        "seed": 101,
+        "total_steps": 14745600,
+        "total_episodes": 61257,
+        "best_unseen_sr": 0.550000011920929,
+        "early_stopped_at": null,
+        "elapsed_s": 629.5,
+        "stage_videos": [
+          {
+            "mp4": "/hdd/evidence/training/phase2_real_tb3_early_upd25.mp4",
+            "png": "/ws/disaster_recovery_ws/docs/images/evidence/phase2_real_tb3_early_upd25.png",
+            "outcome": "PASS",
+            "steps": 311,
+            "ffprobe": "{\n    \"programs\": [\n\n    ],\n    \"streams\": [\n        {\n            \"width\": 1280,\n            \"height\": 720,\n            \"duration\": \"26.583333\",\n            \"nb_frames\": \"319\"\n        }\n    ]\n}"
+          },
+          {
+            "mp4": "/hdd/evidence/training/phase2_real_tb3_mid_upd150.mp4",
+            "png": "/ws/disaster_recovery_ws/docs/images/evidence/phase2_real_tb3_mid_upd150.png",
+            "outcome": "TIMEOUT",
+            "steps": 321,
+            "ffprobe": "{\n    \"programs\": [\n\n    ],\n    \"streams\": [\n        {\n            \"width\": 1280,\n            \"height\": 720,\n            \"duration\": \"27.416667\",\n            \"nb_frames\": \"329\"\n        }\n    ]\n}"
+          }
+        ]
+      },
+      {
+        "track": "real_tb3",
+        "seed": 202,
+        "total_steps": 14745600,
+        "total_episodes": 64228,
+        "best_unseen_sr": 0.6166666746139526,
+        "early_stopped_at": null,
+        "elapsed_s": 527.2,
+        "stage_videos": []
+      },
+      {
+        "track": "real_tb3",
+        "seed": 303,
+        "total_steps": 14745600,
+        "total_episodes": 62231,
+        "best_unseen_sr": 0.6166666746139526,
+        "early_stopped_at": null,
+        "elapsed_s": 529.0,
+        "stage_videos": []
+      }
+    ],
+    "distilled_onnx": {
+      "onnx_path": "/ws/disaster_recovery_ws/src/disaster_recovery/config/real_tb3_policy_student.onnx",
+      "onnx_size_kb": 231.6,
+      "val_mse_pass1": 0.001922,
+      "val_mse_dagger": 0.002362,
+      "onnx_eval": {
+        "unseen_sr": 0.6333333849906921,
+        "collision_rate": 0.10000000894069672,
+        "timeout_rate": 0.26666660606861115,
+        "mean_return": 94.69652557373047,
+        "mean_steps": 218.3833465576172,
+        "per_regime": {
+          "collapsed_debris": 0.8000000715255737,
+          "tight_corridor": 0.9333333969116211,
+          "dynamic_crossing": 0.40000003576278687,
+          "plinth_slip_drift": 0.40000003576278687
+        }
+      },
+      "cpu_latency_ms": {
+        "mean": 0.0385,
+        "p95": 0.0413,
+        "p99": 0.0551
+      }
+    },
+    "student_3d_video": {
+      "mp4": "/hdd/evidence/training/phase2_real_tb3_final_student.mp4",
+      "png": "/ws/disaster_recovery_ws/docs/images/evidence/phase2_real_tb3_final_student.png",
+      "outcome": "TIMEOUT",
+      "steps": 321,
+      "ffprobe": "{\n    \"programs\": [\n\n    ],\n    \"streams\": [\n        {\n            \"width\": 1280,\n            \"height\": 720,\n            \"duration\": \"27.416667\",\n            \"nb_frames\": \"329\"\n        }\n    ]\n}"
+    },
+    "learning_curve_png": "/ws/disaster_recovery_ws/docs/images/evidence/phase2_learning_curves_real_tb3.png"
+  },
+  "gpu_telemetry": {
+    "mean_gpu_util": 48.47837829589844,
+    "max_gpu_util": 72.0,
+    "max_vram_mib": 2378.0,
+    "mean_power_w": 87.49880981445312,
+    "max_temp_c": 38.0
+  }
+}
