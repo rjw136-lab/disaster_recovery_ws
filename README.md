@@ -255,14 +255,19 @@ V100 서버 병렬 워커(`--gz-port`/`--ros-domain-id`)에서 저상 `cafe_tabl
   <em>▲ 5대 재난환경 고정 시드 50쌍 A/B 정량 지표 및 3D Gazebo+RViz2 주행 증거(docs/images/evidence/)</em>
 </p>
 
-| 시나리오 | Baseline (반사형) | Phase 1 Proposed (`A*`) | Phase 2 `proposed_rl` (Sim-to-Sim) | 핵심 개선 |
+> 💡 **용어 구분 (`Phase 1` · `Phase 2` · `Phase 2-A` · `Zero-Shot`):**
+> - **Phase 1 (`proposed A*`)**: RL 없이 규칙 기반 `RollingLocalGrid(0.04m) + 2D A*` + 위상 지름길 + `ESCAPE`로만 동작 (`49/50 = 98.0%`).
+> - **Phase 2 (`proposed_rl` v1.0)**: V100에서 **가상 2D 절차적 맵**만으로 학습한 `ContextRLStudent` ONNX를 고정 비율(`0.70·RL + 0.30·A*`)로 결합해 Gazebo에 **Zero-Shot(미학습 3D 환경 무재학습 직접 투입)** 적용 (`47/50 = 94.0%`).
+> - **Phase 2-A (`proposed_rl` v2-A)**: 동일한 Phase 2 RL ONNX 가중치(**재학습 없음**)를 쓰되, 좁은 문틀·암석 핀치에서는 순수 `A*`(`alpha_rl=0.0`)로 자동 양보하는 **Clearance-Gated Blending**을 적용해 Zero-Shot 성능을 **`48/50 (96.0%)`** 로 끌어올린 최종 RL 제어기입니다. *(즉, **Phase 2-A RL**과 **Phase 2-A Zero-Shot**은 별개 알고리즘이 아니라, **Phase 2-A RL 제어기를 미학습 Gazebo 환경에 Zero-Shot 평가한 결과**를 뜻합니다.)*
+
+| 시나리오 | Baseline (반사형) | Phase 1 Proposed (`A*`) | Phase 2-A `proposed_rl` (Zero-Shot) | 핵심 개선 |
 | :--- | :---: | :---: | :---: | :--- |
-| **1. 붕괴 건물 (`collapsed`)** | 5/10 (50.0%) | **10/10 (100.0%, `8.30cm`)** | **10/10 (100.0%, `8.21cm`)** | U자 포켓 돌파 · `97.44 s` |
-| **2. 고밀도 낙석 (`collapsed_heavy`)** | 2/10 (20.0%) | **10/10 (100.0%, `8.05cm`)** | **9/10 (90.0%, `8.29cm`)** | 6~9개 연쇄 낙석 전수 돌파 |
-| **3. 다실 가옥 (`house`, 15~19m)** | 9/10 (90.0%) | **9/10 (90.0%, `104.09s`)** | **9/10 (90.0%, `98.22s` Phase 2-A)** | 문틀·저상 받침대 Clearance-Gated 관통 |
+| **1. 붕괴 건물 (`collapsed`)** | 5/10 (50.0%) | **10/10 (100.0%, `8.30cm`)** | **10/10 (100.0%, `8.32cm`)** | U자 포켓 돌파 · `98.05 s` |
+| **2. 고밀도 낙석 (`collapsed_heavy`)** | 2/10 (20.0%) | **10/10 (100.0%, `8.05cm`)** | **9/10 (90.0%, `8.47cm`)** | 6~9개 연쇄 낙석 전수 돌파 |
+| **3. 다실 가옥 (`house`, 15~19m)** | 9/10 (90.0%) | **9/10 (90.0%, `104.09s`)** | **9/10 (90.0%, `98.22s`)** | 문틀·저상 받침대 Clearance-Gated 관통 |
 | **4. 지하 터널 (`tunnel`)** | 9/10 (90.0%) | **10/10 (100.0%, `8.17cm`)** | **10/10 (100.0%, `8.17cm`)** | SUV·굴삭기 협로 무충돌 |
 | **5. 동적 미로 (`maze`, ~10.7m)** | 9/10 (90.0%) | **10/10 (100.0%, `21.02s`)** | **10/10 (100.0%, `21.19s`)** | 복귀 시간 **110.5s ➔ 21.0s (5.3배)** |
-| **50쌍 종합 (`Total`)** | **34/50 (68.0%)** | **49/50 (98.0%, `16.43cm`)** | **48/50 (96.0% Phase 2-A Zero-Shot)** | 평균 오차 **-91.3%**, 시간 **-41.3%** |
+| **50쌍 종합 (`Total`)** | **34/50 (68.0%)** | **49/50 (98.0%, `16.43cm`)** | **48/50 (96.0% Zero-Shot)** | 평균 오차 **-91.3%**, 시간 **-41.3%** |
 
 <p align="center">
   <img src="docs/images/evidence/p1_collapsed_baseline_t03_outcome.png" alt="Baseline Fail collapsed t03" width="48%">
@@ -278,7 +283,7 @@ V100 서버 병렬 워커(`--gz-port`/`--ros-domain-id`)에서 저상 `cafe_tabl
 | :---: | :---: | :---: |
 | <img src="docs/images/evidence/p1_collapsed_baseline_t03.gif" width="100%" alt="Baseline collapsed t03"> | <img src="docs/images/evidence/p1_collapsed_proposed_t03.gif" width="100%" alt="Phase 1 A* collapsed t03"> | <img src="docs/images/evidence/p2_sim2sim_collapsed_t03.gif" width="100%" alt="Phase 2-A RL collapsed t03"> |
 
-#### 2) 다실 문틀 (`house #03`) & 동적 미로 (`maze #07`) Phase 2-A Zero-Shot 주행
+#### 2) 다실 문틀 (`house #03`) & 동적 미로 (`maze #07`) Phase 2-A `proposed_rl` (Zero-Shot) 주행
 | 실내 다실 문틀 (`house #03 · 58.2 s PASS`) | 동적 미로 지름길 (`maze #07 · 23.6 s PASS`) |
 | :---: | :---: |
 | <img src="docs/images/evidence/p2_sim2sim_house_t03.gif" width="100%" alt="Phase 2-A house t03"> | <img src="docs/images/evidence/p2_sim2sim_maze_t07.gif" width="100%" alt="Phase 2-A maze t07"> |
