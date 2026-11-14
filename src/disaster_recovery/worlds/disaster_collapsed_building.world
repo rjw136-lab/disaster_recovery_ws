@@ -34,6 +34,34 @@
       <shadows>false</shadows>
     </scene>
 
+    <gui fullscreen='0'>
+      <camera name='user_camera'>
+        <pose frame=''>1.5 0.0 11.8 0 1.56 1.5708</pose>
+        <view_controller>orbit</view_controller>
+        <projection_type>perspective</projection_type>
+      </camera>
+    </gui>
+
+    <model name="base_camp_marker">
+      <static>true</static>
+      <pose>0.0 -4.0 0.01 0 0 0</pose>
+      <link name="link">
+        <visual name="ring">
+          <geometry>
+            <cylinder>
+              <radius>0.42</radius>
+              <length>0.015</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.10 0.95 0.30 1</ambient>
+            <diffuse>0.10 0.95 0.30 1</diffuse>
+            <emissive>0.05 0.65 0.20 1</emissive>
+          </material>
+        </visual>
+      </link>
+    </model>
+
     <!-- ============================================================ -->
     <!--  SUN (angled low — simulates dust-filtered post-disaster sky) -->
     <!-- ============================================================ -->
