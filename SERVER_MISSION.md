@@ -4,7 +4,7 @@
 
 ## 핵심 요약
 1. **저장공간 규칙:** `/` 루트 대용량 저장 금지 · 고속 I/O/실시간 학습 체크포인트는 `/ws` · 장기 아카이브/로그/대용량 데이터는 `/hdd`.
-2. **범위 제한:** 현재 범위는 TurtleBot3 Gazebo ROS 2 Humble 시뮬 검증(Phase 1) 및 V100 대규모 강화학습(Phase 2)까지이며, **별도 지시 전까지 Unitree Go2-X 관련 설치·구현은 미리 시작하지 않는다.**
+2. **범위 제한:** 현재 범위는 TurtleBot3 Burger (Gazebo ROS 2 Humble 시뮬 검증 Phase 1 및 V100 대규모 강화학습 Phase 2)까지로 한정하며, **별도 지시 전까지 타 로봇 플랫폼 관련 SDK 설치·구현은 미리 시작하지 않는다.**
 3. **Phase 1:** `_virtual_obstacles` 좁은 복도 틈새(`0.28m`) 폐색 튜닝 및 `colcon build` 1회 완료 후, `--gz-port`와 `--ros-domain-id`를 분리해 시나리오들을 **병렬 실행**(`house` 재검증 · 업그레이드 `maze` 10회 A/B · `collapsed` / `collapsed_heavy` / `tunnel` `--reuse-baseline`) → `plot_ab_comparison.py`(`--img-dir docs/images`) 그래프 검수 및 보고서 최종 업데이트.
 4. **Phase 2 (V100 32GB 대규모 · 다중 상황 능동 적응 학습 · 과적합 엄격 방지):**
    - Gazebo 병목을 피하기 위해 고속 벡터/GPU 병렬 환경에서 **100,000~500,000+ 에피소드(5천만~2억+ 스텝)** 규모로 학습하되, **과적합과 파국적 망각(Catastrophic Forgetting)을 절대 경계**한다.

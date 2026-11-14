@@ -78,7 +78,7 @@
 
 | 일자 (커밋) | 핵심 변경 요약 |
 | :--- | :--- |
-| **2026-11-14** (`b151a4f`) | **상시 프로젝트 규칙(`AGENTS.md`) & 서버 동기화 지침 보완** — 트러블슈팅 누적 기록(`#30+`)·Go2-X 보류·경로 이식성·3D 증거 규칙을 `AGENTS.md` 및 `SERVER_MISSION.md`에 영구 등록 |
+| **2026-11-14** (`b151a4f`) | **상시 프로젝트 규칙(`AGENTS.md`) & 서버 동기화 지침 보완** — 트러블슈팅 누적 기록(`#30+`)·경로 이식성·병렬 격리·3D 증거 규칙을 `AGENTS.md` 및 `SERVER_MISSION.md`에 영구 등록 |
 | **2026-11-14** (`d9168e8`) | **트러블슈팅 총정리 백서 `#23~#29` 통합 & 상대경로 정정** — 1·1.5차 이후 시뮬·TD3 한계 돌파·로컬 2D A\*·이식성 패치 전수 현행화 (`docs/2026-11-10_...총정리.md`) |
 | **2026-11-14** (`65fce0d`~`a115dc7`) | **V100 32GB Phase 2 대규모 RL · Dual-Track · 3D 증거 규칙 확정** — `100k~500k+` 에피소드 과적합 방지 프로토콜, RMA/GRU+PLR 능동 적응, `sim_policy` + 실물 휠오돔용 `real_tb3_policy` 이원화 (`SERVER_MISSION.md`, 체크포인트 문서) |
 | **2026-11-14** (`bbe1d5a`) | **병렬 Gazebo 포트/도메인 격리 & 하드코딩 경로 제거** — `--gz-port`, `--ros-domain-id`, `_kill_matching_gazebo_procs`, `--kill-stale` 추가 및 7개 파일 동적 경로 탐색 전환 |
@@ -89,7 +89,7 @@
 
 ### 관련 문서
 
-- [`AGENTS.md`](AGENTS.md) — 저장소 상시 작업 규칙 (트러블슈팅 `#30+` 누적 · Go2-X 보류 · 이식성 · 3D 증거)
+- [`AGENTS.md`](AGENTS.md) — 저장소 상시 작업 규칙 (트러블슈팅 `#30+` 누적 · 이식성 · 병렬 격리 · 3D 증거)
 - [`SERVER_MISSION.md`](SERVER_MISSION.md) — V100 GPU 서버 Phase 1·2 실행 지침서
 - [`CHANGELOG.md`](CHANGELOG.md) — 초기 업로드(`2026-11-05`)부터 최신 커밋까지의 전체 누적 패치노트
 - [`docs/DISASTER_RECOVERY_GUIDEBOOK.md`](docs/DISASTER_RECOVERY_GUIDEBOOK.md) — 종합 설계 문서 (이론적 근거 및 학술 배경)
@@ -361,7 +361,7 @@ i2cdetect -y 1        # 48 이 보여야 정상
 
 ```
 disaster_recovery_ws/
-├── AGENTS.md                            # 상시 프로젝트 규칙 (트러블슈팅 누적 · Go2-X 보류 · 이식성 · 3D 증거)
+├── AGENTS.md                            # 상시 프로젝트 규칙 (트러블슈팅 누적 · 이식성 · 병렬 격리 · 3D 증거)
 ├── SERVER_MISSION.md                    # Tesla V100 32GB 서버 Phase 1·2 실행 지침서
 ├── README.md
 ├── CHANGELOG.md                         # 초기 업로드~최신 전체 누적 변경 이력
