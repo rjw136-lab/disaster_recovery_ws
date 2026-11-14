@@ -22,7 +22,7 @@
   <img src="docs/images/disaster_recovery_banner_latest.png" alt="Disaster Recovery TurtleBot3 Burger Hero Banner" width="100%">
 </p>
 
-> 🚨 **연구 요약 (System Overview)**: 본 연구는 실내 재난 환경 탐사 중 발생 가능한 **통신 인프라 단절(Heartbeat 3.0초 타임아웃)** 및 **유해 가스 누출(MQ-2 임계치 초과)** 상황에서, 외부 관제 인프라의 개입 없이 로봇 온보드 연산(Raspberry Pi 4)만으로 기검증된 경로를 역추종(LIFO Breadcrumb Backtracking)하고, 2D LiDAR ICP 오차 보정 및 ArUco 정밀 도킹을 통해 누적 위치 오차를 체계적으로 최소화하여 출발점으로의 안전 복귀 성공률을 제고하는 자율주행 제어 시스템을 제안한다.
+> 🚨 **시스템 요약 (System Overview)**: 실내 재난 환경 탐사 중 **통신 단절(Heartbeat 3.0초 타임아웃)** 또는 **유해 가스 누출(MQ-2 임계치 초과)** 이 발생했을 때, 외부 관제 없이 온보드 연산(Raspberry Pi 4)만으로 지나온 경로를 역추적(LIFO Breadcrumb Backtracking)하고 2D LiDAR ICP 보정 · 로컬 우회 · ArUco 정밀 도킹으로 출발 지점까지 자율 복귀하는 TurtleBot3 Burger 제어 시스템입니다.
 
 ---
 
@@ -79,7 +79,7 @@
 
 | 일자 (커밋) | 핵심 변경 요약 |
 | :--- | :--- |
-| **2026-11-14** (`HEAD`) | **V100 서버 Phase 1(`49/50 = 98.0%`) · Phase 2 Dual-Track RL(`88.47M` 스텝 · Sim-to-Sim `47/50 = 94.0%`) 완주** — `_virtual_obstacles` `±0.03m/9s` 튜닝, FastDDS/`debris_utils` 격리, `sim`/`real_tb3_policy_student.onnx`(`231.6 KB`, `0.036~0.039 ms`), 3D Gazebo+RViz2 & 롤아웃 `.mp4`/`.png` 증거, 백서 `#30~#36` 통합 |
+| **2026-11-14** (`4dd00f1`) | **V100 서버 Phase 1(`49/50 = 98.0%`) · Phase 2 Dual-Track RL(`88.47M` 스텝 · Sim-to-Sim `47/50 = 94.0%`) 완주** — `_virtual_obstacles` `±0.03m/9s` 튜닝, FastDDS/`debris_utils` 격리, `sim`/`real_tb3_policy_student.onnx`(`231.6 KB`, `0.036~0.039 ms`), 3D Gazebo+RViz2 & 롤아웃 `.mp4`/`.png` 증거, 트러블슈팅 `#30~#36` 통합 |
 | **2026-11-14** (`b151a4f`) | **상시 프로젝트 규칙(`AGENTS.md`) & 서버 동기화 지침 보완** — 트러블슈팅 누적 기록(`#30+`)·경로 이식성·병렬 격리·3D 증거 규칙을 `AGENTS.md` 및 `SERVER_MISSION.md`에 영구 등록 |
 | **2026-11-14** (`d9168e8`) | **트러블슈팅 총정리 백서 `#23~#29` 통합 & 상대경로 정정** — 1·1.5차 이후 시뮬·TD3 한계 돌파·로컬 2D A\*·이식성 패치 전수 현행화 (`docs/2026-11-10_...총정리.md`) |
 | **2026-11-14** (`65fce0d`~`a115dc7`) | **V100 32GB Phase 2 대규모 RL · Dual-Track · 3D 증거 규칙 확정** — `100k~500k+` 에피소드 과적합 방지 프로토콜, RMA/GRU+PLR 능동 적응, `sim_policy` + 실물 휠오돔용 `real_tb3_policy` 이원화 (`SERVER_MISSION.md`, 체크포인트 문서) |
@@ -93,7 +93,7 @@
 - [`AGENTS.md`](AGENTS.md) — 저장소 상시 작업 규칙 (트러블슈팅 `#30+` 누적 · 이식성 · 병렬 격리 · 3D 증거)
 - [`SERVER_MISSION.md`](SERVER_MISSION.md) — V100 GPU 서버 Phase 1·2 실행 지침서
 - [`CHANGELOG.md`](CHANGELOG.md) — 초기 업로드(`2026-11-05`)부터 최신 커밋까지의 전체 누적 패치노트
-- [`docs/DISASTER_RECOVERY_GUIDEBOOK.md`](docs/DISASTER_RECOVERY_GUIDEBOOK.md) — 종합 설계 문서 (이론적 근거 및 학술 배경)
+- [`docs/DISASTER_RECOVERY_GUIDEBOOK.md`](docs/DISASTER_RECOVERY_GUIDEBOOK.md) — 종합 설계 문서 (전체 구조 및 동작 원리)
 - [`docs/2026-11-10_LIDAR_Scan_Matching_및_자율복귀_엔지니어링_보고서.md`](docs/2026-11-10_LIDAR_Scan_Matching_및_자율복귀_엔지니어링_보고서.md) — 2D ICP 스캔 매칭 설계 보고서
 - [`docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md`](docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md) — 트러블슈팅 백서 (`#01` ~ `#36` 전수 통합)
 - [`docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_분석보고서.md`](docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_분석보고서.md) — 붕괴 건물 15회 벤치마크 분석 보고서
@@ -748,7 +748,7 @@ Host AI 파라미터 (`host_ai_pipeline` 코드 기본값): `yolo_max_fps=15.0`,
 
 ## 📚 참고 문헌 및 특허 출처
 
-### 학술 논문 및 표준 문서
+### 참고 논문 및 기술 서적
 1. Borenstein, J., & Feng, L. (1996). Measurement and correction of systematic odometry errors in mobile robots. *IEEE Transactions on Robotics and Automation*, 12(6), 869–881.
 2. Brooks, R. A. (1986). A robust layered control system for a mobile robot. *IEEE Journal on Robotics and Automation*, 2(1), 14–23.
 3. Siegwart, R., Nourbakhsh, I. R., & Scaramuzza, D. (2011). *Introduction to Autonomous Mobile Robots* (2nd ed.). MIT Press.

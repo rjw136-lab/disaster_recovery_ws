@@ -14,7 +14,7 @@
 | **Phase 1.5. 2D ICP & 특허·텔레옵** | `2026-11-11` | 2D LiDAR 키프레임 SVD ICP 슬립 보정, ArUco 10초 가드, WASD 텔레옵, 선행 특허 14선 분석 | `da2aa5b`~`557b9ab` |
 | **Phase 2. TD3 DRL 하이브리드 복귀** | `2026-11-12` | `sim.py` 시뮬레이터, 99KB TD3 ONNX 엣지 추론, 50회 몬테카를로 100% 검증, 터널 20회 벤치마크 | `29a6695`~`07d151c` |
 | **Phase 3. 붕괴 건물 & GPU 가속 고도화** | `2026-11-13` | `BACKTRACKING_HYBRID`(Pure Pursuit+TD3), 붕괴 건물 15회 벤치마크, WSLg D3D12·Whisper CUDA·YOLO 15FPS | `7e04510`~`73bb888` |
-| **Phase 4. 로컬 2D A\* · V100 서버 완주 & Dual-Track RL** | `2026-11-14` | `RollingLocalGrid + 2D A*` **5대 환경 `49/50 (98.0%)`**, V100 **8,847만 스텝 Dual-Track RL & Gazebo Sim-to-Sim `47/50 (94.0%)`**, 3D `.mp4`/`.png` 증거, 백서 `#23~#36` 완결 | `f1966bf`~`HEAD` |
+| **Phase 4. 로컬 2D A\* · V100 서버 완주 & Dual-Track RL** | `2026-11-14` | `RollingLocalGrid + 2D A*` **5대 환경 `49/50 (98.0%)`**, V100 **8,847만 스텝 Dual-Track RL & Gazebo Sim-to-Sim `47/50 (94.0%)`**, 3D `.mp4`/`.png` 증거, 트러블슈팅 `#23~#36` 완결 | `f1966bf`~`4dd00f1` |
 
 ---
 
@@ -24,7 +24,7 @@
 
 | 커밋 | 구분 | 변경 내용 및 주요 파일 |
 | :--- | :---: | :--- |
-| `HEAD` | `feat/docs` | **V100 서버 Phase 1·2 완주 및 최종 보고서·백서 `#30~#36` 통합** — `_virtual_obstacles` `±0.03m`/9s 튜닝으로 **5대 환경 `49/50 (98.0%)`** 확정(`collapsed`·`collapsed_heavy`·`tunnel`·`maze` 40/40), FastDDS/`debris_utils` 격리(`#31`), 3D Gazebo+RViz2 지연 `gzclient` 캡처(`record_3d_evidence.py`, `#32`), Tesla V100 32GB **`88,473,600` 스텝(392,119 에피소드) Dual-Track RL**(`train_phase2_v100.py`, `rl_procedural_env.py`, `rl_context_policy.py`) 및 **`sim`/`real_tb3_policy_student.onnx` (`231.6 KB`, `0.036~0.039 ms`)**, `proposed_rl` 공식 Gazebo Zero-Shot Sim-to-Sim **`47/50 (94.0%)`**, `sync_to_gdrive.sh`, `test_hybrid_recovery.py`(`23 passed`), `README.md`, 5대 A/B 보고서, 트러블슈팅 백서 `#30~#36` 최종 현행화 |
+| `4dd00f1` | `feat/docs` | **V100 서버 Phase 1·2 완주 및 최종 보고서 · 트러블슈팅 `#30~#36` 통합** — `_virtual_obstacles` `±0.03m`/9s 튜닝으로 **5대 환경 `49/50 (98.0%)`** 확정(`collapsed`·`collapsed_heavy`·`tunnel`·`maze` 40/40), FastDDS/`debris_utils` 격리(`#31`), 3D Gazebo+RViz2 지연 `gzclient` 캡처(`record_3d_evidence.py`, `#32`), Tesla V100 32GB **`88,473,600` 스텝(392,119 에피소드) Dual-Track RL**(`train_phase2_v100.py`, `rl_procedural_env.py`, `rl_context_policy.py`) 및 **`sim`/`real_tb3_policy_student.onnx` (`231.6 KB`, `0.036~0.039 ms`)**, `proposed_rl` 공식 Gazebo Zero-Shot Sim-to-Sim **`47/50 (94.0%)`**, `sync_to_gdrive.sh`, `test_hybrid_recovery.py`(`23 passed`), `README.md`, 5대 A/B 보고서, 트러블슈팅 `#30~#36` 최종 현행화 |
 | `03e8a22`~`917f324` | `docs` | **문서 제목·용어 정리 & Tesla V100 배지 반영** — 15회 보고서 제목 정비, V100 32GB 사양 표기, 타 플랫폼 무관 언급 제거 |
 | `b151a4f` | `docs` | **상시 프로젝트 규칙(`AGENTS.md`) & 서버 트러블슈팅 기록 의무화** — 모든 에이전트 공용 `AGENTS.md` 신설 및 `SERVER_MISSION.md`에 `#30+` 트러블슈팅 누적 기록 규칙 추가 |
 | `d9168e8` | `docs` | **트러블슈팅 총정리 백서 `#23~#29` 통합 & 상대경로 정정** — Whisper CUDA, 15회 교착 해결, TD3→로컬 2D A\* 전환, 저상 `cafe_table` 보완, `.partial.json`/병렬 격리까지 전수 반영 및 `file://` 링크 제거 (`docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md`) |
@@ -65,7 +65,7 @@
 | `aba8d8e` | `docs` | **3D 프린팅 쉘 캡션 수정** — `README.md` 외피 구상도 캡션 문구 정리 |
 | `0989670` | `feat` | **4계층 하이브리드 자율복귀 50회 몬테카를로 검증 완료** — `verify_hybrid_recovery.py`·`test_hybrid_recovery.py` 신규 작성, `td3_policy.py`·`train_td3.py`·`recovery_controller.py` 고도화, `recovery_td3.onnx` 갱신 (`101,450 B`, 100% PASS) |
 | `4f49841` | `docs` | **GFM 수식/표/Mermaid 모바일 호환성 수정** — `DISASTER_RECOVERY_GUIDEBOOK.md` 및 트러블슈팅 문서 마크다운 문법 보정 |
-| `e610661` | `docs` | **README 연구 요약 학술 논문 어조 변환** — 상단 System Overview 문체 정비 |
+| `e610661` | `docs` | **README 상단 System Overview 문체 정비** — 시스템 요약 문구 정리 |
 | `5ff868e` | `docs` | **공학 표현 정교화** — `README.md`, `DISASTER_RECOVERY_GUIDEBOOK.md`, ICP 보고서 문구 다듬기 |
 | `e6971ab` | `fix` | **README 히어로 배너 캐시 갱신** — `docs/images/disaster_recovery_banner_latest.png` 신규 에셋 적용 |
 | `8d98bc6` | `docs` | **README 히어로 레이아웃 및 하드웨어 쉘 섹션 재구성** — 3D 프린팅 쉘 이미지를 하드웨어 섹션으로 배치 |
