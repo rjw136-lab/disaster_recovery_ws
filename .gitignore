@@ -21,6 +21,7 @@ frames_*.gv
 frames_*.pdf
 cam_test.png
 *.mp4
+!docs/videos/*.mp4
 *.partial.json
 /tmp/
 
