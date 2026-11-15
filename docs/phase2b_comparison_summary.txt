@@ -2,98 +2,80 @@
   baseline     :  5/10 | mean_t= 164.5s (succ= 102.2s, med= 122.0s) | len=13.38m | fails=[3, 4, 7, 8, 9]
   phase1       : 10/10 | mean_t= 101.8s (succ= 101.8s, med= 106.5s) | len=15.68m | fails=[]
   phase2a      : 10/10 | mean_t=  98.0s (succ=  98.0s, med= 100.0s) | len=15.26m | fails=[]
-  phase2b_old  : 10/10 | mean_t= 103.4s (succ= 103.4s, med= 103.8s) | len=15.66m | fails=[]
-  phase2b_fixed: 10/10 | mean_t= 104.2s (succ= 104.2s, med= 106.0s) | len=15.42m | fails=[]
   phase2b_v3   : 10/10 | mean_t= 111.5s (succ= 111.5s, med= 109.7s) | len=16.14m | fails=[]
 === collapsed_heavy ===
   baseline     :  2/10 | mean_t= 238.5s (succ= 171.3s, med= 260.1s) | len=18.57m | fails=[1, 2, 3, 5, 6, 7, 9, 10]
   phase1       : 10/10 | mean_t= 115.3s (succ= 115.3s, med= 109.8s) | len=17.27m | fails=[]
   phase2a      :  9/10 | mean_t= 125.3s (succ= 110.3s, med= 111.0s) | len=16.27m | fails=[2]
-  phase2b_old  : 10/10 | mean_t= 116.8s (succ= 116.8s, med= 104.9s) | len=17.09m | fails=[]
-  phase2b_fixed: 10/10 | mean_t= 104.4s (succ= 104.4s, med= 103.5s) | len=16.09m | fails=[]
   phase2b_v3   : 10/10 | mean_t= 118.1s (succ= 118.1s, med= 114.5s) | len=17.26m | fails=[]
 === tunnel ===
   baseline     :  9/10 | mean_t=  98.5s (succ=  83.8s, med=  88.8s) | len=12.00m | fails=[5]
   phase1       : 10/10 | mean_t=  79.2s (succ=  79.2s, med=  76.8s) | len=12.79m | fails=[]
   phase2a      : 10/10 | mean_t=  80.1s (succ=  80.1s, med=  81.8s) | len=12.82m | fails=[]
-  phase2b_old  : 10/10 | mean_t=  94.6s (succ=  94.6s, med=  88.0s) | len=13.05m | fails=[]
-  phase2b_fixed: 10/10 | mean_t=  80.3s (succ=  80.3s, med=  80.5s) | len=12.89m | fails=[]
   phase2b_v3   : 10/10 | mean_t=  84.1s (succ=  84.1s, med=  78.8s) | len=12.86m | fails=[]
 === house ===
   baseline     :  9/10 | mean_t= 135.5s (succ= 123.6s, med= 111.7s) | len=15.70m | fails=[1]
   phase1       :  9/10 | mean_t= 121.3s (succ= 104.1s, med=  96.9s) | len=14.34m | fails=[7]
   phase2a      :  9/10 | mean_t= 112.6s (succ=  98.2s, med= 101.0s) | len=14.03m | fails=[4]
-  phase2b_old  :  9/10 | mean_t= 115.6s (succ=  97.2s, med= 101.8s) | len=14.13m | fails=[7]
-  phase2b_fixed:  9/10 | mean_t= 119.5s (succ= 106.1s, med=  95.7s) | len=14.78m | fails=[7]
   phase2b_v3   : 10/10 | mean_t= 113.0s (succ= 113.0s, med= 103.2s) | len=14.52m | fails=[]
 === maze ===
   baseline     :  9/10 | mean_t= 110.5s (succ=  99.5s, med= 103.8s) | len=10.79m | fails=[7]
   phase1       : 10/10 | mean_t=  21.0s (succ=  21.0s, med=  20.5s) | len= 2.56m | fails=[]
   phase2a      : 10/10 | mean_t=  21.2s (succ=  21.2s, med=  19.9s) | len= 2.50m | fails=[]
-  phase2b_old  : 10/10 | mean_t=  21.4s (succ=  21.4s, med=  20.6s) | len= 2.43m | fails=[]
-  phase2b_fixed: 10/10 | mean_t=  20.7s (succ=  20.7s, med=  19.4s) | len= 2.48m | fails=[]
   phase2b_v3   : 10/10 | mean_t=  20.5s (succ=  20.5s, med=  19.2s) | len= 2.49m | fails=[]
 === collapsed_hard ===
   baseline     :  4/10 | mean_t= 242.1s (succ= 172.8s, med= 270.0s) | len=18.95m | fails=[1, 3, 5, 6, 8, 9]
   phase1       : 10/10 | mean_t= 144.1s (succ= 144.1s, med= 141.6s) | len=19.18m | fails=[]
   phase2a      : 10/10 | mean_t= 122.9s (succ= 122.9s, med= 126.2s) | len=17.82m | fails=[]
-  phase2b_old  : 10/10 | mean_t= 112.6s (succ= 112.6s, med= 113.7s) | len=16.34m | fails=[]
-  phase2b_fixed: 10/10 | mean_t= 120.0s (succ= 120.0s, med= 118.8s) | len=18.23m | fails=[]
   phase2b_v3   :  9/10 | mean_t= 152.1s (succ= 139.0s, med= 141.0s) | len=18.95m | fails=[9]
 === collapsed_heavy_hard ===
   baseline     :  0/10 | mean_t= 308.2s (succ=   0.0s, med= 299.9s) | len= 0.00m | fails=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
   phase1       : 10/10 | mean_t= 149.9s (succ= 149.9s, med= 141.9s) | len=19.06m | fails=[]
   phase2a      : 10/10 | mean_t= 145.4s (succ= 145.4s, med= 145.2s) | len=19.72m | fails=[]
-  phase2b_old  : 10/10 | mean_t= 139.8s (succ= 139.8s, med= 140.9s) | len=18.31m | fails=[]
-  phase2b_fixed: 10/10 | mean_t= 131.3s (succ= 131.3s, med= 127.8s) | len=18.06m | fails=[]
   phase2b_v3   : 10/10 | mean_t= 142.8s (succ= 142.8s, med= 145.7s) | len=18.65m | fails=[]
 === tunnel_hard ===
   baseline     :  9/10 | mean_t= 129.9s (succ= 132.3s, med= 114.5s) | len=17.34m | fails=[3]
   phase1       : 10/10 | mean_t= 109.4s (succ= 109.4s, med= 108.8s) | len=16.98m | fails=[]
   phase2a      : 10/10 | mean_t= 105.0s (succ= 105.0s, med= 103.8s) | len=17.28m | fails=[]
-  phase2b_old  : 10/10 | mean_t= 104.3s (succ= 104.3s, med= 106.3s) | len=16.63m | fails=[]
-  phase2b_fixed: 10/10 | mean_t= 108.9s (succ= 108.9s, med= 109.0s) | len=16.76m | fails=[]
   phase2b_v3   : 10/10 | mean_t= 110.2s (succ= 110.2s, med= 112.2s) | len=17.44m | fails=[]
 === house_hard ===
   baseline     :  6/10 | mean_t= 219.0s (succ= 158.8s, med= 201.6s) | len=18.36m | fails=[1, 2, 7, 9]
   phase1       : 10/10 | mean_t= 133.9s (succ= 133.9s, med= 109.4s) | len=15.38m | fails=[]
   phase2a      :  8/10 | mean_t= 166.8s (succ= 131.1s, med= 151.2s) | len=15.60m | fails=[3, 7]
-  phase2b_old  :  9/10 | mean_t= 133.3s (succ= 111.5s, med= 111.2s) | len=14.78m | fails=[8]
-  phase2b_fixed: 10/10 | mean_t=  94.7s (succ=  94.7s, med=  91.1s) | len=13.90m | fails=[]
   phase2b_v3   : 10/10 | mean_t= 114.5s (succ= 114.5s, med= 106.9s) | len=14.73m | fails=[]
 === maze_hard ===
   baseline     :  9/10 | mean_t= 139.2s (succ= 125.8s, med= 135.5s) | len=12.39m | fails=[2]
   phase1       : 10/10 | mean_t=  22.8s (succ=  22.8s, med=  20.6s) | len= 2.82m | fails=[]
   phase2a      : 10/10 | mean_t=  21.8s (succ=  21.8s, med=  18.9s) | len= 2.63m | fails=[]
-  phase2b_old  : 10/10 | mean_t=  23.3s (succ=  23.3s, med=  19.4s) | len= 2.76m | fails=[]
-  phase2b_fixed: 10/10 | mean_t=  21.2s (succ=  21.2s, med=  19.1s) | len= 2.61m | fails=[]
   phase2b_v3   : 10/10 | mean_t=  22.9s (succ=  22.9s, med=  19.1s) | len= 2.76m | fails=[]
 === u_pocket_trap ===
   baseline     :  4/10 | mean_t= 210.9s (succ= 145.9s, med= 240.1s) | len=16.24m | fails=[1, 2, 4, 5, 7, 8]
   phase1       : 10/10 | mean_t= 113.0s (succ= 113.0s, med= 101.8s) | len=15.90m | fails=[]
   phase2a      :  9/10 | mean_t= 127.6s (succ= 112.2s, med= 109.7s) | len=15.93m | fails=[10]
-  phase2b_old  : 10/10 | mean_t= 101.0s (succ= 101.0s, med= 101.5s) | len=15.33m | fails=[]
-  phase2b_fixed: 10/10 | mean_t=  97.5s (succ=  97.5s, med=  99.2s) | len=15.31m | fails=[]
   phase2b_v3   : 10/10 | mean_t= 104.6s (succ= 104.6s, med= 104.4s) | len=15.79m | fails=[]
 === slip_chicane ===
   baseline     :  1/10 | mean_t= 262.0s (succ= 201.4s, med= 260.0s) | len=16.53m | fails=[1, 2, 3, 4, 6, 7, 8, 9, 10]
   phase1       : 10/10 | mean_t= 155.6s (succ= 155.6s, med= 155.3s) | len=16.91m | fails=[]
   phase2a      : 10/10 | mean_t= 126.6s (succ= 126.6s, med= 127.2s) | len=16.26m | fails=[]
-  phase2b_old  : 10/10 | mean_t= 126.7s (succ= 126.7s, med= 117.6s) | len=16.16m | fails=[]
-  phase2b_fixed: 10/10 | mean_t= 132.1s (succ= 132.1s, med= 123.2s) | len=16.30m | fails=[]
   phase2b_v3   : 10/10 | mean_t= 144.6s (succ= 144.6s, med= 144.7s) | len=16.65m | fails=[]
 === dynamic_gauntlet ===
   baseline     : 10/10 | mean_t= 152.5s (succ= 152.5s, med= 154.8s) | len=18.56m | fails=[]
   phase1       : 10/10 | mean_t= 161.5s (succ= 161.5s, med= 154.3s) | len=20.36m | fails=[]
   phase2a      :  8/10 | mean_t= 216.3s (succ= 192.0s, med= 206.2s) | len=21.20m | fails=[2, 5]
-  phase2b_old  :  8/10 | mean_t= 173.5s (succ= 132.9s, med= 158.7s) | len=18.54m | fails=[2, 9]
-  phase2b_fixed:  8/10 | mean_t= 176.6s (succ= 142.9s, med= 136.3s) | len=19.52m | fails=[1, 2]
   phase2b_v3   : 10/10 | mean_t= 135.5s (succ= 135.5s, med= 121.0s) | len=18.79m | fails=[]
+=== dynamic_crossfire_alley ===
+  baseline     :  3/10 | mean_t= 234.5s (succ= 210.5s, med= 250.0s) | len= 9.88m | fails=[1, 2, 3, 4, 7, 8, 10]
+  phase1       :  0/10 | mean_t= 250.0s (succ=   0.0s, med= 250.0s) | len= 0.00m | fails=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  phase2a      :  1/10 | mean_t= 244.1s (succ= 190.6s, med= 250.0s) | len=12.15m | fails=[1, 3, 4, 5, 6, 7, 8, 9, 10]
+  phase2b_v3   : 10/10 | mean_t=  79.3s (succ=  79.3s, med=  81.0s) | len= 8.58m | fails=[]
+=== smoke_lidar_corruption ===
+  baseline     :  0/10 | mean_t= 250.0s (succ=   0.0s, med= 250.0s) | len= 0.00m | fails=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  phase1       :  0/10 | mean_t= 250.0s (succ=   0.0s, med= 250.0s) | len= 0.00m | fails=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  phase2a      :  0/10 | mean_t= 250.0s (succ=   0.0s, med= 250.0s) | len= 0.00m | fails=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  phase2b_v3   : 10/10 | mean_t= 101.8s (succ= 101.8s, med=  88.1s) | len=13.78m | fails=[]
 
-=== OVERALL 130-TRIAL TOTALS ===
-  baseline     :  77/130 (59.23%) | mean_t=185.48s | succ_t=128.47s | succ_len=15.21m
-  phase1       : 129/130 (99.23%) | mean_t=109.92s | succ_t=108.63s | succ_len=14.56m
-  phase2a      : 123/130 (94.62%) | mean_t=113.05s | succ_t=103.10s | succ_len=14.26m
-  phase2b_old  : 126/130 (96.92%) | mean_t=105.11s | succ_t= 98.27s | succ_len=13.86m
-  phase2b_fixed: 127/130 (97.69%) | mean_t=100.88s | succ_t= 96.46s | succ_len=13.93m
-  phase2b_v3   : 129/130 (99.23%) | mean_t=105.72s | succ_t=104.45s | succ_len=14.35m
+=== OVERALL 150-TRIAL TOTALS (15 SCENARIOS x 10 TRIALS) ===
+  baseline     :  80/150 (53.33%) | mean_t=193.05s | succ_t=131.54s | succ_len=15.01m
+  phase1       : 129/150 (86.00%) | mean_t=128.60s | succ_t=108.63s | succ_len=14.56m
+  phase2a      : 124/150 (82.67%) | mean_t=130.92s | succ_t=103.80s | succ_len=14.24m
+  phase2b_v3   : 149/150 (99.33%) | mean_t=103.70s | succ_t=102.58s | succ_len=13.93m

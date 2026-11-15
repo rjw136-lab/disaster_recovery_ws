@@ -46,12 +46,14 @@ class RollingLocalGrid:
         resolution_m: float = 0.10,
         inflation_radius_m: float = 0.16,
         soft_radius_m: float = 0.28,
+        phase2b_mode: bool = False,
     ):
         self.size_m = float(size_m)
         self.res = float(resolution_m)
         self.n = int(round(self.size_m / self.res))
         self.inflation_radius_m = float(inflation_radius_m)
         self.soft_radius_m = float(soft_radius_m)
+        self.phase2b_mode = bool(phase2b_mode)
 
         self.occ = np.zeros((self.n, self.n), dtype=np.float32)
         self.observed_free = np.zeros((self.n, self.n), dtype=np.float32)
@@ -150,16 +152,40 @@ class RollingLocalGrid:
         """Update occupancy & observed free-space from robot-frame 2D scan points."""
         self._recenter(rx, ry)
 
-        # Slow temporal decay keeps mapped indoor walls across rotations, while
-        # ray-carving below clears transient/moving obstacles within 1-2 ticks.
-        self.occ *= 0.965
-        self.observed_free *= 0.985
-
-        if scan_pts_robot is None or len(scan_pts_robot) == 0:
-            return
+        # Phase 2-B uses fast dynamic trail decay & single-tick free-space ray-carving,
+        # whereas static-grid A* (Phase 1 / 2-A) uses static occupancy persistence.
+        if self.phase2b_mode:
+            self.occ *= 0.955
+            self.observed_free *= 0.990
+            carve_decay = 0.25
+        else:
+            self.occ *= 0.965
+            self.observed_free *= 0.985
+            carve_decay = 0.40
 
         c = math.cos(rth)
         s = math.sin(rth)
+
+        # In Phase 2-B, also ray-carve occupancy along open max-range rays (without marking unscanned space as observed_free)
+        if self.phase2b_mode and raw_ranges is not None and len(raw_ranges) >= 36:
+            rr = np.asarray(raw_ranges[::2], dtype=np.float32)
+            n_sub = len(rr)
+            ang_sub = np.linspace(0.0, 2.0 * math.pi, n_sub, endpoint=False, dtype=np.float32)
+            open_idx = (~np.isfinite(rr)) | (rr > 3.45)
+            if np.any(open_idx):
+                ang_open = ang_sub[open_idx] + rth
+                wx_open = rx + 3.40 * np.cos(ang_open)
+                wy_open = ry + 3.40 * np.sin(ang_open)
+                fracs_o = np.linspace(0.05, 0.92, 96, dtype=np.float32)[:, None]
+                rx_o = rx + fracs_o * (wx_open[None, :] - rx)
+                ry_o = ry + fracs_o * (wy_open[None, :] - ry)
+                ix_o = np.floor(rx_o / self.res).astype(np.int32) - self.origin_ix
+                iy_o = np.floor(ry_o / self.res).astype(np.int32) - self.origin_iy
+                m_o = (ix_o >= 0) & (ix_o < self.n) & (iy_o >= 0) & (iy_o < self.n)
+                self.occ[ix_o[m_o], iy_o[m_o]] *= carve_decay
+
+        if scan_pts_robot is None or len(scan_pts_robot) == 0:
+            return
 
         # Transform robot-frame scan hits to world frame
         pts = np.asarray(scan_pts_robot, dtype=np.float32)
@@ -174,8 +200,9 @@ class RollingLocalGrid:
             wy_r = wy[valid_ray]
             d_r = dists[valid_ray]
             max_steps = int(math.ceil(min(3.5, float(np.max(d_r))) / (self.res * 0.9)))
-            max_steps = max(2, min(max_steps, 40))
-            fracs = np.linspace(0.08, 0.88, max_steps, dtype=np.float32)[:, None]  # (K, 1)
+            step_cap = 110 if self.phase2b_mode else 40
+            max_steps = max(2, min(max_steps, step_cap))
+            fracs = np.linspace(0.06, 0.90 if self.phase2b_mode else 0.88, max_steps, dtype=np.float32)[:, None]  # (K, 1)
 
             ray_x = rx + fracs * (wx_r[None, :] - rx)
             ray_y = ry + fracs * (wy_r[None, :] - ry)
@@ -186,7 +213,7 @@ class RollingLocalGrid:
             ix_v = ix_f[mask]
             iy_v = iy_f[mask]
             self.observed_free[ix_v, iy_v] = 1.0
-            self.occ[ix_v, iy_v] *= 0.40
+            self.occ[ix_v, iy_v] *= carve_decay
 
         # Mark robot center cell as observed free
         sx, sy = self.world_to_grid(rx, ry)
@@ -372,6 +399,7 @@ class ProposedRecoveryPlanner:
             size_m=size_m,
             resolution_m=resolution_m,
             inflation_radius_m=inflation_radius_m,
+            phase2b_mode=self.phase2b_mode,
         )
         self.lookahead_m = float(lookahead_m)
         self.shortcut_rejoin_dist_m = float(shortcut_rejoin_dist_m)
@@ -669,6 +697,7 @@ class ProposedRecoveryPlanner:
         now_sec: float,
         wp_reach_radius: float,
         docking_dist_th: float,
+        raw_ranges: Optional[Sequence[float]] = None,
     ) -> Tuple[str, float, float, Optional[Tuple[float, float]]]:
         """
         Run one control tick for Proposed Layer-2 backtracking.
@@ -679,7 +708,7 @@ class ProposedRecoveryPlanner:
           - status_tag == "ASTAR_TRACK": tracking A* subgoal smoothly.
           - status_tag == "ROTATE_ALIGN": large heading alignment turn in place.
         """
-        self.grid.update_scan(rx, ry, rth, scan_pts)
+        self.grid.update_scan(rx, ry, rth, scan_pts, raw_ranges=raw_ranges)
         front_min, left_min, right_min, rear_min = self._scan_sector_clearances(scan_pts)
         self.last_clearances = (front_min, left_min, right_min, rear_min)
         self.last_used_tight_pass = False

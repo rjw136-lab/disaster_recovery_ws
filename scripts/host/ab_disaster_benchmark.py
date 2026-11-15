@@ -83,6 +83,8 @@ class ScenarioConfig:
     min_blackout_dist: float = 0.0
     min_checkpoints: int = 0
     doorway_keepouts: Tuple[Tuple[float, float, float], ...] = ()
+    smoke_noise_prob: float = 0.0
+    crossfire_dynamic: bool = False
 
 
 WS_WORLDS = os.path.join(WS_ROOT, "src", "disaster_recovery", "worlds")
@@ -368,6 +370,58 @@ SCENARIOS: Dict[str, ScenarioConfig] = {
         min_blackout_dist=3.0,
         min_checkpoints=5,
     ),
+    "dynamic_crossfire_alley": ScenarioConfig(
+        name="dynamic_crossfire_alley",
+        label_ko="동적 교차 협곡 (잔상 장벽·대각선 교차 장애물)",
+        world_file=f"{WS_WORLDS}/disaster_dynamic_crossfire_world.world",
+        reset_pose=(0.0, 0.0, 0.0),
+        max_step_size=0.001,
+        explore_x_range=(0.5, 10.2),
+        explore_y_range=(-1.8, 1.8),
+        min_depth=12.5,
+        max_depth=16.5,
+        debris_min=3,
+        debris_max=5,
+        min_spacing=0.95,
+        outbound_timeout_sim=165.0,
+        return_timeout_base=250.0,
+        funnel_collapsed=False,
+        use_guided_outbound=True,
+        min_blackout_dist=4.5,
+        min_checkpoints=5,
+        doorway_keepouts=(
+            (2.30, 0.00, 1.10),
+            (5.20, 0.72, 1.10),
+            (8.20, -0.72, 0.90),
+        ),
+        crossfire_dynamic=True,
+    ),
+    "smoke_lidar_corruption": ScenarioConfig(
+        name="smoke_lidar_corruption",
+        label_ko="화재 연기·분진 협곡 (LiDAR 산란 스파이크·결측)",
+        world_file=f"{WS_WORLDS}/disaster_smoke_hazard_world.world",
+        reset_pose=(0.0, 0.0, 0.0),
+        max_step_size=0.001,
+        explore_x_range=(0.5, 10.2),
+        explore_y_range=(-2.0, 2.0),
+        min_depth=12.5,
+        max_depth=16.5,
+        debris_min=3,
+        debris_max=5,
+        min_spacing=0.90,
+        outbound_timeout_sim=165.0,
+        return_timeout_base=250.0,
+        funnel_collapsed=False,
+        use_guided_outbound=True,
+        min_blackout_dist=4.5,
+        min_checkpoints=5,
+        doorway_keepouts=(
+            (2.20, -1.42, 0.70),
+            (5.20, 1.42, 0.70),
+            (8.20, -1.42, 0.70),
+        ),
+        smoke_noise_prob=0.14,
+    ),
 }
 
 CLASSIC_5 = ("collapsed", "collapsed_heavy", "tunnel", "house", "maze")
@@ -413,6 +467,16 @@ DYNAMIC_GAUNTLET_ROUTES: List[List[Tuple[float, float]]] = [
     [(-3.40, 0.20), (-3.20, -3.00), (0.50, -3.00), (3.40, -2.80), (3.40, 0.20), (2.95, 2.75), (0.00, 2.80), (-1.80, 2.80)],
 ]
 
+DYNAMIC_CROSSFIRE_ROUTES: List[List[Tuple[float, float]]] = [
+    [(1.20, 0.00), (2.50, 0.00), (3.90, 0.50), (5.40, 0.72), (6.80, 0.00), (8.20, -0.72), (9.80, -0.50), (9.80, 0.80)],
+    [(1.20, -0.15), (2.50, 0.00), (3.90, 0.65), (5.40, 0.72), (6.80, -0.20), (8.20, -0.72), (9.90, -0.80), (9.90, 0.60)],
+]
+
+SMOKE_HAZARD_ROUTES: List[List[Tuple[float, float]]] = [
+    [(1.10, -0.80), (2.20, -1.42), (3.70, 0.00), (5.20, 1.42), (6.70, 0.00), (8.20, -1.42), (9.80, -0.60), (9.80, 1.10)],
+    [(1.10, -1.10), (2.20, -1.42), (3.70, 0.35), (5.20, 1.42), (6.70, -0.35), (8.20, -1.42), (9.90, 0.50), (9.90, -1.10)],
+]
+
 ROUTE_MAP: Dict[str, List[List[Tuple[float, float]]]] = {
     "house": HOUSE_ROUTES,
     "house_hard": HOUSE_ROUTES,
@@ -421,6 +485,8 @@ ROUTE_MAP: Dict[str, List[List[Tuple[float, float]]]] = {
     "u_pocket_trap": U_POCKET_ROUTES,
     "slip_chicane": SLIP_CHICANE_ROUTES,
     "dynamic_gauntlet": DYNAMIC_GAUNTLET_ROUTES,
+    "dynamic_crossfire_alley": DYNAMIC_CROSSFIRE_ROUTES,
+    "smoke_lidar_corruption": SMOKE_HAZARD_ROUTES,
 }
 
 
@@ -481,6 +547,8 @@ class SimHarnessNode(Node):
         )
 
         self.heartbeat_enabled = True
+        self.crossfire_dynamic = False
+        self.crossfire_t0 = 0.0
         self.hb_seq = 0
         self.hb_timer = self.create_timer(0.10, self._hb_tick)
 
@@ -501,10 +569,18 @@ class SimHarnessNode(Node):
             self.hb_seq += 1
         t_sim = self.sim_now()
         tw1 = Twist()
-        tw1.linear.x = 0.42 * math.cos(0.45 * t_sim)
-        self.pub_dyn_obs1.publish(tw1)
         tw2 = Twist()
-        tw2.linear.x = -0.42 * math.cos(0.45 * t_sim + 0.8)
+        if self.crossfire_dynamic:
+            if not self.heartbeat_enabled:
+                dt_cf = max(0.0, t_sim - self.crossfire_t0)
+                tw1.linear.x = 0.0
+                tw1.linear.y = 0.36 * math.cos(0.95 * dt_cf)
+                tw2.linear.x = 0.0
+                tw2.linear.y = -0.36 * math.cos(0.95 * dt_cf)
+        else:
+            tw1.linear.x = 0.42 * math.cos(0.45 * t_sim)
+            tw2.linear.x = -0.42 * math.cos(0.45 * t_sim + 0.8)
+        self.pub_dyn_obs1.publish(tw1)
         self.pub_dyn_obs2.publish(tw2)
 
     def _cb_odom(self, msg: Odometry):
@@ -749,6 +825,7 @@ def launch_stack(
     ros_domain_id: Optional[int] = None,
     kill_stale: bool = False,
     context_rl_onnx_path: str = "",
+    disable_phase2b_envelope: bool = False,
 ):
     gz_master_uri = f"http://127.0.0.1:{gz_port}"
     if kill_stale:
@@ -798,12 +875,16 @@ def launch_stack(
 
     params_file = os.path.join(WS_ROOT, "src", "disaster_recovery", "config", "recovery_params.yaml")
     onnx_override = f" -p context_rl_onnx_path:={context_rl_onnx_path}" if context_rl_onnx_path else ""
+    env_override = " -p enable_phase2b_envelope:=false" if disable_phase2b_envelope else ""
+    smoke_override = f" -p smoke_lidar_noise_prob:={cfg.smoke_noise_prob}" if cfg.smoke_noise_prob > 0.0 else ""
     ctrl_cmd = (
         env_prefix
         + "ros2 run disaster_recovery recovery_controller --ros-args "
         f"--params-file {params_file} "
         f"-p use_sim_time:=true -p use_aruco_docking:=false -p recovery_strategy:={strategy}"
         + onnx_override
+        + env_override
+        + smoke_override
     )
     p_ctrl = subprocess.Popen(
         ["bash", "-c", ctrl_cmd],
@@ -907,6 +988,7 @@ def run_strategy_suite(
     ros_domain_id: Optional[int] = None,
     kill_stale: bool = False,
     context_rl_onnx_path: str = "",
+    disable_phase2b_envelope: bool = False,
 ) -> dict:
     results: List[dict] = list(initial_results) if initial_results else []
     done_trials = {int(r["trial"]) for r in results}
@@ -930,9 +1012,11 @@ def run_strategy_suite(
         ros_domain_id=ros_domain_id,
         kill_stale=kill_stale,
         context_rl_onnx_path=context_rl_onnx_path,
+        disable_phase2b_envelope=disable_phase2b_envelope,
     )
     rclpy.init()
     node = SimHarnessNode()
+    node.crossfire_dynamic = cfg.crossfire_dynamic
 
     # Wait for sim clock, odom, scan, and controller status
     t_wait = time.time()
@@ -1120,6 +1204,13 @@ def run_strategy_suite(
 
             turnoff_x, turnoff_y = node.cur_x, node.cur_y
             dist_from_base = math.hypot(turnoff_x - base_x, turnoff_y - base_y)
+            if cfg.crossfire_dynamic:
+                run_cmd_bounded(
+                    f"GAZEBO_MASTER_URI={gz_master_uri} timeout -k 1 2 gz model -m dyn_obs_1 -x 2.15 -y 0.00 -z 0.25 >/dev/null 2>&1 && "
+                    f"GAZEBO_MASTER_URI={gz_master_uri} timeout -k 1 2 gz model -m dyn_obs_2 -x 5.05 -y 0.725 -z 0.25 >/dev/null 2>&1",
+                    timeout_s=4.0,
+                )
+            node.crossfire_t0 = node.sim_now()
             node.set_heartbeat(False)
             t_blackout = node.sim_now()
 
@@ -1261,6 +1352,16 @@ def main():
         help="Optional override path for recovery_controller context_rl_onnx_path parameter",
     )
     parser.add_argument(
+        "--disable-phase2b-envelope",
+        action="store_true",
+        help="Disable Phase 2-B safety & perception envelope (for benchmarking Phase 2-A mode)",
+    )
+    parser.add_argument(
+        "--proposed-only",
+        action="store_true",
+        help="Run only the proposed strategy slot without running baseline first",
+    )
+    parser.add_argument(
         "--resume",
         action="store_true",
         help="Resume unfinished trials from .partial.json checkpoint in --out-dir",
@@ -1348,7 +1449,7 @@ def main():
             }
             _write_json_atomic(partial_path, payload)
 
-        if base_res is None:
+        if base_res is None and not args.proposed_only:
             base_res = run_strategy_suite(
                 cfg,
                 "baseline",
@@ -1363,6 +1464,8 @@ def main():
             )
             base_trials_init = list(base_res["trials"])
             _save_checkpoint({}, base_trials_init, phase="baseline")
+        elif base_res is None and args.proposed_only:
+            base_res = _summarize_results(cfg, "baseline", [])
 
         prop_res = run_strategy_suite(
             cfg,
@@ -1376,6 +1479,7 @@ def main():
             ros_domain_id=args.ros_domain_id,
             kill_stale=args.kill_stale,
             context_rl_onnx_path=args.context_rl_onnx,
+            disable_phase2b_envelope=args.disable_phase2b_envelope,
         )
 
         # Save fixed specs and A/B comparison JSON

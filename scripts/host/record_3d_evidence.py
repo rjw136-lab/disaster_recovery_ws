@@ -322,7 +322,8 @@ def main() -> int:
     if args.trial < 1 or args.trial > len(specs):
         raise ValueError(f"Invalid --trial {args.trial}; available 1..{len(specs)}")
     spec = specs[args.trial - 1]
-    debris_positions = [tuple(p) for p in spec["debris_positions"]]
+    raw_deb = spec.get("debris_positions") or ab_data.get("proposed", {}).get("trials", [{}] * args.trial)[args.trial - 1].get("debris_positions") or []
+    debris_positions = [tuple(p) for p in raw_deb]
 
     os.makedirs(os.path.dirname(os.path.abspath(args.out_mp4)), exist_ok=True)
     os.makedirs(args.snapshot_dir, exist_ok=True)
@@ -381,10 +382,11 @@ def main() -> int:
 
     params_file = os.path.join(WS_ROOT, "src", "disaster_recovery", "config", "recovery_params.yaml")
     onnx_override = f" -p context_rl_onnx_path:={args.onnx_path}" if args.onnx_path else ""
+    smoke_override = f" -p smoke_lidar_noise_prob:={cfg.smoke_noise_prob}" if cfg.smoke_noise_prob > 0.0 else ""
     p_ctrl = subprocess.Popen(
         [
             "bash", "-c",
-            env_prefix + f"ros2 run disaster_recovery recovery_controller --ros-args --params-file {params_file} -p use_sim_time:=true -p use_aruco_docking:=false -p recovery_strategy:={args.strategy}{onnx_override}",
+            env_prefix + f"ros2 run disaster_recovery recovery_controller --ros-args --params-file {params_file} -p use_sim_time:=true -p use_aruco_docking:=false -p recovery_strategy:={args.strategy}{onnx_override}{smoke_override}",
         ],
         stdout=open(f"/tmp/disaster_recovery/rec_ctrl_{args.scenario}_{args.strategy}.log", "w"),
         stderr=subprocess.STDOUT,
@@ -413,6 +415,7 @@ def main() -> int:
     p_gzclient: Optional[subprocess.Popen] = None
     rclpy.init()
     node = SimHarnessNode()
+    node.crossfire_dynamic = bool(cfg.crossfire_dynamic)
     pub_markers = node.create_publisher(MarkerArray, "/debris_markers", 10)
     outbound_pts: List[Tuple[float, float]] = [(rx, ry)]
 
@@ -468,7 +471,10 @@ def main() -> int:
             gx, gy = goal_pool[goal_ptr % len(goal_pool)]
             if math.hypot(gx - node.cur_x, gy - node.cur_y) < 0.70 and goal_ptr + 1 < len(goal_pool):
                 goal_ptr += 1
-            v_cmd, w_cmd = node.choose_open_gap_cmd(gx, gy)
+            if cfg.use_guided_outbound:
+                v_cmd, w_cmd = node.choose_guided_astar_cmd(gx, gy)
+            else:
+                v_cmd, w_cmd = node.choose_open_gap_cmd(gx, gy)
             node.drive_raw(v_cmd, w_cmd)
             if time.time() - last_arrange > 4.0:
                 _arrange_x11_windows(args.display)
@@ -511,6 +517,13 @@ def main() -> int:
         node.sim_sleep(0.3)
 
         # Blackout trigger -> record Autonomous Recovery!
+        if cfg.crossfire_dynamic:
+            run_cmd_bounded(
+                f"GAZEBO_MASTER_URI={gz_master_uri} timeout -k 1 2 gz model -m dyn_obs_1 -x 2.15 -y 0.00 -z 0.25 >/dev/null 2>&1 && "
+                f"GAZEBO_MASTER_URI={gz_master_uri} timeout -k 1 2 gz model -m dyn_obs_2 -x 5.05 -y 0.725 -z 0.25 >/dev/null 2>&1",
+                timeout_s=4.0,
+            )
+        node.crossfire_t0 = node.sim_now()
         node.set_heartbeat(False)
         t_blackout = node.sim_now()
         saw_recovery = False
@@ -662,7 +675,7 @@ def _apply_hud_overlay(
     strat_label = {
         "baseline": "Baseline (단순 역추적)",
         "proposed": "Phase 1 (proposed A*)",
-        "proposed_rl": "Phase 2-A (proposed_rl)",
+        "proposed_rl": "Phase 2-B (Adaptive Safety + RL)",
     }.get(strategy, strategy)
 
     has_nvenc = False
