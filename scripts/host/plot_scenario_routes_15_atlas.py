@@ -4,6 +4,8 @@
 import json
 import os
 import sys
+import shutil
+import urllib.request
 from typing import Dict, List, Tuple
 
 import matplotlib
@@ -23,7 +25,85 @@ from world_map_geometry import extract_world_footprint  # noqa: E402
 
 WS_WORLDS = os.path.join(WS_ROOT, "src", "disaster_recovery", "worlds")
 BM_ROOT = os.path.join(WS_ROOT, "benchmark_results")
-HDD_ROOT = "/hdd/rl_v2_exp" if os.path.exists("/hdd/rl_v2_exp") else "/home/jwroh/hdd/rl_v2_exp"
+HDD_ROOT = "/hdd/rl_v2_exp" if os.path.exists("/hdd/rl_v2_exp") else os.path.expanduser("~/hdd/rl_v2_exp")
+
+
+# Required Gazebo models for the House and Maze maps. Keep local installations
+# when available; otherwise cache the official SDF files inside the workspace.
+MODEL_CACHE_ROOT = os.path.join(WS_ROOT, ".cache_atlas_models")
+REFERENCE_MODEL_FILES = {
+    "turtlebot3_house/model.sdf": (
+        "https://raw.githubusercontent.com/ROBOTIS-GIT/turtlebot3_simulations/main/"
+        "turtlebot3_gazebo/models/turtlebot3_house/model.sdf"
+    ),
+    "turtlebot3_dqn_world/model.sdf": (
+        "https://raw.githubusercontent.com/ROBOTIS-GIT/turtlebot3_simulations/main/"
+        "turtlebot3_gazebo/models/turtlebot3_dqn_world/model.sdf"
+    ),
+    "turtlebot3_dqn_world/inner_walls/model.sdf": (
+        "https://raw.githubusercontent.com/ROBOTIS-GIT/turtlebot3_simulations/main/"
+        "turtlebot3_gazebo/models/turtlebot3_dqn_world/inner_walls/model.sdf"
+    ),
+}
+
+
+def ensure_reference_model_cache(ws_root: str) -> str:
+    """Resolve House/Maze collision SDFs explicitly instead of accepting blank maps."""
+    roots = []
+    raw_roots = [
+        os.environ.get("GAZEBO_MODEL_PATH", ""),
+        os.environ.get("GAZEBO_MODELS_DIR", ""),
+        os.path.expanduser("~/.gazebo/models"),
+        "/opt/ros/humble/share/turtlebot3_gazebo/models",
+        "/opt/ros/jazzy/share/turtlebot3_gazebo/models",
+        "/usr/share/gazebo-11/models",
+        os.path.join(ws_root, "models"),
+        os.path.join(ws_root, "src", "disaster_recovery", "models"),
+    ]
+    for raw in raw_roots:
+        for item in raw.split(os.pathsep):
+            item = item.strip()
+            if not item:
+                continue
+            root = os.path.abspath(os.path.expanduser(item))
+            if os.path.isdir(root) and root not in roots:
+                roots.append(root)
+
+    os.makedirs(MODEL_CACHE_ROOT, exist_ok=True)
+    for rel_path, url in REFERENCE_MODEL_FILES.items():
+        target = os.path.join(MODEL_CACHE_ROOT, rel_path)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        if os.path.isfile(target) and os.path.getsize(target) > 500:
+            continue
+
+        source = None
+        for root in roots:
+            candidate = os.path.join(root, rel_path)
+            if os.path.isfile(candidate) and os.path.getsize(candidate) > 500:
+                source = candidate
+                break
+
+        if source:
+            shutil.copy2(source, target)
+            print("[MODEL] Reused local SDF: " + source)
+        else:
+            print("[MODEL] Downloading missing SDF: " + rel_path)
+            try:
+                urllib.request.urlretrieve(url, target)
+            except Exception as exc:
+                raise RuntimeError(
+                    "Cannot obtain " + rel_path
+                    + ". Install the official turtlebot3_simulations Gazebo models "
+                    "or allow HTTPS access."
+                ) from exc
+            if not os.path.isfile(target) or os.path.getsize(target) < 500:
+                raise RuntimeError("Downloaded SDF is empty or invalid: " + target)
+
+    # Cache first for deterministic House/Maze resolution; retain host model roots
+    # for the other environments (vehicles, debris, and dynamic obstacles).
+    return os.pathsep.join([MODEL_CACHE_ROOT] + roots)
+
+
 
 # (scenario_key, title_label, trial_1idx, world_filename, roi)
 PANELS: List[Tuple[str, str, int, str, Tuple[float, float, float, float]]] = [
@@ -72,6 +152,9 @@ def _load_stage_trials(sc: str) -> Dict[str, dict]:
 
 
 def main() -> int:
+    global MODEL_ROOTS
+    MODEL_ROOTS = ensure_reference_model_cache(WS_ROOT)
+    print(f"[MODEL] Gazebo model lookup roots: {MODEL_ROOTS}")
     fig, axes = plt.subplots(3, 5, figsize=(26, 15.5), facecolor="#f8fafc")
 
     for ax, (sc, title_base, t_idx, w_file, roi) in zip(axes.flat, PANELS):
@@ -82,11 +165,38 @@ def main() -> int:
         r_p2a = stages["p2a"][t_idx - 1]
         r_p2b = stages["p2b"][t_idx - 1]
 
-        # 1. Gazebo 2D walls/meshes at LiDAR height (0.17m)
-        fp = extract_world_footprint(os.path.join(WS_WORLDS, w_file))
+        # 1. Gazebo collision geometry at LiDAR height (0.17m).
+        # Explicit model roots prevent House/Maze partitions from silently disappearing.
+        fp = extract_world_footprint(
+            os.path.join(WS_WORLDS, w_file),
+            models_root=MODEL_ROOTS,
+            z_slice=0.17,
+        )
+        wall_count = len(fp.polygons)
+        if sc in {"house", "house_hard"} and wall_count < 24:
+            raise RuntimeError(
+                f"{sc}: only {wall_count} wall polygons found; expected the "
+                "TurtleBot3 House partitions. Check .cache_atlas_models/turtlebot3_house/model.sdf."
+            )
+        if sc in {"maze", "maze_hard"} and wall_count < 11:
+            raise RuntimeError(
+                f"{sc}: only {wall_count} wall polygons found; expected 4 perimeter "
+                "walls + 7 inner partitions. Check turtlebot3_dqn_world/inner_walls/model.sdf."
+            )
+        if sc in {"house", "house_hard", "maze", "maze_hard"}:
+            print(f"[GEOMETRY] {sc}: {wall_count} collision polygons loaded at z=0.17 m")
+
         if fp.polygons:
-            polys = [p for _, p in fp.polygons]
-            pc = PolyCollection(polys, facecolor="#cbd5e1", edgecolor="#475569", linewidth=0.75, alpha=0.65, zorder=1)
+            polys = [p for _, p in fp.polygons if len(p) >= 3]
+            pc = PolyCollection(
+                polys,
+                facecolor="#cbd5e1",
+                edgecolor="#334155",
+                linewidths=0.95,
+                alpha=0.92,
+                antialiased=True,
+                zorder=1,
+            )
             ax.add_collection(pc)
         if fp.segments:
             segs = [s for _, s in fp.segments]
@@ -129,8 +239,9 @@ def main() -> int:
         if tp:
             ax.scatter([tp[0]], [tp[1]], marker="X", s=85, color="#f59e0b", edgecolor="#78350f", lw=0.8, zorder=10)
 
+        wall_tag = f"WALLS:{wall_count} | " if sc in {"house", "house_hard", "maze", "maze_hard"} else ""
         tag_s = (
-            f"[BAS:{'O' if r_bas['success'] else 'X'} | "
+            f"[{wall_tag}BAS:{'O' if r_bas['success'] else 'X'} | "
             f"P1:{'O' if r_p1['success'] else 'X'} | "
             f"P2A:{'O' if r_p2a['success'] else 'X'} | "
             f"P2B:{'O' if r_p2b['success'] else 'X'}]"
