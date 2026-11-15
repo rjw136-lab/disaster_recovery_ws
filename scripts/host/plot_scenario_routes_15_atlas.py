@@ -92,8 +92,15 @@ def main() -> int:
             segs = [s for _, s in fp.segments]
             lc = LineCollection(segs, colors="#475569", linewidths=0.75, alpha=0.80, zorder=1)
             ax.add_collection(lc)
-        for _, dx, dy, dr in fp.dynamic_markers:
-            ax.add_patch(mpatches.Circle((dx, dy), max(dr, 0.16), facecolor="#fca5a5", edgecolor="#b91c1c", ls="--", lw=1.0, alpha=0.7, zorder=2))
+        if sc == "dynamic_crossfire_alley":
+            # Active return-phase sweep trajectories across Gate 1 & Gate 2
+            amp = 0.36 / 0.95
+            for cx, cy0, col in ((2.15, 0.00, "#dc2626"), (5.05, 0.725, "#ea580c")):
+                ax.plot([cx, cx], [cy0 - amp, cy0 + amp], color=col, ls="--", lw=2.0, alpha=0.85, zorder=2)
+                ax.add_patch(mpatches.Circle((cx, cy0), 0.21, facecolor="#fca5a5", edgecolor=col, ls="--", lw=1.2, alpha=0.75, zorder=2))
+        else:
+            for _, dx, dy, dr in fp.dynamic_markers:
+                ax.add_patch(mpatches.Circle((dx, dy), max(dr, 0.16), facecolor="#fca5a5", edgecolor="#b91c1c", ls="--", lw=1.0, alpha=0.7, zorder=2))
 
         # 2. Spawned fallen debris rocks (purple circles)
         for deb in r_p2b.get("debris_positions", []):
@@ -141,6 +148,7 @@ def main() -> int:
         mlines.Line2D([], [], color="#64748b", ls="--", lw=1.5, label="Outbound Exploration Route (Entry)"),
         mlines.Line2D([], [], color="#f59e0b", marker="X", markersize=8, markeredgecolor="#78350f", ls="None", label="Blackout Turnoff Point"),
         mlines.Line2D([], [], color="#a855f7", marker="o", markersize=8, markeredgecolor="#581c87", ls="None", label="Spawned Fallen Debris"),
+        mlines.Line2D([], [], color="#fca5a5", marker="o", markersize=8, markeredgecolor="#dc2626", ls="--", lw=1.4, label="Dynamic Moving Obstacle"),
         mlines.Line2D([], [], color="#dc2626", ls=":", lw=1.6, label="Baseline Return (4-Tier Bug)"),
         mlines.Line2D([], [], color="#2563eb", ls="-.", lw=1.6, label="Phase 1 Return (Rolling Grid A*)"),
         mlines.Line2D([], [], color="#ea580c", ls="--", lw=1.6, label="Phase 2-A Return (Naive RL)"),

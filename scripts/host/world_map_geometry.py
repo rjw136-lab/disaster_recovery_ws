@@ -380,12 +380,19 @@ def _process_model_elem(
 
     m_model = parent_mat @ _pose_matrix(model_el.findtext("pose"))
 
-    # Dynamic obstacle marker detection (maze)
-    if "obstacle" in low_name and (model_el.find("plugin") is not None or "dqn" in low_name):
+    # Dynamic obstacle marker detection (maze, dynamic_gauntlet, dynamic_crossfire_alley)
+    if ("obstacle" in low_name or "dyn_obs" in low_name) and (model_el.find("plugin") is not None or "dqn" in low_name):
         inc = model_el.find("include")
         inc_pose = _pose_matrix(inc.findtext("pose")) if inc is not None else np.eye(4)
         m_dyn = m_model @ inc_pose
-        fp.dynamic_markers.append((name, float(m_dyn[0, 3]), float(m_dyn[1, 3]), 0.12))
+        rad = 0.12
+        rad_text = model_el.findtext(".//cylinder/radius")
+        if rad_text:
+            try:
+                rad = float(rad_text)
+            except ValueError:
+                pass
+        fp.dynamic_markers.append((name, float(m_dyn[0, 3]), float(m_dyn[1, 3]), rad))
         return
 
     # Recursive nested <include> inside <model> (e.g., turtlebot3_house, turtlebot3_dqn_world)

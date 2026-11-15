@@ -33,7 +33,13 @@
 2. [핵심 기능](#-핵심-기능)
 3. [시스템 아키텍처](#-시스템-아키텍처)
 4. [상태 머신](#-상태-머신-recovery_controller)
-5. [차세대 고도화 로드맵](#-차세대-고도화-15대-재난-시나리오-150회-확장-벤치마크--phase-2-b-적응형-인지안전-포락선-9933)
+5. [차세대 고도화: 15대 시나리오 150회 벤치마크 & Phase 2-B (`99.33%`)](#-차세대-고도화-15대-재난-시나리오-150회-확장-벤치마크--phase-2-b-자율-복귀-검증-9933)
+   - [1. 계층형 자율 복귀 구조](#1-phase-2-b-계층형-자율-복귀-구조)
+   - [2. #14·#15 난제 추가 배경](#2-왜-15개-시나리오14-15-포함로-확장했는가)
+   - [3. 15대 시나리오 3D · 2D 맵 & 경로 지도](#3-15대-재난-시나리오별-맵-구성3d--2d--진입-경로--유리한-복귀-방식)
+   - [4. 150회 4단계 정량 비교](#4-15대-시나리오--10회-150회-4단계-정량-비교)
+   - [5. 4-Way 비교 GIF · 3D 주행 영상 · V100 재학습](#-5-4-way-복귀-궤적-비교-gif-baseline-vs-phase-1-vs-phase-2-a-vs-phase-2-b-및-3d-주행-영상)
+   - [6. 이전 단계 벤치마크 및 문서 아카이브](#6-이전-단계-벤치마크-및-문서-아카이브)
 6. [하드웨어 구성](#-하드웨어-구성)
 7. [저장소 구조](#-저장소-구조)
 8. [설치](#-설치)
@@ -409,13 +415,15 @@ flowchart TD
 | :---: | :---: | :---: |
 | <img src="docs/images/evidence/phase2b_retrain_early_upd25.gif" width="100%" alt="Phase 2-B Retrain Early upd25"> | <img src="docs/images/evidence/phase2b_retrain_mid_upd150.gif" width="100%" alt="Phase 2-B Retrain Mid upd150"> | <img src="docs/images/evidence/phase2b_retrain_final_student.gif" width="100%" alt="Phase 2-B Retrain Final Student"> |
 
-> *동일 홀드아웃 `Seed 10068 (collapsed_debris · 주황색 기둥 7개)` 기준: **Early**는 기둥 사이에서 헤매며 시간 초과(`TIMEOUT`, 321스텝), **Mid**는 크게 회전·우회(`5.14m`)해 310스텝 만에 간신히 통과(`PASS`), **Final Student**는 기둥 사이를 매끄럽게 S자로 통과(`3.60m`)하며 `102스텝`(`20.8s`) 만에 복귀한다.*
+> *동일 홀드아웃 `Seed 10068 (collapsed_debris · 주황색 기둥 7개)` 기준 (`Start (0.00, -0.06) → Goal (3.33, -0.21)`): **Early**는 중앙 기둥 틈을 통과한 뒤 목표 수렴에 실패해 시간 초과(`TIMEOUT`, 321스텝), **Mid**는 목표 부근을 지나쳐 외곽으로 크게 우회(`5.14m`, 310스텝)한 끝에 통과(`PASS`), **Final Student**는 최단 도달 시간 보상(`time_bonus`)과 안전 여유 제약에 따라 불필요한 외곽 기둥 슬라럼 대신 중앙 기둥 사이 틈을 S자로 가로지르는 최단 안전 경로(`3.60m`, `102스텝` 단축)로 복귀한다.*
 
 <p align="center">
   <img src="docs/images/evidence/phase2b_learning_curves_sim.png" alt="Phase 2-B V100 Retraining Learning Curves" width="68%">
   <br>
   <em>▲ Tesla V100 32GB Phase 2-B 커리큘럼 재학습 수렴 곡선 (`docs/images/evidence/phase2b_learning_curves_sim.png`)</em>
 </p>
+
+#### 벤치마크 재현 명령어
 
 ```bash
 # 15대 재난 시나리오 4단계(Baseline / Phase 1 / Phase 2-A / Phase 2-B) 벤치마크 재현
@@ -424,9 +432,25 @@ python3 scripts/host/ab_disaster_benchmark.py --scenario all --trials 10 --propo
 python3 scripts/host/ab_disaster_benchmark.py --scenario all --trials 10 --proposed-only --proposed-strategy proposed_rl
 ```
 
-### 6. 초기 15회 벤치마크 및 5대 환경(50쌍) 아카이브
+### 6. 이전 단계 벤치마크 및 문서 아카이브
 
-- 초기 Residual TD3 기반 15회 연속 벤치마크(`11/15 = 73.3%`)는 [`docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_분석보고서.md`](docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_분석보고서.md)에, 기본 5대 환경 50쌍(`p1_*`, `p2_sim2sim_*`) 구형 GIF 및 15종 150회 전체 비교표·원리 해설은 [`docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md`](docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md)에 보존되어 있다.
+프로젝트 초기 실험부터 5대·15대 재난환경 벤치마크까지의 상세 기록·원시 JSON·구버전 데모 아카이브는 아래 문서에 단계별로 정리되어 있다.
+
+| 개발 단계 | 검증 범위 · 결과 요약 | 상세 문서 및 데이터 |
+| :--- | :--- | :--- |
+| **초기 프로토타입** | 붕괴 건물 초기 Residual TD3 `15회` 연속 벤치마크 (`11/15 = 73.3%`) & 교착 원인 진단 | [`2026-11-13_붕괴건물_15회_자율복귀_벤치마크_분석보고서.md`](docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_분석보고서.md) |
+| **Phase 1 · 2 · 2-A (5대 환경)** | 기본 5대 월드 `50쌍` 비교 — Phase 1(`49/50 = 98.0%`) · Phase 2 S2S(`47/50 = 94.0%`) · Phase 2-A(`48/50 = 96.0%`) | [`2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md`](docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md) |
+| **Phase 2-B (15대 환경 150회)** | 15개 시나리오 × 10회 4단계 통합 집계 (`149/150 = 99.33%`, 회차별 `fails`·소요시간·경로장) | [`phase2b_comparison_summary.txt`](docs/phase2b_comparison_summary.txt) · [`phase2b_comparison_summary.json`](docs/phase2b_comparison_summary.json) |
+
+<details>
+<summary>📂 원시 JSON 결과 디렉터리 및 구형 5대 환경 GIF 자산 위치 보기</summary>
+
+- **Phase 1 (`proposed` A\*) vs Baseline 결과 JSON (`benchmark_results/ab_comparison/`)**: 기본 5대 환경 + 확장 환경 회차별 궤적/오차 JSON 보관
+- **Phase 2 S2S 원시 결과 JSON (`benchmark_results/phase2_sim2sim/`)**: `8,847만` 스텝 Dual-Track PPO+PLR 증류 정책 5대 환경 검증 로그
+- **Phase 2-A S2S 원시 결과 JSON (`benchmark_results/phase2a_sim2sim/`)**: Clearance-Gated Blending 적용 후 5대 환경(`48/50`) 검증 로그
+- **구형 5대 환경 데모 GIF (`p1_*`, `p2_sim2sim_*`)**: `docs/images/evidence/` 및 위 A/B 원리해설 보고서 §5.3·§6.2에 보존
+
+</details>
 
 ---
 
