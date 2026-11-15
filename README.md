@@ -389,27 +389,27 @@ flowchart TD
 | <img src="docs/images/evidence/comp4_u_pocket_trap.gif" width="100%" alt="4-Way u_pocket_trap"> | <img src="docs/images/evidence/comp4_house_hard.gif" width="100%" alt="4-Way house_hard"> | <img src="docs/images/evidence/comp4_slip_chicane.gif" width="100%" alt="4-Way slip_chicane"> |
 
 #### 3) [3D Gazebo + RViz2 `/map` 듀얼 뷰] 신규 재난 시나리오 2종 (`#14` & `#15`) 실시간 복귀 영상
-| `#14 dynamic_crossfire_alley` (`Trial #02 · PASS · 76.4s · err 8.5cm`) | `#15 smoke_lidar_corruption` (`Trial #02 · PASS · 68.8s · err 7.4cm`) |
+| `#14 dynamic_crossfire_alley` (`Trial #02 · PASS · 46.4s · err 8.7cm`) | `#15 smoke_lidar_corruption` (`Trial #02 · PASS · 70.4s · err 7.1cm`) |
 | :---: | :---: |
 | <img src="docs/images/evidence/p2b_dynamic_crossfire_alley.gif" width="100%" alt="3D Gazebo dynamic_crossfire_alley"> | <img src="docs/images/evidence/p2b_smoke_lidar_corruption.gif" width="100%" alt="3D Gazebo smoke_lidar_corruption"> |
 
 #### 4) [3D Gazebo + RViz2 `/map` 듀얼 뷰] 비정형·동적 장애물 4개 시나리오 5편 (`u_pocket_trap` · `slip_chicane` · `house_hard` · `dynamic_gauntlet`)
-| U자 함정 탈출 (`u_pocket_trap #10 · PASS · 44.3s`) | 저마찰 시케인 (`slip_chicane #01 · PASS · 92.8s`) | 고난도 다실 가옥 (`house_hard #08 · PASS · 88.3s`) |
+| U자 함정 탈출 (`u_pocket_trap #10 · PASS · 43.3s`) | 저마찰 시케인 (`slip_chicane #01 · PASS · 94.3s`) | 고난도 다실 가옥 (`house_hard #08 · PASS · 87.7s`) |
 | :---: | :---: | :---: |
 | <img src="docs/images/evidence/phase2b_u_pocket_trap_t10.gif" width="100%" alt="Phase 2-B u_pocket_trap t10"> | <img src="docs/images/evidence/phase2b_slip_chicane_t01.gif" width="100%" alt="Phase 2-B slip_chicane t01"> | <img src="docs/images/evidence/phase2b_house_hard_t08.gif" width="100%" alt="Phase 2-B house_hard t08"> |
 
-| 동적 배플 교차 #01 (`dynamic_gauntlet #01 · PASS · 46.4s`) | 동적 배플 교차 #02 (`dynamic_gauntlet #02 · PASS · 45.4s`) |
+| 동적 배플 교차 #01 (`dynamic_gauntlet #01 · PASS · 42.8s`) | 동적 배플 교차 #02 (`dynamic_gauntlet #02 · PASS · 44.9s`) |
 | :---: | :---: |
 | <img src="docs/images/evidence/phase2b_dynamic_gauntlet_t01.gif" width="100%" alt="Phase 2-B dynamic_gauntlet t01"> | <img src="docs/images/evidence/phase2b_dynamic_gauntlet_t02.gif" width="100%" alt="Phase 2-B dynamic_gauntlet t02"> |
 
-> *모든 3D Gazebo+RViz2 영상은 TurtleBot3 Burger URDF 원형 메쉬, 바닥 진입 경로(하늘색) · 실시간 복귀 경로(초록색) · Base Camp 원형 링이 함께 렌더링되며 GitHub 표시 규격(`7.8MB` 이하)으로 압축되었다.*
+> *모든 3D Gazebo+RViz2 영상에는 흰색 3D TurtleBot3 Burger 본체·주황색 LDS 라이다·전방 시안 방향 화살표·바닥 진입선(하늘색)·실시간 복귀선(초록색)·Base Camp 링이 함께 렌더링되며 GitHub 표시 규격(`7.8MB` 이하)으로 압축되었다. (`#15 smoke_lidar_corruption` 바닥의 반투명 연황갈색 원형 영역은 연기·분진으로 LiDAR 난반사 잡음이 주입되는 위험 구역을 뜻한다.)*
 
-#### 5) Phase 2-B V100 커리큘럼 재학습 진화 과정 (`Early → Mid → Final Student` · `Seed 10112 dynamic_crossing`) & 학습 곡선
-| Early (`upd 25` · `COLLISION`, 83스텝) | Mid (`upd 150` · `TIMEOUT`, 321스텝) | Final Phase 2-B Student (`PASS`, 247스텝) |
+#### 5) Phase 2-B V100 커리큘럼 재학습 진화 과정 (`Early → Mid → Final Student` · `Seed 10068 collapsed_debris` 기둥 7개) & 학습 곡선
+| Early (`upd 25` · `TIMEOUT`, 321스텝) | Mid (`upd 150` · `PASS`, 310스텝) | Final Phase 2-B Student (`PASS`, 208스텝) |
 | :---: | :---: | :---: |
 | <img src="docs/images/evidence/phase2b_retrain_early_upd25.gif" width="100%" alt="Phase 2-B Retrain Early upd25"> | <img src="docs/images/evidence/phase2b_retrain_mid_upd150.gif" width="100%" alt="Phase 2-B Retrain Mid upd150"> | <img src="docs/images/evidence/phase2b_retrain_final_student.gif" width="100%" alt="Phase 2-B Retrain Final Student"> |
 
-> *동일 홀드아웃 `Seed 10112 (dynamic_crossing)` 기준: **Early**는 첫 배플 틈새에서 충돌(`COLLISION`), **Mid**는 벽과 이동 장애물은 피하나 목표 앞 배회로 시간 초과(`TIMEOUT`), **Final Student**는 S자 회피 후 `24.6s` 만에 목표에 안착(`PASS`)한다.*
+> *동일 홀드아웃 `Seed 10068 (collapsed_debris · 주황색 기둥 7개)` 기준: **Early**는 기둥 사이에서 헤매며 시간 초과(`TIMEOUT`, 321스텝), **Mid**는 크게 회전·우회(`5.14m`)해 310스텝 만에 간신히 통과(`PASS`), **Final Student**는 기둥 사이를 매끄럽게 S자로 통과(`3.60m`)하며 `102스텝`(`20.8s`) 만에 복귀한다.*
 
 <p align="center">
   <img src="docs/images/evidence/phase2b_learning_curves_sim.png" alt="Phase 2-B V100 Retraining Learning Curves" width="68%">

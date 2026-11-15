@@ -351,12 +351,12 @@ def _build_ribbon_sdf(
 
 
 CAMERA_OVERRIDES_3D = {
-    "u_pocket_trap": "4.9 -4.05 11.8 0 1.24 1.5708",
-    "slip_chicane": "4.8 -3.85 11.2 0 1.24 1.5708",
-    "dynamic_crossfire_alley": "4.8 -3.85 11.2 0 1.24 1.5708",
-    "smoke_lidar_corruption": "4.8 -3.85 11.2 0 1.24 1.5708",
-    "dynamic_gauntlet": "0.0 -3.25 9.4 0 1.24 1.5708",
-    "house_hard": "-0.3 -5.00 13.8 0 1.24 1.5708",
+    "u_pocket_trap": "4.9 -3.35 9.8 0 1.24 1.5708",
+    "slip_chicane": "4.8 -3.20 9.4 0 1.24 1.5708",
+    "dynamic_crossfire_alley": "4.8 -3.20 9.4 0 1.24 1.5708",
+    "smoke_lidar_corruption": "4.8 -3.20 9.4 0 1.24 1.5708",
+    "dynamic_gauntlet": "0.0 -2.85 8.2 0 1.24 1.5708",
+    "house_hard": "-0.3 -4.25 11.8 0 1.24 1.5708",
 }
 
 
@@ -488,6 +488,7 @@ def main() -> int:
         f"source /opt/ros/humble/setup.bash && source {WS_ROOT}/install/setup.bash && "
         f"export DISPLAY={args.display} {sw_env}QT_X11_NO_MITSHM=1 "
         f"ROS_LOCALHOST_ONLY=1 ROS_DOMAIN_ID={args.ros_domain_id} GAZEBO_MASTER_URI={gz_master_uri} "
+        f"GAZEBO_MODEL_PATH=/opt/ros/humble/share/turtlebot3_gazebo/models:${{GAZEBO_MODEL_PATH:-}} "
         f'GAZEBO_MODEL_DATABASE_URI="" && '
     )
     print(f"[GL] VirtualGL={'ENABLED (Tesla V100 EGL)' if use_vgl else 'DISABLED (Mesa llvmpipe CPU)'}", flush=True)
@@ -615,9 +616,9 @@ def main() -> int:
         outbound_sdf = _build_ribbon_sdf(
             "gz_outbound_path",
             outbound_sub,
-            width=0.065,
-            height=0.004,
-            z=0.0035,
+            width=0.042,
+            height=0.003,
+            z=0.0025,
             rgba=(0.05, 0.78, 1.0, 1.0),
             emissive_rgba=(0.04, 0.62, 0.92, 1.0),
         )
@@ -682,9 +683,9 @@ def main() -> int:
                 seg_sdf = _build_ribbon_sdf(
                     f"gz_ret_{ret_gz_idx}",
                     [(prev_gz_rx, prev_gz_ry), (node.cur_x, node.cur_y)],
-                    width=0.080,
-                    height=0.006,
-                    z=0.0070,
+                    width=0.048,
+                    height=0.004,
+                    z=0.0045,
                     rgba=(0.10, 1.0, 0.28, 1.0),
                     emissive_rgba=(0.08, 0.92, 0.22, 1.0),
                 )
@@ -705,9 +706,9 @@ def main() -> int:
                     seg_sdf = _build_ribbon_sdf(
                         f"gz_ret_{ret_gz_idx}",
                         [(prev_gz_rx, prev_gz_ry), (node.cur_x, node.cur_y)],
-                        width=0.080,
-                        height=0.006,
-                        z=0.0070,
+                        width=0.048,
+                        height=0.004,
+                        z=0.0045,
                         rgba=(0.10, 1.0, 0.28, 1.0),
                         emissive_rgba=(0.08, 0.92, 0.22, 1.0),
                     )

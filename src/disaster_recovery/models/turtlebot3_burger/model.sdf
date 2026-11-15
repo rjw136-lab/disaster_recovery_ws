@@ -30,17 +30,46 @@
       </collision>
 
       <visual name="base_visual">
-        <pose>-0.032 0 0 0 0 0</pose>
+        <pose>-0.070 0 0 0 0 0</pose>
         <geometry>
           <mesh>
-            <uri>model://turtlebot3_common/meshes/bases/burger_base.stl</uri>
-            <scale>0.001 0.001 0.001</scale>
+            <uri>file:///opt/ros/humble/share/turtlebot3_gazebo/models/turtlebot3_common/meshes/bases/burger_base.stl</uri>
+            <scale>0.0022 0.0022 0.0022</scale>
           </mesh>
         </geometry>
         <material>
-          <ambient>0.26 0.34 0.46 1.0</ambient>
-          <diffuse>0.34 0.44 0.58 1.0</diffuse>
-          <emissive>0.12 0.18 0.26 1.0</emissive>
+          <ambient>0.90 0.94 1.00 1.0</ambient>
+          <diffuse>0.95 0.98 1.00 1.0</diffuse>
+          <emissive>0.48 0.54 0.62 1.0</emissive>
+        </material>
+      </visual>
+      <visual name="heading_arrow_shaft">
+        <cast_shadows>false</cast_shadows>
+        <pose>0.24 0 0.16 0 1.5708 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.020</radius>
+            <length>0.18</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.00 0.92 1.00 1.0</ambient>
+          <diffuse>0.00 0.95 1.00 1.0</diffuse>
+          <emissive>0.00 0.85 1.00 1.0</emissive>
+        </material>
+      </visual>
+      <visual name="heading_arrow_head">
+        <cast_shadows>false</cast_shadows>
+        <pose>0.36 0 0.16 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.09 0.09 0.035</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.00 0.95 1.00 1.0</ambient>
+          <diffuse>0.00 1.00 1.00 1.0</diffuse>
+          <emissive>0.00 0.90 1.00 1.0</emissive>
         </material>
       </visual>
     </link>
@@ -125,17 +154,17 @@
       </collision>
 
       <visual name="lidar_sensor_visual">
-        <pose>-0.032 0 0.171 0 0 0</pose>
+        <pose>-0.038 0 0.180 0 0 0</pose>
         <geometry>
           <mesh>
-            <uri>model://turtlebot3_common/meshes/sensors/lds.stl</uri>
-            <scale>0.001 0.001 0.001</scale>
+            <uri>file:///opt/ros/humble/share/turtlebot3_gazebo/models/turtlebot3_common/meshes/sensors/lds.stl</uri>
+            <scale>0.0024 0.0024 0.0024</scale>
           </mesh>
         </geometry>
         <material>
-          <ambient>1.0 0.55 0.08 1.0</ambient>
-          <diffuse>1.0 0.58 0.10 1.0</diffuse>
-          <emissive>0.48 0.22 0.02 1.0</emissive>
+          <ambient>1.0 0.42 0.04 1.0</ambient>
+          <diffuse>1.0 0.46 0.06 1.0</diffuse>
+          <emissive>0.75 0.26 0.02 1.0</emissive>
         </material>
       </visual>
 
@@ -223,11 +252,11 @@
       </collision>
 
       <visual name="wheel_left_visual">
-        <pose>0 0.08 0.023 0 0 0</pose>
+        <pose>0 0.176 0.051 0 0 0</pose>
         <geometry>
           <mesh>
-            <uri>model://turtlebot3_common/meshes/wheels/left_tire.stl</uri>
-            <scale>0.001 0.001 0.001</scale>
+            <uri>file:///opt/ros/humble/share/turtlebot3_gazebo/models/turtlebot3_common/meshes/wheels/left_tire.stl</uri>
+            <scale>0.0022 0.0022 0.0022</scale>
           </mesh>
         </geometry>
         <material>
@@ -285,11 +314,11 @@
       </collision>
 
       <visual name="wheel_right_visual">
-        <pose>0.0 -0.08 0.023 0 0 0</pose>
+        <pose>0.0 -0.176 0.051 0 0 0</pose>
         <geometry>
           <mesh>
-            <uri>model://turtlebot3_common/meshes/wheels/right_tire.stl</uri>
-            <scale>0.001 0.001 0.001</scale>
+            <uri>file:///opt/ros/humble/share/turtlebot3_gazebo/models/turtlebot3_common/meshes/wheels/right_tire.stl</uri>
+            <scale>0.0022 0.0022 0.0022</scale>
           </mesh>
         </geometry>
         <material>
