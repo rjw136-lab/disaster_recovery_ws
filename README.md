@@ -33,7 +33,7 @@
 2. [핵심 기능](#-핵심-기능)
 3. [시스템 아키텍처](#-시스템-아키텍처)
 4. [상태 머신](#-상태-머신-recovery_controller)
-5. [차세대 고도화 로드맵](#-차세대-고도화-phase-1-로컬-a-98--phase-2-a-v100-dual-track-rl-sim-to-sim-96)
+5. [차세대 고도화 로드맵](#-차세대-고도화-13대-재난-시나리오-130회-확장-벤치마크--phase-2-b-적응형-안전-포락선-9923)
 6. [하드웨어 구성](#-하드웨어-구성)
 7. [저장소 구조](#-저장소-구조)
 8. [설치](#-설치)
@@ -73,18 +73,18 @@
 | 운용 | 원터치 런처 `start.py` / `stop.py`, WASD 텔레옵 | ✅ 구현 |
 | 시뮬레이션 | Gazebo + Cartographer SLAM 검증 환경 `sim.py` (WSLg D3D12 GPU 가속, 붕괴 건물 등 5개 월드) | ✅ 구현 |
 | 센서 | MQ-2 + ADS1115 가스 센서 | ⏳ 드라이버 완료, 결선 예정 |
-| 고도화 | 계층적 하이브리드 자율복귀 (`RollingLocalGrid + 2D A*` · Phase 2-A Dual-Track `ContextRLStudent` · 2D ICP · ArUco) | ✅ Phase 1(`49/50`) · Phase 2-A(`48/50` S2S) 완료 |
+| 고도화 | 계층적 하이브리드 자율복귀 (`RollingLocalGrid + 2D A*` · Phase 2-B Adaptive Safety Envelope `ContextRLStudent` · 2D ICP · ArUco) | ✅ 13종 130회 Phase 1(`129/130`) · Phase 2-B(`129/130 = 99.23%`) 완료 |
 
 ### 최근 변경사항 (Patch Notes · 최근 6건)
 
 | 일자 (커밋) | 핵심 변경 요약 |
 | :--- | :--- |
+| **2026-11-15** (최신) | **13대 재난 시나리오 × 10회(130회) 전수 비교 & Phase 2-B `v3_dynfix` (`129/130 = 99.23%`, 평균 `105.72 s`) 완성** — 심층·고밀도 `*_hard` 5종 + 비정형 극한 3종(`u_pocket_trap`, `slip_chicane`, `dynamic_gauntlet`) 추가, `min_side` 비대칭 게이팅·곡률 보존 선속도 클램프·유한 TTL 사각지대 래치(`v2_fixed`: `127/130`, `100.88 s`) 및 `DYNAMIC_HOLD`·Lockout TTL·`alpha_rl` 슬루율 제한(`v3_dynfix`: `house` `10/10`, `dynamic_gauntlet` `10/10`, 전체 `129/130 = 99.23%`) 완비, Phase 2-B 3D 주행·재학습 GIF 8종 구축 |
 | **2026-11-15** (`0560e21`~`2b5dfce`) | **Phase 2-A Clearance-Gated Blending (`48/50 = 96.0%`) · `/map` 30 FPS 3D 증거 전수 재녹화 · README 데모 GIF** — 재학습 없이 협소 구간 `A*` 자동 양보로 `house` `8/10 → 9/10`(`118.29 s → 98.22 s`), `slam_toolbox` + VirtualGL V100 30 FPS 재녹화, 알고리즘 장단점 표·하드웨어 사양 정밀화 (`24 passed`) |
 | **2026-11-14** (`4dd00f1`) | **V100 서버 Phase 1(`49/50 = 98.0%`) · Phase 2 Dual-Track RL(`88.47M` 스텝 · Sim-to-Sim `47/50 = 94.0%`) 완주** — `_virtual_obstacles` `±0.03m/9s` 튜닝, FastDDS/`debris_utils` 격리, `sim`/`real_tb3_policy_student.onnx`(`231.6 KB`, `0.036~0.039 ms`), 3D Gazebo+RViz2 & 롤아웃 `.mp4`/`.png` 증거, 트러블슈팅 `#30~#36` 통합 |
 | **2026-11-14** (`b151a4f`) | **상시 프로젝트 규칙(`AGENTS.md`) & 서버 동기화 지침 보완** — 트러블슈팅 누적 기록(`#30+`)·경로 이식성·병렬 격리·3D 증거 규칙을 `AGENTS.md` 및 `SERVER_MISSION.md`에 영구 등록 |
 | **2026-11-14** (`d9168e8`) | **트러블슈팅 총정리 백서 `#23~#29` 통합 & 상대경로 정정** — 1·1.5차 이후 시뮬·TD3 한계 돌파·로컬 2D A\*·이식성 패치 전수 현행화 (`docs/2026-11-10_...총정리.md`) |
 | **2026-11-14** (`65fce0d`~`a115dc7`) | **V100 32GB Phase 2 대규모 RL · Dual-Track · 3D 증거 규칙 확정** — `100k~500k+` 에피소드 과적합 방지 프로토콜, RMA/GRU+PLR 능동 적응, `sim_policy` + 실물 휠오돔용 `real_tb3_policy` 이원화 (`SERVER_MISSION.md`, 체크포인트 문서) |
-| **2026-11-14** (`bbe1d5a`) | **병렬 Gazebo 포트/도메인 격리 & 하드코딩 경로 제거** — `--gz-port`, `--ros-domain-id`, `_kill_matching_gazebo_procs`, `--kill-stale` 추가 및 7개 파일 동적 경로 탐색 전환 |
 
 > 📜 **전체 누적 변경 이력 (`2026-11-05` ~ 최신):** 나머지 과거 패치 및 커밋별 전체 내역은 [`CHANGELOG.md`](CHANGELOG.md)에서 한눈에 확인할 수 있습니다.
 
@@ -93,9 +93,9 @@
 - [`CHANGELOG.md`](CHANGELOG.md) — 초기 업로드(`2026-11-05`)부터 최신 커밋까지의 전체 누적 패치노트
 - [`docs/DISASTER_RECOVERY_GUIDEBOOK.md`](docs/DISASTER_RECOVERY_GUIDEBOOK.md) — 종합 설계 문서 (전체 구조 및 동작 원리)
 - [`docs/2026-11-10_LIDAR_Scan_Matching_및_자율복귀_엔지니어링_보고서.md`](docs/2026-11-10_LIDAR_Scan_Matching_및_자율복귀_엔지니어링_보고서.md) — 2D ICP 스캔 매칭 설계 보고서
-- [`docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md`](docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md) — 트러블슈팅 백서 (`#01` ~ `#36` 전수 통합)
+- [`docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md`](docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md) — 트러블슈팅 백서 (`#01` ~ `#39` 전수 통합)
 - [`docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_분석보고서.md`](docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_분석보고서.md) — 붕괴 건물 15회 벤치마크 분석 보고서
-- [`docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md`](docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md) — **5대 재난환경 A/B (`49/50 = 98.0%`) & Phase 2-A Sim-to-Sim (`48/50 = 96.0%`) 보고서**
+- [`docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md`](docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md) — **5대·13대 재난환경 A/B (130회 `99.23%`) & Phase 2 / 2-A / 2-B Sim-to-Sim 보고서**
 - [`docs/PATENT_ANALYSIS_AND_PRIOR_ART.md`](docs/PATENT_ANALYSIS_AND_PRIOR_ART.md) — 선행 특허 분석 보고서
 
 ---
@@ -226,103 +226,90 @@ stateDiagram-v2
 
 ---
 
-## 🗺 차세대 고도화: Phase 1 로컬 A\* (98%) · Phase 2-A V100 Dual-Track RL (Sim-to-Sim 96%)
+## 🗺 차세대 고도화: 13대 재난 시나리오 130회 확장 벤치마크 & Phase 2-B 적응형 안전 포락선 (99.23%)
 
-> 본 프로젝트는 **LIFO Breadcrumb + 2D ICP 오도메트리 보정 + ArUco 비주얼 도킹** 베이스라인 위에서, Phase 1 **고해상도 `RollingLocalGrid` (`0.04m`) + 2D `A*` + 비파괴 위상 지름길 (`49/50 = 98.0%`)** 및 Phase 2 **Tesla V100 32GB `8,847만 스텝` Dual-Track 능동 적응 RL (`0.036~0.039 ms` ONNX)**, Phase 2-A **Clearance-Gated Blending (미학습 공식 Gazebo Sim-to-Sim `48/50 = 96.0%`)** 검증까지 완결하였다.
+> 본 프로젝트는 **LIFO Breadcrumb + 2D ICP 오도메트리 보정 + ArUco 비주얼 도킹** 베이스라인 위에서, Phase 1 **고해상도 `RollingLocalGrid` (`0.04m`) + 2D `A*` + 비파괴 위상 지름길 (`129/130 = 99.23%`, 평균 `109.92 s`)** 및 Phase 2 **Tesla V100 32GB Dual-Track 능동 적응 RL (`0.036~0.039 ms` ONNX)**, 그리고 **Phase 2-B 적응형 안전 포락선(`v3_dynfix`, 13종 130회 `129/130 = 99.23%`, 평균 `105.72 s`)** 검증까지 완결하였다.
+> *(초기 5대 환경 50쌍 A/B 비교 이력 및 구버전 데모 영상은 [`docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md`](docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md) §1·§5.3·§6.2에 보존되어 있습니다.)*
 
-### 1. 계층적 하이브리드 + Dual-Track RL 아키텍처 개요
+### 1. 계층적 하이브리드 + Phase 2-B 안전 포락선 아키텍처
 
-기존 정적 맵 기반 SLAM 내비게이션(Nav2) 및 수동적 장애물 정지(`OBSTACLE_HOLD`)·메모리리스 TD3의 U자 포켓 교착을 극복하기 위해, **연산 분할형 4계층 + Dual-Track 시계열 문맥 RL 융합 제어기**를 구현하였다.
+기존 정적 맵 기반 SLAM 내비게이션(Nav2) 및 수동적 장애물 정지(`OBSTACLE_HOLD`)·메모리리스 TD3의 U자 포켓 교착을 극복하기 위해, **연산 분할형 4계층 + Dual-Track 시계열 문맥 RL 및 적응형 안전 포락선(Adaptive Safety Envelope) 제어기**를 구현하였다.
 
 ```mermaid
 flowchart TD
-    G["Global Layer<br/>LIFO Breadcrumb + 비파괴 위상 지름길"] -->|"통신 단절·복귀 진입"| L["Local Geometric + RL Layer<br/>RollingLocalGrid 2D A* (98%) / ContextRLStudent ONNX (Clearance-Gated RL·A* 블렌딩)"]
-    L -->|"우회·ESCAPE 완료"| D["Drift Reset Layer<br/>2D LiDAR SVD ICP (3.5ms) SE(2) 슬립 상쇄"]
+    G["Global Layer<br/>LIFO Breadcrumb + 비파괴 위상 지름길"] -->|"통신 단절·복귀 진입"| L["Local Geometric + RL Layer<br/>RollingLocalGrid 2D A* / ContextRLStudent ONNX + Phase 2-B Safety Envelope"]
+    L -->|"우회·ESCAPE·DYNAMIC_HOLD 완료"| D["Drift Reset Layer<br/>2D LiDAR SVD ICP (3.5ms) SE(2) 슬립 상쇄"]
     D --> G
     G -->|"베이스캠프 0.5m 진입"| T["Terminal Layer<br/>ArUco 2cm 정밀 도킹 (+10s 가드)"]
 ```
 
-### 2. Phase 1: 5대 재난환경 고정 시드 50쌍 A/B 최종 검증 (`68.0% ➔ 98.0%`)
+### 2. 왜 8개 극한 시나리오를 추가했는가? & Phase 2-B 안전 포락선 핵심 개선
 
-V100 서버 병렬 워커(`--gz-port`/`--ros-domain-id`)에서 저상 `cafe_table` 가상 접촉 장벽(`±0.03m` · `9.0s` TTL)과 `maze` 심층(`~10.7m`) 조건을 최종 재검증한 결과, **가혹 4종(`collapsed`, `collapsed_heavy`, `tunnel`, `maze`) 40/40 (100.0%) · 전체 49/50 (98.0%)**을 달성했다.
+기존 5대 기본 시나리오(50회)에서는 Phase 1(`49/50`)과 Phase 2-A(`48/50`) 모두 96~98%로 포화되어, **비대칭 협로 밀착·깊은 오목 포켓·연속 저마찰 시케인·왕복 동적 장애물 위상 충돌** 같은 극한 엣지 케이스 변별에 한계가 있었다. 이에 따라 다음 **8개 고난도 시나리오**를 추가해 **총 13개 시나리오 × 10회 = 130회** 전수 벤치마크를 구축하였다:
 
-<p align="center">
-  <img src="docs/images/ab_kpi_overview.png" alt="5-Env A/B Benchmark KPI Overview" width="94%">
-  <br>
-  <em>▲ 5대 재난환경 고정 시드 50쌍 A/B 정량 지표 및 3D Gazebo+RViz2 주행 증거(docs/images/evidence/)</em>
-</p>
+- **고난도 심층·고밀도 5종 (`*_hard`)**: `collapsed_hard`, `collapsed_heavy_hard` (Baseline `0/10`), `tunnel_hard`, `house_hard`, `maze_hard` — 탐색 깊이 확장 및 낙석 밀도·협소 구간 강화.
+- **비정형 극한 신규 월드 3종**: `u_pocket_trap` (깊은 U자 막다른 포켓 함정), `slip_chicane` (연속 S자 시케인 + 바퀴 슬립/저상 받침대, Baseline `1/10`), `dynamic_gauntlet` (교차 배플 통로 + 왕복 동적 장애물 2기).
 
-> 💡 **용어 구분 (`Phase 1` · `Phase 2` · `Phase 2-A` · `Zero-Shot`):**
-> - **Phase 1 (`proposed A*`)**: RL 없이 규칙 기반 `RollingLocalGrid(0.04m) + 2D A*` + 위상 지름길 + `ESCAPE`로만 동작 (`49/50 = 98.0%`).
-> - **Phase 2 (`proposed_rl` v1.0)**: V100에서 **가상 2D 절차적 맵**만으로 학습한 `ContextRLStudent` ONNX를 고정 비율(`0.70·RL + 0.30·A*`)로 결합해 Gazebo에 **Zero-Shot(미학습 3D 환경 무재학습 직접 투입)** 적용 (`47/50 = 94.0%`).
-> - **Phase 2-A (`proposed_rl` v2-A)**: 동일한 Phase 2 RL ONNX 가중치(**재학습 없음**)를 쓰되, 좁은 문틀·암석 핀치에서는 순수 `A*`(`alpha_rl=0.0`)로 자동 양보하는 **Clearance-Gated Blending**을 적용해 Zero-Shot 성능을 **`48/50 (96.0%)`** 로 끌어올린 최종 RL 제어기입니다. *(즉, **Phase 2-A RL**과 **Phase 2-A Zero-Shot**은 별개 알고리즘이 아니라, **Phase 2-A RL 제어기를 미학습 Gazebo 환경에 Zero-Shot 평가한 결과**를 뜻합니다.)*
+**Phase 2-B 적응형 안전 포락선 (`v2_fixed` ➔ `v3_dynfix`) 6대 핵심 메커니즘:**
+1. **비대칭 측면 근접 게이팅 (`min_side`)**: 합산 여유(`left+right`)만 볼 때 한쪽 벽 밀착(`min_side < 0.19 m`)을 놓치던 문제를 보완해 `min_side < 0.19 m` 시 `alpha_rl = 0.0`, `0.19~0.32 m` 선형 감쇠 적용.
+2. **비홀로노믹 곡률 보존 선속도 클램프**: 벽면 과조향 또는 RL-A\* 조향 부호 상충 시 각속도만 고정하면 회전 반경 $R = v / |\omega|$가 팽창(Understeer)하므로 $v_{\text{cmd}} = \min(v_{\text{blend}}, v_{\text{A*}})$ 동반 클램핑.
+3. **회전 각속도 가드 기반 접근율(`df_dt`) 감쇠 & 유한 TTL(`15`틱) 사각지대 래치**: 제자리 회전($|\omega| \ge 0.35\text{ rad/s}$) 중 정적 모서리 진입에 의한 거짓 급접근 감속을 차단하고, LiDAR 사각지대(`< 0.12 m`) 반사 소실 시 `15`틱(`1.5 s`) 유한 래치로 자가 고착 방지.
+4. **동적 장애물 일시 정지 대기 (`DYNAMIC_HOLD`, `v3_dynfix`)**: 직진 중 전방 급접근($df/dt < -0.25\text{ m/s}$, $0.20 \le d_f \le 0.55\text{ m}$) 감지 시 후진 `ESCAPE`로 구석에 몰리는 대신 `1.2 s` 정지 대기(쿨다운 `4.0 s`)하여 동적 장애물을 먼저 통과시킴.
+5. **시간 만료형 Lockout Anchor TTL (`7.0 s`) & 반경 완화 (`v3_dynfix`)**: 반복 탈출 시 생성되는 `_rl_lockout_anchor`에 `7.0 s` TTL과 3회 이상 반복 시 해제 반경 `1.20 m ➔ 0.50 m` 완화를 적용해 교차 배플 구석 영구 고착 해소.
+6. **`alpha_rl` 슬루율 제한 (`|Δα| <= 0.15/step`, `v3_dynfix`)**: RL-A\* 제어권 전환 시 급격한 조향 스파이크를 억제하되, 초근접 위기(`front_min < 0.24 m` 또는 `min_side < 0.17 m`)에서는 즉시 `0.0`으로 차단.
 
-#### 알고리즘별 작동 원리 및 장단점 비교
-
-| 구분 | 작동 방식 | 유리한 점 (장점) | 불리한 점 (단점) |
-| :--- | :--- | :--- | :--- |
-| **Baseline (`baseline`)** | LIFO 웨이포인트 역추적(Pure Pursuit) + 전방 `±20°` LiDAR 정지(`OBSTACLE_HOLD`) + 단일 프레임 메모리리스 `TD3` 회피 + 2D ICP | 구조가 단순·경량이며 장애물 없는 개활지에서는 안정적으로 복귀 | 로컬 격자 지도·과거 기억이 없어 **U자 포켓·다중 낙석 앞에서 영구 교착** (`collapsed 50%`, `collapsed_heavy 20%`, 전체 `68.0%`) |
-| **Phase 1 (`proposed A*`)** | `6m×6m`(`0.04m`) 자차 중심 로컬 격자 2D `A*` + 위상 지름길 + 후진/선회 `ESCAPE` + 가상 접촉 장벽(`±0.03m`) | 기하학적 열린 통로(`0.28~0.31m` 협소 문틀 포함)를 결정론적으로 돌파해 **최고 생존율(`49/50 = 98.0%`, `collapsed_heavy 10/10`)** 달성 | 시계열 슬립·모터 지연 학습 적응이 없고, 열린 잔해 구간의 회전·가속 프로파일이 다소 보수적 |
-| **Phase 2 / 2-A (`proposed_rl`)** | `16스텝(1.6s)` 시계열 문맥 + `12×12` 코스트맵(`688차원`) V100 Dual-Track RL ONNX(`0.036~0.039 ms`) + **Clearance-Gated `A*` 블렌딩** | 과거 명령/실측 오차(`cmd-act`) 이력으로 슬립·지연에 능동 대응해 **열린 통로·다실 주행이 더 빠르고 부드러움**(`house 98.22s`, `collapsed 98.05s`), 실차 ICP 잔차용 `real_tb3` 모델 별도 보유 | 2D 절차적 환경 학습 후 3D Gazebo **Zero-Shot 전이(`48/50 = 96.0%`)** 특성상 고밀도 8낙석 등 극한 3D 물리 변이에서는 결정론적 `A*`(`10/10`) 대비 소폭 변동(`9/10`) 존재 |
-
-| 시나리오 | Baseline (반사형) | Phase 1 Proposed (`A*`) | Phase 2-A `proposed_rl` (Zero-Shot) | 핵심 개선 |
-| :--- | :---: | :---: | :---: | :--- |
-| **1. 붕괴 건물 (`collapsed`)** | 5/10 (50.0%) | **10/10 (100.0%, `8.30cm`)** | **10/10 (100.0%, `8.32cm`)** | U자 포켓 돌파 · `98.05 s` |
-| **2. 고밀도 낙석 (`collapsed_heavy`)** | 2/10 (20.0%) | **10/10 (100.0%, `8.05cm`)** | **9/10 (90.0%, `8.47cm`)** | 6~9개 연쇄 낙석 전수 돌파 |
-| **3. 다실 가옥 (`house`, 15~19m)** | 9/10 (90.0%) | **9/10 (90.0%, `104.09s`)** | **9/10 (90.0%, `98.22s`)** | 문틀·저상 받침대 Clearance-Gated 관통 |
-| **4. 지하 터널 (`tunnel`)** | 9/10 (90.0%) | **10/10 (100.0%, `8.17cm`)** | **10/10 (100.0%, `8.17cm`)** | SUV·굴삭기 협로 무충돌 |
-| **5. 동적 미로 (`maze`, ~10.7m)** | 9/10 (90.0%) | **10/10 (100.0%, `21.02s`)** | **10/10 (100.0%, `21.19s`)** | 복귀 시간 **110.5s ➔ 21.0s (5.3배)** |
-| **50쌍 종합 (`Total`)** | **34/50 (68.0%)** | **49/50 (98.0%, `16.43cm`)** | **48/50 (96.0% Zero-Shot)** | 평균 오차 **-91.3%**, 시간 **-41.3%** |
+### 3. 13대 재난 시나리오 × 10회 (130회) 전수 정량 비교 (`docs/phase2b_comparison_summary.txt`)
 
 <p align="center">
-  <img src="docs/images/evidence/p1_collapsed_baseline_t03_outcome.png" alt="Baseline Fail collapsed t03" width="48%">
-  <img src="docs/images/evidence/p2_sim2sim_collapsed_t03_outcome.png" alt="Phase 2-A Sim-to-Sim Pass collapsed t03" width="48%">
+  <img src="docs/images/phase2b_130trial_success_rate.png" alt="13-Scenario 130-Trial Success Rate" width="49%">
+  <img src="docs/images/phase2b_efficiency_comparison.png" alt="130-Trial Return Efficiency Comparison" width="49%">
   <br>
-  <em>▲ 3D Gazebo+RViz2 (`slam_toolbox /map`) 실측 비교 — (좌) Baseline 낙석 교착 실패(719.6cm) vs (우) Phase 2-A `proposed_rl` Sim-to-Sim 완주(8.6cm)</em>
+  <em>▲ 13대 재난 시나리오 × 10회(130회) 성공률(좌) 및 성공 회차 복귀 시간·경로 효율 비교(우)</em>
 </p>
 
-### 🎬 3D Gazebo + RViz2 (`slam_toolbox /map`) 비교 & RL 학습 과정 데모
+| 알고리즘 (모델) | 종합 성공률 (`Pass / 130`) | 전체 평균 시간 (`mean_t`) | 성공 평균 시간 (`succ_t`) | 성공 평균 경로 (`succ_len`) | 핵심 특징 및 잔여 실패 회차 |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| **Baseline (반사형 4계층)** | 77 / 130 (`59.23%`) | 185.48 s | 128.47 s | 15.21 m | `collapsed_heavy_hard 0/10`, `slip_chicane 1/10` 등 포켓·시케인 대량 교착 |
+| **Phase 1 (`proposed` A\*)** | **129 / 130 (`99.23%`)** | 109.92 s | 108.63 s | 14.56 m | 12개 시나리오 `10/10`, `house` `9/10` (`#07` 1건 실패) |
+| **Phase 2-A (`proposed_rl` v1)** | 123 / 130 (`94.62%`) | 113.05 s | 103.10 s | 14.26 m | 합산 여유 게이팅 한계로 `house_hard 8/10`, `dynamic_gauntlet 8/10` 등 7건 실패 |
+| **Phase 2-B (`orig`)** | 126 / 130 (`96.92%`) | 105.11 s | 98.27 s | **13.86 m** | 재학습 ONNX 적용 (`house #07`, `house_hard #08`, `dynamic_gauntlet #02,#09` 실패) |
+| **Phase 2-B (`v2_fixed`)** | 127 / 130 (`97.69%`) | **100.88 s** | **96.46 s** | 13.93 m | 비홀로노믹 곡률 클램프·유한 TTL 래치 (`house_hard 10/10`, `u_pocket 10/10`, 최단 시간) |
+| **Phase 2-B (`v3_dynfix`, 최종)** | **129 / 130 (`99.23%`)** | **105.72 s** | **104.45 s** | **14.35 m** | **`house 10/10` · `house_hard 10/10` · `dynamic_gauntlet 10/10`** (`collapsed_hard #09` 1건만 미완) |
 
-#### 1) 붕괴 건물 (`collapsed #03`) A/B vs Phase 1 A\* vs Phase 2-A RL 실시간 주행 비교
-| Baseline (`FAIL · 719.6 cm`) | Phase 1 `proposed A*` (`PASS · 8.4 cm`) | Phase 2-A `proposed_rl` (`PASS · 8.6 cm`) |
+> 📄 **13개 시나리오별 세부 수치표 및 기구학·FSM 수식 해설:** [`docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md`](docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md) (§1, §6.3, §8) 및 [`docs/phase2b_comparison_summary.txt`](docs/phase2b_comparison_summary.txt)에서 확인할 수 있다.
+
+### 🎬 4. Phase 2-B 3D Gazebo + RViz2 (`slam_toolbox /map`) 주행 & 재학습 진화 데모
+
+#### 1) 극한 비정형·다실 협로 (`u_pocket_trap #10` · `slip_chicane #01` · `house_hard #08`) Phase 2-B 돌파
+| U자 함정 탈출 (`u_pocket_trap #10 · PASS`) | 저마찰 시케인 (`slip_chicane #01 · PASS`) | 고난도 다실 가옥 (`house_hard #08 · PASS`) |
 | :---: | :---: | :---: |
-| <img src="docs/images/evidence/p1_collapsed_baseline_t03.gif" width="100%" alt="Baseline collapsed t03"> | <img src="docs/images/evidence/p1_collapsed_proposed_t03.gif" width="100%" alt="Phase 1 A* collapsed t03"> | <img src="docs/images/evidence/p2_sim2sim_collapsed_t03.gif" width="100%" alt="Phase 2-A RL collapsed t03"> |
+| <img src="docs/images/evidence/phase2b_u_pocket_trap_t10.gif" width="100%" alt="Phase 2-B u_pocket_trap t10"> | <img src="docs/images/evidence/phase2b_slip_chicane_t01.gif" width="100%" alt="Phase 2-B slip_chicane t01"> | <img src="docs/images/evidence/phase2b_house_hard_t08.gif" width="100%" alt="Phase 2-B house_hard t08"> |
 
-#### 2) 다실 문틀 (`house #03`) & 동적 미로 (`maze #07`) Phase 2-A `proposed_rl` (Zero-Shot) 주행
-| 실내 다실 문틀 (`house #03 · 58.2 s PASS`) | 동적 미로 지름길 (`maze #07 · 23.6 s PASS`) |
+#### 2) 왕복 동적 장애물 배플 통로 (`dynamic_gauntlet #01 & #02`) Phase 2-B `v3_dynfix` `10/10` 완파
+| 동적 배플 교차 #01 (`dynamic_gauntlet #01 · PASS`) | 동적 배플 교차 #02 (`dynamic_gauntlet #02 · PASS`) |
 | :---: | :---: |
-| <img src="docs/images/evidence/p2_sim2sim_house_t03.gif" width="100%" alt="Phase 2-A house t03"> | <img src="docs/images/evidence/p2_sim2sim_maze_t07.gif" width="100%" alt="Phase 2-A maze t07"> |
+| <img src="docs/images/evidence/phase2b_dynamic_gauntlet_t01.gif" width="100%" alt="Phase 2-B dynamic_gauntlet t01"> | <img src="docs/images/evidence/phase2b_dynamic_gauntlet_t02.gif" width="100%" alt="Phase 2-B dynamic_gauntlet t02"> |
 
-#### 3) V100 Dual-Track RL 절차적 환경 학습 진화 과정 (`Early → Mid → Final Student`)
-| Early (`upd 25`) | Mid (`upd 150`) | Final Sim Student (`75.0%`) | Final Real-TB3 Student (`63.3%`) |
-| :---: | :---: | :---: | :---: |
-| <img src="docs/images/evidence/phase2_sim_early_upd25.gif" width="100%" alt="Phase 2 Early upd25"> | <img src="docs/images/evidence/phase2_sim_mid_upd150.gif" width="100%" alt="Phase 2 Mid upd150"> | <img src="docs/images/evidence/phase2_sim_final_student.gif" width="100%" alt="Phase 2 Sim Final Student"> | <img src="docs/images/evidence/phase2_real_tb3_final_student.gif" width="100%" alt="Phase 2 Real TB3 Final Student"> |
-
-> 📄 5대 환경 상세 비교·3D 스냅샷 보고서: [`docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md`](docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md)
-
-### 3. Phase 2: Tesla V100 32GB 대규모 Dual-Track RL & 선택적 DAgger 온보드 증류
-
-- **학습 규모 및 과적합 차단:** 절차적 랜덤 맵 4종에서 3시드(`101/202/303`) × 300업데이트 = **총 `88,473,600` 스텝 (`392,119` 에피소드: Track A `204,403` + Track B `187,716`)** 학습 후 미학습 60시드 & 공식 Gazebo 50쌍으로 Zero-Shot 일반화 검증.
-- **Track A (`sim_policy_student.onnx`, `231.6 KB`):** Teacher(최대 `83.3%`) → **Agreement-Preserving Selective DAgger** 증류 후 미학습 60시드 **`75.0%`**(`collapsed_debris 93.3%`, `tight_corridor 93.3%`), CPU 1스텝 **`0.036 ms`** (`p99 0.0531 ms`).
-- **Track B (`real_tb3_policy_student.onnx`, `231.6 KB`):** 2D ICP 잔차(`±5%` 스케일·`±0.03 rad` yaw bias·데드존·빔 누락) 환경에서 Teacher(`55.0~61.7%`)를 능가하는 **Unseen `63.3%`** 달성, CPU 1스텝 **`0.0385 ms`** (`p99 0.0551 ms`).
-- **단위 및 통합 테스트:** `python3 -m pytest -p no:anyio src/disaster_recovery/test` **`24 passed`** (ADS1115 8 + Hybrid/Dual-ONNX/Clearance-Gate 7 + LocalGrid A\* 9).
+#### 3) Phase 2-B V100 커리큘럼 재학습 진화 과정 (`Early → Mid → Final Student`) & 학습 곡선
+| Early (`upd 25`) | Mid (`upd 150`) | Final Phase 2-B Student |
+| :---: | :---: | :---: |
+| <img src="docs/images/evidence/phase2b_retrain_early_upd25.gif" width="100%" alt="Phase 2-B Retrain Early upd25"> | <img src="docs/images/evidence/phase2b_retrain_mid_upd150.gif" width="100%" alt="Phase 2-B Retrain Mid upd150"> | <img src="docs/images/evidence/phase2b_retrain_final_student.gif" width="100%" alt="Phase 2-B Retrain Final Student"> |
 
 <p align="center">
-  <img src="docs/images/evidence/phase2_learning_curves_sim.png" alt="Phase 2 V100 SIM Track Learning Curves" width="48%">
-  <img src="docs/images/evidence/phase2_learning_curves_real_tb3.png" alt="Phase 2 V100 REAL_TB3 Track Learning Curves" width="48%">
+  <img src="docs/images/evidence/phase2b_learning_curves_sim.png" alt="Phase 2-B V100 Retraining Learning Curves" width="68%">
   <br>
-  <em>▲ Tesla V100 32GB Dual-Track PPO+PLR 학습 곡선 (좌: `sim_policy` / 우: 실차 잔차 보정 `real_tb3_policy`)</em>
+  <em>▲ Tesla V100 32GB Phase 2-B 커리큘럼 재학습 수렴 곡선 (`docs/images/evidence/phase2b_learning_curves_sim.png`)</em>
 </p>
 
 ```bash
-# 5대 재난환경 A/B 또는 Phase 2 Sim-to-Sim 벤치마크 재현
+# 13대 재난 시나리오 A/B 또는 Phase 2-B Sim-to-Sim 벤치마크 재현
 python3 scripts/host/ab_disaster_benchmark.py --scenario all --trials 10 --proposed-strategy proposed
 python3 scripts/host/ab_disaster_benchmark.py --scenario all --trials 10 --reuse-baseline --proposed-strategy proposed_rl
 ```
 
-### 4. Gazebo 3D 붕괴 건물 초기 15회 벤치마크 (Baseline 한계 규명 기록)
+### 5. 초기 15회 벤치마크 및 5대 환경(50쌍) 아카이브
 
-초기 Residual TD3 기반 15회 연속 벤치마크(`11/15 = 73.3%`)와 실패 원인 4건(후속 `RollingLocalGrid + 2D A*` 설계의 출발점)은 [`docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_분석보고서.md`](docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_분석보고서.md)에 보존되어 있다.
+- 초기 Residual TD3 기반 15회 연속 벤치마크(`11/15 = 73.3%`)는 [`docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_분석보고서.md`](docs/2026-11-13_붕괴건물_15회_자율복귀_벤치마크_분석보고서.md)에, 기본 5대 환경 50쌍(`p1_*`, `p2_sim2sim_*`) 상세 분석과 13종 130회 전체 비교표는 [`docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md`](docs/2026-11-13_5대재난환경_자율복귀_알고리즘_AB비교_및_원리해설_보고서.md)에 보존되어 있다.
 
 ---
 

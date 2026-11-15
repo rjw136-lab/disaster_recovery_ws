@@ -1,0 +1,953 @@
+{
+  "per_scenario": {
+    "collapsed": {
+      "baseline": {
+        "pass": 5,
+        "total": 10,
+        "sr_pct": 50.0,
+        "mean_t": 164.48,
+        "med_t": 122.05,
+        "succ_mean_t": 102.18,
+        "succ_mean_len": 13.38,
+        "fails": [
+          3,
+          4,
+          7,
+          8,
+          9
+        ]
+      },
+      "phase1": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 101.76,
+        "med_t": 106.55,
+        "succ_mean_t": 101.76,
+        "succ_mean_len": 15.68,
+        "fails": []
+      },
+      "phase2a": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 98.05,
+        "med_t": 100.0,
+        "succ_mean_t": 98.05,
+        "succ_mean_len": 15.26,
+        "fails": []
+      },
+      "phase2b_old": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 103.43,
+        "med_t": 103.8,
+        "succ_mean_t": 103.43,
+        "succ_mean_len": 15.66,
+        "fails": []
+      },
+      "phase2b_fixed": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 104.15,
+        "med_t": 106.0,
+        "succ_mean_t": 104.15,
+        "succ_mean_len": 15.42,
+        "fails": []
+      },
+      "phase2b_v3": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 111.47,
+        "med_t": 109.65,
+        "succ_mean_t": 111.47,
+        "succ_mean_len": 16.14,
+        "fails": []
+      }
+    },
+    "collapsed_heavy": {
+      "baseline": {
+        "pass": 2,
+        "total": 10,
+        "sr_pct": 20.0,
+        "mean_t": 238.49,
+        "med_t": 260.05,
+        "succ_mean_t": 171.35,
+        "succ_mean_len": 18.57,
+        "fails": [
+          1,
+          2,
+          3,
+          5,
+          6,
+          7,
+          9,
+          10
+        ]
+      },
+      "phase1": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 115.31,
+        "med_t": 109.75,
+        "succ_mean_t": 115.31,
+        "succ_mean_len": 17.27,
+        "fails": []
+      },
+      "phase2a": {
+        "pass": 9,
+        "total": 10,
+        "sr_pct": 90.0,
+        "mean_t": 125.29,
+        "med_t": 110.95,
+        "succ_mean_t": 110.32,
+        "succ_mean_len": 16.27,
+        "fails": [
+          2
+        ]
+      },
+      "phase2b_old": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 116.84,
+        "med_t": 104.9,
+        "succ_mean_t": 116.84,
+        "succ_mean_len": 17.09,
+        "fails": []
+      },
+      "phase2b_fixed": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 104.43,
+        "med_t": 103.5,
+        "succ_mean_t": 104.43,
+        "succ_mean_len": 16.09,
+        "fails": []
+      },
+      "phase2b_v3": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 118.12,
+        "med_t": 114.45,
+        "succ_mean_t": 118.12,
+        "succ_mean_len": 17.26,
+        "fails": []
+      }
+    },
+    "tunnel": {
+      "baseline": {
+        "pass": 9,
+        "total": 10,
+        "sr_pct": 90.0,
+        "mean_t": 98.47,
+        "med_t": 88.85,
+        "succ_mean_t": 83.84,
+        "succ_mean_len": 12.0,
+        "fails": [
+          5
+        ]
+      },
+      "phase1": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 79.24,
+        "med_t": 76.85,
+        "succ_mean_t": 79.24,
+        "succ_mean_len": 12.79,
+        "fails": []
+      },
+      "phase2a": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 80.1,
+        "med_t": 81.8,
+        "succ_mean_t": 80.1,
+        "succ_mean_len": 12.82,
+        "fails": []
+      },
+      "phase2b_old": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 94.61,
+        "med_t": 88.05,
+        "succ_mean_t": 94.61,
+        "succ_mean_len": 13.05,
+        "fails": []
+      },
+      "phase2b_fixed": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 80.33,
+        "med_t": 80.45,
+        "succ_mean_t": 80.33,
+        "succ_mean_len": 12.89,
+        "fails": []
+      },
+      "phase2b_v3": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 84.14,
+        "med_t": 78.75,
+        "succ_mean_t": 84.14,
+        "succ_mean_len": 12.86,
+        "fails": []
+      }
+    },
+    "house": {
+      "baseline": {
+        "pass": 9,
+        "total": 10,
+        "sr_pct": 90.0,
+        "mean_t": 135.51,
+        "med_t": 111.65,
+        "succ_mean_t": 123.57,
+        "succ_mean_len": 15.7,
+        "fails": [
+          1
+        ]
+      },
+      "phase1": {
+        "pass": 9,
+        "total": 10,
+        "sr_pct": 90.0,
+        "mean_t": 121.33,
+        "med_t": 96.9,
+        "succ_mean_t": 104.09,
+        "succ_mean_len": 14.34,
+        "fails": [
+          7
+        ]
+      },
+      "phase2a": {
+        "pass": 9,
+        "total": 10,
+        "sr_pct": 90.0,
+        "mean_t": 112.63,
+        "med_t": 101.0,
+        "succ_mean_t": 98.22,
+        "succ_mean_len": 14.03,
+        "fails": [
+          4
+        ]
+      },
+      "phase2b_old": {
+        "pass": 9,
+        "total": 10,
+        "sr_pct": 90.0,
+        "mean_t": 115.6,
+        "med_t": 101.75,
+        "succ_mean_t": 97.2,
+        "succ_mean_len": 14.13,
+        "fails": [
+          7
+        ]
+      },
+      "phase2b_fixed": {
+        "pass": 9,
+        "total": 10,
+        "sr_pct": 90.0,
+        "mean_t": 119.53,
+        "med_t": 95.65,
+        "succ_mean_t": 106.13,
+        "succ_mean_len": 14.78,
+        "fails": [
+          7
+        ]
+      },
+      "phase2b_v3": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 113.0,
+        "med_t": 103.15,
+        "succ_mean_t": 113.0,
+        "succ_mean_len": 14.52,
+        "fails": []
+      }
+    },
+    "maze": {
+      "baseline": {
+        "pass": 9,
+        "total": 10,
+        "sr_pct": 90.0,
+        "mean_t": 110.52,
+        "med_t": 103.85,
+        "succ_mean_t": 99.46,
+        "succ_mean_len": 10.79,
+        "fails": [
+          7
+        ]
+      },
+      "phase1": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 21.02,
+        "med_t": 20.5,
+        "succ_mean_t": 21.02,
+        "succ_mean_len": 2.56,
+        "fails": []
+      },
+      "phase2a": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 21.19,
+        "med_t": 19.85,
+        "succ_mean_t": 21.19,
+        "succ_mean_len": 2.5,
+        "fails": []
+      },
+      "phase2b_old": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 21.43,
+        "med_t": 20.6,
+        "succ_mean_t": 21.43,
+        "succ_mean_len": 2.43,
+        "fails": []
+      },
+      "phase2b_fixed": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 20.69,
+        "med_t": 19.4,
+        "succ_mean_t": 20.69,
+        "succ_mean_len": 2.48,
+        "fails": []
+      },
+      "phase2b_v3": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 20.51,
+        "med_t": 19.2,
+        "succ_mean_t": 20.51,
+        "succ_mean_len": 2.49,
+        "fails": []
+      }
+    },
+    "collapsed_hard": {
+      "baseline": {
+        "pass": 4,
+        "total": 10,
+        "sr_pct": 40.0,
+        "mean_t": 242.11,
+        "med_t": 270.0,
+        "succ_mean_t": 172.78,
+        "succ_mean_len": 18.95,
+        "fails": [
+          1,
+          3,
+          5,
+          6,
+          8,
+          9
+        ]
+      },
+      "phase1": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 144.12,
+        "med_t": 141.55,
+        "succ_mean_t": 144.12,
+        "succ_mean_len": 19.18,
+        "fails": []
+      },
+      "phase2a": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 122.89,
+        "med_t": 126.15,
+        "succ_mean_t": 122.89,
+        "succ_mean_len": 17.82,
+        "fails": []
+      },
+      "phase2b_old": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 112.6,
+        "med_t": 113.65,
+        "succ_mean_t": 112.6,
+        "succ_mean_len": 16.34,
+        "fails": []
+      },
+      "phase2b_fixed": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 119.99,
+        "med_t": 118.8,
+        "succ_mean_t": 119.99,
+        "succ_mean_len": 18.23,
+        "fails": []
+      },
+      "phase2b_v3": {
+        "pass": 9,
+        "total": 10,
+        "sr_pct": 90.0,
+        "mean_t": 152.13,
+        "med_t": 141.0,
+        "succ_mean_t": 139.02,
+        "succ_mean_len": 18.95,
+        "fails": [
+          9
+        ]
+      }
+    },
+    "collapsed_heavy_hard": {
+      "baseline": {
+        "pass": 0,
+        "total": 10,
+        "sr_pct": 0.0,
+        "mean_t": 308.17,
+        "med_t": 299.85,
+        "succ_mean_t": 0.0,
+        "succ_mean_len": 0.0,
+        "fails": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10
+        ]
+      },
+      "phase1": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 149.95,
+        "med_t": 141.95,
+        "succ_mean_t": 149.95,
+        "succ_mean_len": 19.06,
+        "fails": []
+      },
+      "phase2a": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 145.43,
+        "med_t": 145.2,
+        "succ_mean_t": 145.43,
+        "succ_mean_len": 19.72,
+        "fails": []
+      },
+      "phase2b_old": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 139.83,
+        "med_t": 140.95,
+        "succ_mean_t": 139.83,
+        "succ_mean_len": 18.31,
+        "fails": []
+      },
+      "phase2b_fixed": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 131.29,
+        "med_t": 127.75,
+        "succ_mean_t": 131.29,
+        "succ_mean_len": 18.06,
+        "fails": []
+      },
+      "phase2b_v3": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 142.78,
+        "med_t": 145.7,
+        "succ_mean_t": 142.78,
+        "succ_mean_len": 18.65,
+        "fails": []
+      }
+    },
+    "tunnel_hard": {
+      "baseline": {
+        "pass": 9,
+        "total": 10,
+        "sr_pct": 90.0,
+        "mean_t": 129.9,
+        "med_t": 114.45,
+        "succ_mean_t": 132.28,
+        "succ_mean_len": 17.34,
+        "fails": [
+          3
+        ]
+      },
+      "phase1": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 109.41,
+        "med_t": 108.8,
+        "succ_mean_t": 109.41,
+        "succ_mean_len": 16.98,
+        "fails": []
+      },
+      "phase2a": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 104.98,
+        "med_t": 103.8,
+        "succ_mean_t": 104.98,
+        "succ_mean_len": 17.28,
+        "fails": []
+      },
+      "phase2b_old": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 104.32,
+        "med_t": 106.35,
+        "succ_mean_t": 104.32,
+        "succ_mean_len": 16.63,
+        "fails": []
+      },
+      "phase2b_fixed": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 108.92,
+        "med_t": 109.0,
+        "succ_mean_t": 108.92,
+        "succ_mean_len": 16.76,
+        "fails": []
+      },
+      "phase2b_v3": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 110.2,
+        "med_t": 112.15,
+        "succ_mean_t": 110.2,
+        "succ_mean_len": 17.44,
+        "fails": []
+      }
+    },
+    "house_hard": {
+      "baseline": {
+        "pass": 6,
+        "total": 10,
+        "sr_pct": 60.0,
+        "mean_t": 219.02,
+        "med_t": 201.6,
+        "succ_mean_t": 158.85,
+        "succ_mean_len": 18.36,
+        "fails": [
+          1,
+          2,
+          7,
+          9
+        ]
+      },
+      "phase1": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 133.87,
+        "med_t": 109.4,
+        "succ_mean_t": 133.87,
+        "succ_mean_len": 15.38,
+        "fails": []
+      },
+      "phase2a": {
+        "pass": 8,
+        "total": 10,
+        "sr_pct": 80.0,
+        "mean_t": 166.8,
+        "med_t": 151.15,
+        "succ_mean_t": 131.05,
+        "succ_mean_len": 15.6,
+        "fails": [
+          3,
+          7
+        ]
+      },
+      "phase2b_old": {
+        "pass": 9,
+        "total": 10,
+        "sr_pct": 90.0,
+        "mean_t": 133.34,
+        "med_t": 111.15,
+        "succ_mean_t": 111.49,
+        "succ_mean_len": 14.78,
+        "fails": [
+          8
+        ]
+      },
+      "phase2b_fixed": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 94.68,
+        "med_t": 91.1,
+        "succ_mean_t": 94.68,
+        "succ_mean_len": 13.9,
+        "fails": []
+      },
+      "phase2b_v3": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 114.45,
+        "med_t": 106.9,
+        "succ_mean_t": 114.45,
+        "succ_mean_len": 14.73,
+        "fails": []
+      }
+    },
+    "maze_hard": {
+      "baseline": {
+        "pass": 9,
+        "total": 10,
+        "sr_pct": 90.0,
+        "mean_t": 139.18,
+        "med_t": 135.5,
+        "succ_mean_t": 125.76,
+        "succ_mean_len": 12.39,
+        "fails": [
+          2
+        ]
+      },
+      "phase1": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 22.79,
+        "med_t": 20.6,
+        "succ_mean_t": 22.79,
+        "succ_mean_len": 2.82,
+        "fails": []
+      },
+      "phase2a": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 21.78,
+        "med_t": 18.95,
+        "succ_mean_t": 21.78,
+        "succ_mean_len": 2.63,
+        "fails": []
+      },
+      "phase2b_old": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 23.26,
+        "med_t": 19.4,
+        "succ_mean_t": 23.26,
+        "succ_mean_len": 2.76,
+        "fails": []
+      },
+      "phase2b_fixed": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 21.19,
+        "med_t": 19.05,
+        "succ_mean_t": 21.19,
+        "succ_mean_len": 2.61,
+        "fails": []
+      },
+      "phase2b_v3": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 22.86,
+        "med_t": 19.15,
+        "succ_mean_t": 22.86,
+        "succ_mean_len": 2.76,
+        "fails": []
+      }
+    },
+    "u_pocket_trap": {
+      "baseline": {
+        "pass": 4,
+        "total": 10,
+        "sr_pct": 40.0,
+        "mean_t": 210.87,
+        "med_t": 240.05,
+        "succ_mean_t": 145.95,
+        "succ_mean_len": 16.24,
+        "fails": [
+          1,
+          2,
+          4,
+          5,
+          7,
+          8
+        ]
+      },
+      "phase1": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 113.04,
+        "med_t": 101.8,
+        "succ_mean_t": 113.04,
+        "succ_mean_len": 15.9,
+        "fails": []
+      },
+      "phase2a": {
+        "pass": 9,
+        "total": 10,
+        "sr_pct": 90.0,
+        "mean_t": 127.64,
+        "med_t": 109.65,
+        "succ_mean_t": 112.19,
+        "succ_mean_len": 15.93,
+        "fails": [
+          10
+        ]
+      },
+      "phase2b_old": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 101.01,
+        "med_t": 101.55,
+        "succ_mean_t": 101.01,
+        "succ_mean_len": 15.33,
+        "fails": []
+      },
+      "phase2b_fixed": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 97.54,
+        "med_t": 99.25,
+        "succ_mean_t": 97.54,
+        "succ_mean_len": 15.31,
+        "fails": []
+      },
+      "phase2b_v3": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 104.61,
+        "med_t": 104.4,
+        "succ_mean_t": 104.61,
+        "succ_mean_len": 15.79,
+        "fails": []
+      }
+    },
+    "slip_chicane": {
+      "baseline": {
+        "pass": 1,
+        "total": 10,
+        "sr_pct": 10.0,
+        "mean_t": 262.03,
+        "med_t": 260.0,
+        "succ_mean_t": 201.4,
+        "succ_mean_len": 16.53,
+        "fails": [
+          1,
+          2,
+          3,
+          4,
+          6,
+          7,
+          8,
+          9,
+          10
+        ]
+      },
+      "phase1": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 155.64,
+        "med_t": 155.35,
+        "succ_mean_t": 155.64,
+        "succ_mean_len": 16.91,
+        "fails": []
+      },
+      "phase2a": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 126.59,
+        "med_t": 127.2,
+        "succ_mean_t": 126.59,
+        "succ_mean_len": 16.26,
+        "fails": []
+      },
+      "phase2b_old": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 126.66,
+        "med_t": 117.6,
+        "succ_mean_t": 126.66,
+        "succ_mean_len": 16.16,
+        "fails": []
+      },
+      "phase2b_fixed": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 132.06,
+        "med_t": 123.25,
+        "succ_mean_t": 132.06,
+        "succ_mean_len": 16.3,
+        "fails": []
+      },
+      "phase2b_v3": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 144.6,
+        "med_t": 144.7,
+        "succ_mean_t": 144.6,
+        "succ_mean_len": 16.65,
+        "fails": []
+      }
+    },
+    "dynamic_gauntlet": {
+      "baseline": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 152.49,
+        "med_t": 154.8,
+        "succ_mean_t": 152.49,
+        "succ_mean_len": 18.56,
+        "fails": []
+      },
+      "phase1": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 161.54,
+        "med_t": 154.3,
+        "succ_mean_t": 161.54,
+        "succ_mean_len": 20.36,
+        "fails": []
+      },
+      "phase2a": {
+        "pass": 8,
+        "total": 10,
+        "sr_pct": 80.0,
+        "mean_t": 216.32,
+        "med_t": 206.15,
+        "succ_mean_t": 192.0,
+        "succ_mean_len": 21.2,
+        "fails": [
+          2,
+          5
+        ]
+      },
+      "phase2b_old": {
+        "pass": 8,
+        "total": 10,
+        "sr_pct": 80.0,
+        "mean_t": 173.48,
+        "med_t": 158.65,
+        "succ_mean_t": 132.94,
+        "succ_mean_len": 18.54,
+        "fails": [
+          2,
+          9
+        ]
+      },
+      "phase2b_fixed": {
+        "pass": 8,
+        "total": 10,
+        "sr_pct": 80.0,
+        "mean_t": 176.61,
+        "med_t": 136.3,
+        "succ_mean_t": 142.88,
+        "succ_mean_len": 19.52,
+        "fails": [
+          1,
+          2
+        ]
+      },
+      "phase2b_v3": {
+        "pass": 10,
+        "total": 10,
+        "sr_pct": 100.0,
+        "mean_t": 135.5,
+        "med_t": 121.0,
+        "succ_mean_t": 135.5,
+        "succ_mean_len": 18.79,
+        "fails": []
+      }
+    }
+  },
+  "overall": {
+    "baseline": {
+      "pass": 77,
+      "total": 130,
+      "sr_pct": 59.23,
+      "mean_t": 185.48,
+      "succ_mean_t": 128.47,
+      "succ_mean_len": 15.21
+    },
+    "phase1": {
+      "pass": 129,
+      "total": 130,
+      "sr_pct": 99.23,
+      "mean_t": 109.92,
+      "succ_mean_t": 108.63,
+      "succ_mean_len": 14.56
+    },
+    "phase2a": {
+      "pass": 123,
+      "total": 130,
+      "sr_pct": 94.62,
+      "mean_t": 113.05,
+      "succ_mean_t": 103.1,
+      "succ_mean_len": 14.26
+    },
+    "phase2b_old": {
+      "pass": 126,
+      "total": 130,
+      "sr_pct": 96.92,
+      "mean_t": 105.11,
+      "succ_mean_t": 98.27,
+      "succ_mean_len": 13.86
+    },
+    "phase2b_fixed": {
+      "pass": 127,
+      "total": 130,
+      "sr_pct": 97.69,
+      "mean_t": 100.88,
+      "succ_mean_t": 96.46,
+      "succ_mean_len": 13.93
+    },
+    "phase2b_v3": {
+      "pass": 129,
+      "total": 130,
+      "sr_pct": 99.23,
+      "mean_t": 105.72,
+      "succ_mean_t": 104.45,
+      "succ_mean_len": 14.35
+    }
+  }
+}

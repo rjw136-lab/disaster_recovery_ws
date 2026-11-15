@@ -190,7 +190,197 @@ SCENARIOS: Dict[str, ScenarioConfig] = {
             (1.25, 0.94, 0.55),
         ),
     ),
+    # ------------------------------------------------------------------
+    # Group B: Hardened Variants of the Classic 5 Scenarios
+    # ------------------------------------------------------------------
+    "collapsed_hard": ScenarioConfig(
+        name="collapsed_hard",
+        label_ko="붕괴 건물 HARD (고밀도·심부 탐사)",
+        world_file=f"{WS_WORLDS}/disaster_collapsed_building.world",
+        reset_pose=(0.0, -4.0, 1.5708),
+        max_step_size=0.004,
+        explore_x_range=(-2.0, 10.0),
+        explore_y_range=(2.0, 12.0),
+        min_depth=15.0,
+        max_depth=22.0,
+        debris_min=6,
+        debris_max=9,
+        min_spacing=0.90,
+        outbound_timeout_sim=170.0,
+        return_timeout_base=270.0,
+        funnel_collapsed=True,
+    ),
+    "collapsed_heavy_hard": ScenarioConfig(
+        name="collapsed_heavy_hard",
+        label_ko="붕괴 건물 EXTREME (10~13개 초고밀도 군집)",
+        world_file=f"{WS_WORLDS}/disaster_collapsed_building.world",
+        reset_pose=(0.0, -4.0, 1.5708),
+        max_step_size=0.004,
+        explore_x_range=(-2.0, 10.0),
+        explore_y_range=(2.0, 12.0),
+        min_depth=16.0,
+        max_depth=23.0,
+        debris_min=10,
+        debris_max=13,
+        min_spacing=0.72,
+        outbound_timeout_sim=180.0,
+        return_timeout_base=290.0,
+        funnel_collapsed=True,
+    ),
+    "tunnel_hard": ScenarioConfig(
+        name="tunnel_hard",
+        label_ko="지하 터널 HARD (7~10개 교대 봉쇄)",
+        world_file=f"{WS_WORLDS}/disaster_tunnel_world.world",
+        reset_pose=(-0.5, -3.0, 1.5708),
+        max_step_size=0.001,
+        explore_x_range=(-2.5, 2.5),
+        explore_y_range=(2.0, 22.0),
+        min_depth=14.0,
+        max_depth=21.0,
+        debris_min=7,
+        debris_max=10,
+        min_spacing=0.78,
+        outbound_timeout_sim=170.0,
+        return_timeout_base=270.0,
+        funnel_collapsed=False,
+    ),
+    "house_hard": ScenarioConfig(
+        name="house_hard",
+        label_ko="실내 가옥 HARD (다실 문틀 + 4~7개 낙석)",
+        world_file=f"{WS_WORLDS}/disaster_house_world.world",
+        reset_pose=(-2.0, -0.5, 0.0),
+        max_step_size=0.001,
+        explore_x_range=(-6.6, 6.6),
+        explore_y_range=(-4.2, 4.8),
+        min_depth=16.5,
+        max_depth=21.0,
+        debris_min=4,
+        debris_max=7,
+        min_spacing=0.75,
+        outbound_timeout_sim=180.0,
+        return_timeout_base=280.0,
+        funnel_collapsed=False,
+        use_guided_outbound=True,
+        min_blackout_dist=4.5,
+        min_checkpoints=7,
+        doorway_keepouts=(
+            (1.10, -0.17, 0.55),
+            (-5.15, 3.30, 0.55),
+            (-6.30, 0.92, 0.55),
+            (2.30, 4.63, 0.55),
+            (6.22, -0.17, 0.55),
+        ),
+    ),
+    "maze_hard": ScenarioConfig(
+        name="maze_hard",
+        label_ko="미로 격벽 HARD (동적 장애물 + 4~6개 낙석)",
+        world_file=f"{WS_WORLDS}/disaster_maze_world.world",
+        reset_pose=(0.0, 0.0, 0.0),
+        max_step_size=0.001,
+        explore_x_range=(-2.0, 2.0),
+        explore_y_range=(-2.0, 2.0),
+        min_depth=11.5,
+        max_depth=16.0,
+        debris_min=4,
+        debris_max=6,
+        min_spacing=0.72,
+        outbound_timeout_sim=160.0,
+        return_timeout_base=260.0,
+        funnel_collapsed=False,
+        use_guided_outbound=True,
+        min_blackout_dist=1.80,
+        min_checkpoints=8,
+        doorway_keepouts=(
+            (-1.03, -1.50, 0.50),
+            (1.25, 0.94, 0.50),
+        ),
+    ),
+    # ------------------------------------------------------------------
+    # Group C: 3 Brand-New Disaster Benchmark Worlds
+    # ------------------------------------------------------------------
+    "u_pocket_trap": ScenarioConfig(
+        name="u_pocket_trap",
+        label_ko="ㄷ자 막다른 함정 (후진·대우회 필수)",
+        world_file=f"{WS_WORLDS}/disaster_u_pocket_world.world",
+        reset_pose=(0.0, 0.0, 0.0),
+        max_step_size=0.002,
+        explore_x_range=(1.0, 10.5),
+        explore_y_range=(-3.5, 3.5),
+        min_depth=13.5,
+        max_depth=18.5,
+        debris_min=4,
+        debris_max=7,
+        min_spacing=0.85,
+        outbound_timeout_sim=160.0,
+        return_timeout_base=260.0,
+        funnel_collapsed=False,
+        use_guided_outbound=True,
+        min_blackout_dist=4.5,
+        min_checkpoints=5,
+        doorway_keepouts=(
+            (4.80, 1.65, 0.45),
+            (7.20, -1.80, 0.45),
+        ),
+    ),
+    "slip_chicane": ScenarioConfig(
+        name="slip_chicane",
+        label_ko="저마찰 슬립 S자 연속 문틀 (mu=0.32)",
+        world_file=f"{WS_WORLDS}/disaster_slip_chicane_world.world",
+        reset_pose=(0.0, 0.0, 0.0),
+        max_step_size=0.001,
+        explore_x_range=(0.5, 10.2),
+        explore_y_range=(-2.0, 2.0),
+        min_depth=12.5,
+        max_depth=17.5,
+        debris_min=4,
+        debris_max=6,
+        min_spacing=0.85,
+        outbound_timeout_sim=165.0,
+        return_timeout_base=260.0,
+        funnel_collapsed=False,
+        use_guided_outbound=True,
+        min_blackout_dist=4.5,
+        min_checkpoints=6,
+        doorway_keepouts=(
+            (2.00, -1.425, 0.65),
+            (4.20, 1.375, 0.65),
+            (6.40, -1.325, 0.65),
+            (8.60, 1.275, 0.65),
+        ),
+    ),
+    "dynamic_gauntlet": ScenarioConfig(
+        name="dynamic_gauntlet",
+        label_ko="동적 장애물 교차 홀 (다중 낙석 + 회전 격벽)",
+        world_file=f"{WS_WORLDS}/disaster_dynamic_gauntlet_world.world",
+        reset_pose=(-3.2, 2.8, 0.0),
+        max_step_size=0.001,
+        explore_x_range=(-3.6, 3.6),
+        explore_y_range=(-3.6, 3.6),
+        min_depth=13.0,
+        max_depth=18.5,
+        debris_min=5,
+        debris_max=8,
+        min_spacing=0.82,
+        outbound_timeout_sim=165.0,
+        return_timeout_base=260.0,
+        funnel_collapsed=False,
+        use_guided_outbound=True,
+        min_blackout_dist=3.0,
+        min_checkpoints=5,
+    ),
 }
+
+CLASSIC_5 = ("collapsed", "collapsed_heavy", "tunnel", "house", "maze")
+HARD_8 = (
+    "collapsed_hard",
+    "collapsed_heavy_hard",
+    "tunnel_hard",
+    "house_hard",
+    "maze_hard",
+    "u_pocket_trap",
+    "slip_chicane",
+    "dynamic_gauntlet",
+)
 
 # Verified multi-doorway room traversal routes for turtlebot3_house (0.25m+ wall clearance)
 HOUSE_ROUTES: List[List[Tuple[float, float]]] = [
@@ -207,6 +397,31 @@ MAZE_ROUTES: List[List[Tuple[float, float]]] = [
     [(0.30, -0.95), (0.30, -1.86), (1.72, -1.86), (1.80, -0.15), (0.55, -0.15), (0.60, 0.94), (1.80, 0.94), (1.80, 1.82), (1.80, 0.94), (0.60, 0.94), (0.60, 1.92), (-0.45, 1.94), (-1.80, 1.82)],
     [(-0.55, -0.85), (-1.80, -0.85), (-1.80, 1.82), (-0.45, 1.94), (0.60, 1.92), (0.60, 0.94), (1.80, 0.94), (1.80, 1.82), (1.80, 0.94), (0.55, 0.45), (0.55, -0.15), (1.80, -0.15), (1.72, -1.86), (0.30, -1.86)],
 ]
+
+U_POCKET_ROUTES: List[List[Tuple[float, float]]] = [
+    [(1.50, 1.00), (2.50, 1.65), (4.80, 1.65), (6.40, 2.30), (8.60, 2.50), (10.30, 0.50), (8.80, -1.80), (6.00, -1.70), (2.50, -1.70)],
+    [(1.50, -1.00), (2.50, -1.65), (5.00, -1.65), (6.60, -2.00), (9.00, -2.00), (10.30, 0.20), (8.60, 2.50), (6.20, 2.30), (4.80, 1.65)],
+]
+
+SLIP_CHICANE_ROUTES: List[List[Tuple[float, float]]] = [
+    [(1.10, -0.80), (2.00, -1.425), (3.10, -0.20), (4.20, 1.375), (5.30, 0.00), (6.40, -1.325), (7.50, 0.00), (8.60, 1.275), (9.90, 0.00), (9.90, -1.50)],
+    [(1.10, -1.20), (2.00, -1.425), (3.10, 0.40), (4.20, 1.375), (5.30, -0.40), (6.40, -1.325), (7.50, 0.40), (8.60, 1.275), (10.20, 0.80), (10.20, -1.40)],
+]
+
+DYNAMIC_GAUNTLET_ROUTES: List[List[Tuple[float, float]]] = [
+    [(-1.50, 2.80), (0.00, 2.80), (2.85, 2.80), (3.40, 0.50), (3.40, -2.80), (0.00, -3.00), (-3.20, -3.00), (-3.40, -0.40)],
+    [(-3.40, 0.20), (-3.20, -3.00), (0.50, -3.00), (3.40, -2.80), (3.40, 0.20), (2.95, 2.75), (0.00, 2.80), (-1.80, 2.80)],
+]
+
+ROUTE_MAP: Dict[str, List[List[Tuple[float, float]]]] = {
+    "house": HOUSE_ROUTES,
+    "house_hard": HOUSE_ROUTES,
+    "maze": MAZE_ROUTES,
+    "maze_hard": MAZE_ROUTES,
+    "u_pocket_trap": U_POCKET_ROUTES,
+    "slip_chicane": SLIP_CHICANE_ROUTES,
+    "dynamic_gauntlet": DYNAMIC_GAUNTLET_ROUTES,
+}
 
 
 class SimHarnessNode(Node):
@@ -230,6 +445,8 @@ class SimHarnessNode(Node):
 
         self.pub_cmd_remote = self.create_publisher(Twist, "/cmd_vel_remote", 10)
         self.pub_heartbeat = self.create_publisher(Header, "/heartbeat", 10)
+        self.pub_dyn_obs1 = self.create_publisher(Twist, "/dyn_obs1/cmd_vel", 10)
+        self.pub_dyn_obs2 = self.create_publisher(Twist, "/dyn_obs2/cmd_vel", 10)
         self.pub_reset_ep = self.create_publisher(Bool, "/recovery/reset_episode", reliable_qos)
         self.cli_reset_world = self.create_client(Empty, "/reset_world")
 
@@ -282,6 +499,13 @@ class SimHarnessNode(Node):
             hdr.frame_id = f"ab_bench_hb_{self.hb_seq}"
             self.pub_heartbeat.publish(hdr)
             self.hb_seq += 1
+        t_sim = self.sim_now()
+        tw1 = Twist()
+        tw1.linear.x = 0.42 * math.cos(0.45 * t_sim)
+        self.pub_dyn_obs1.publish(tw1)
+        tw2 = Twist()
+        tw2.linear.x = -0.42 * math.cos(0.45 * t_sim + 0.8)
+        self.pub_dyn_obs2.publish(tw2)
 
     def _cb_odom(self, msg: Odometry):
         self.cur_x = msg.pose.pose.position.x
@@ -524,6 +748,7 @@ def launch_stack(
     gz_port: int = 11345,
     ros_domain_id: Optional[int] = None,
     kill_stale: bool = False,
+    context_rl_onnx_path: str = "",
 ):
     gz_master_uri = f"http://127.0.0.1:{gz_port}"
     if kill_stale:
@@ -572,11 +797,13 @@ def launch_stack(
             raise RuntimeError(f"Gazebo launch exited prematurely for {cfg.name}/{strategy}")
 
     params_file = os.path.join(WS_ROOT, "src", "disaster_recovery", "config", "recovery_params.yaml")
+    onnx_override = f" -p context_rl_onnx_path:={context_rl_onnx_path}" if context_rl_onnx_path else ""
     ctrl_cmd = (
         env_prefix
         + "ros2 run disaster_recovery recovery_controller --ros-args "
         f"--params-file {params_file} "
         f"-p use_sim_time:=true -p use_aruco_docking:=false -p recovery_strategy:={strategy}"
+        + onnx_override
     )
     p_ctrl = subprocess.Popen(
         ["bash", "-c", ctrl_cmd],
@@ -617,7 +844,7 @@ def generate_fixed_scenarios(cfg: ScenarioConfig, trials: int, base_seed: int) -
         rng = random.Random(trial_seed)
         target_depth = round(rng.uniform(cfg.min_depth, cfg.max_depth), 2)
         if cfg.use_guided_outbound:
-            routes = HOUSE_ROUTES if cfg.name == "house" else MAZE_ROUTES
+            routes = ROUTE_MAP.get(cfg.name, MAZE_ROUTES)
             base_route = routes[(i - 1) % len(routes)]
             full_route = list(base_route) + list(reversed(base_route[:-1])) + list(base_route[1:])
             goal_pool = [(round(px, 3), round(py, 3)) for px, py in full_route]
@@ -679,6 +906,7 @@ def run_strategy_suite(
     gz_port: int = 11345,
     ros_domain_id: Optional[int] = None,
     kill_stale: bool = False,
+    context_rl_onnx_path: str = "",
 ) -> dict:
     results: List[dict] = list(initial_results) if initial_results else []
     done_trials = {int(r["trial"]) for r in results}
@@ -701,6 +929,7 @@ def run_strategy_suite(
         gz_port=gz_port,
         ros_domain_id=ros_domain_id,
         kill_stale=kill_stale,
+        context_rl_onnx_path=context_rl_onnx_path,
     )
     rclpy.init()
     node = SimHarnessNode()
@@ -999,8 +1228,8 @@ def main():
     parser.add_argument(
         "--scenario",
         default="collapsed",
-        choices=list(SCENARIOS.keys()) + ["all"],
-        help="Scenario name or 'all'",
+        choices=list(SCENARIOS.keys()) + ["all", "hard8", "all13"],
+        help="Scenario name, 'all' (classic 5), 'hard8' (new 8 hard/novel), or 'all13'",
     )
     parser.add_argument("--trials", type=int, default=10, help="Trials per strategy (default 10)")
     parser.add_argument("--seed", type=int, default=2026, help="Base deterministic seed")
@@ -1025,6 +1254,11 @@ def main():
         default="proposed",
         choices=["proposed", "proposed_rl"],
         help="Controller recovery_strategy to benchmark for the proposed slot (default proposed)",
+    )
+    parser.add_argument(
+        "--context-rl-onnx",
+        default="",
+        help="Optional override path for recovery_controller context_rl_onnx_path parameter",
     )
     parser.add_argument(
         "--resume",
@@ -1056,7 +1290,14 @@ def main():
         os.environ["ROS_DOMAIN_ID"] = str(args.ros_domain_id)
 
     os.makedirs(args.out_dir, exist_ok=True)
-    selected = list(SCENARIOS.keys()) if args.scenario == "all" else [args.scenario]
+    if args.scenario == "all":
+        selected = list(CLASSIC_5)
+    elif args.scenario == "hard8":
+        selected = list(HARD_8)
+    elif args.scenario == "all13":
+        selected = list(SCENARIOS.keys())
+    else:
+        selected = [args.scenario]
     all_reports = {}
 
     for s_idx, s_name in enumerate(selected):
@@ -1134,6 +1375,7 @@ def main():
             gz_port=args.gz_port,
             ros_domain_id=args.ros_domain_id,
             kill_stale=args.kill_stale,
+            context_rl_onnx_path=args.context_rl_onnx,
         )
 
         # Save fixed specs and A/B comparison JSON

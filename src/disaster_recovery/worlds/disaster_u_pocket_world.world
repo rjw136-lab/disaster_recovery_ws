@@ -1,0 +1,79 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <world name="default">
+    <include><uri>model://ground_plane</uri></include>
+    <include><uri>model://sun</uri></include>
+    <scene><shadows>false</shadows></scene>
+
+    <gui fullscreen='0'>
+      <camera name='user_camera'>
+        <pose>4.8 -0.2 14.5 0 1.57 0</pose>
+        <view_controller>orbit</view_controller>
+      </camera>
+    </gui>
+
+    <physics type="ode">
+      <real_time_update_rate>500.0</real_time_update_rate>
+      <max_step_size>0.002</max_step_size>
+      <real_time_factor>1</real_time_factor>
+    </physics>
+
+    <!-- Outer perimeter walls: x in [-1.6, 11.6], y in [-4.2, 4.2] -->
+    <model name="u_pocket_arena">
+      <static>1</static>
+      <link name="walls">
+        <collision name="wall_n_c"><pose>5.0 4.2 0.5 0 0 0</pose><geometry><box><size>13.4 0.2 1.0</size></box></geometry></collision>
+        <visual name="wall_n_v"><pose>5.0 4.2 0.5 0 0 0</pose><geometry><box><size>13.4 0.2 1.0</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/DarkGrey</name></script></material></visual>
+
+        <collision name="wall_s_c"><pose>5.0 -4.2 0.5 0 0 0</pose><geometry><box><size>13.4 0.2 1.0</size></box></geometry></collision>
+        <visual name="wall_s_v"><pose>5.0 -4.2 0.5 0 0 0</pose><geometry><box><size>13.4 0.2 1.0</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/DarkGrey</name></script></material></visual>
+
+        <collision name="wall_w_c"><pose>-1.6 0.0 0.5 0 0 0</pose><geometry><box><size>0.2 8.6 1.0</size></box></geometry></collision>
+        <visual name="wall_w_v"><pose>-1.6 0.0 0.5 0 0 0</pose><geometry><box><size>0.2 8.6 1.0</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/DarkGrey</name></script></material></visual>
+
+        <collision name="wall_e_c"><pose>11.6 0.0 0.5 0 0 0</pose><geometry><box><size>0.2 8.6 1.0</size></box></geometry></collision>
+        <visual name="wall_e_v"><pose>11.6 0.0 0.5 0 0 0</pose><geometry><box><size>0.2 8.6 1.0</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/DarkGrey</name></script></material></visual>
+
+        <!-- U-Trap West (opening toward +x: lures returning robot into dead-end pocket) -->
+        <collision name="utrap1_back_c"><pose>3.0 0.0 0.4 0 0 0</pose><geometry><box><size>0.18 2.20 0.8</size></box></geometry></collision>
+        <visual name="utrap1_back_v"><pose>3.0 0.0 0.4 0 0 0</pose><geometry><box><size>0.18 2.20 0.8</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/Red</name></script></material></visual>
+
+        <collision name="utrap1_top_c"><pose>3.65 1.02 0.4 0 0 0</pose><geometry><box><size>1.30 0.16 0.8</size></box></geometry></collision>
+        <visual name="utrap1_top_v"><pose>3.65 1.02 0.4 0 0 0</pose><geometry><box><size>1.30 0.16 0.8</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/Red</name></script></material></visual>
+
+        <collision name="utrap1_bot_c"><pose>3.65 -1.02 0.4 0 0 0</pose><geometry><box><size>1.30 0.16 0.8</size></box></geometry></collision>
+        <visual name="utrap1_bot_v"><pose>3.65 -1.02 0.4 0 0 0</pose><geometry><box><size>1.30 0.16 0.8</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/Red</name></script></material></visual>
+
+        <!-- Outer flank baffles around Trap 1 -->
+        <collision name="baffle1_n_c"><pose>4.8 3.15 0.4 0 0 0</pose><geometry><box><size>0.18 1.90 0.8</size></box></geometry></collision>
+        <visual name="baffle1_n_v"><pose>4.8 3.15 0.4 0 0 0</pose><geometry><box><size>0.18 1.90 0.8</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/Grey</name></script></material></visual>
+
+        <collision name="baffle1_s_c"><pose>5.4 -3.15 0.4 0 0 0</pose><geometry><box><size>0.18 1.90 0.8</size></box></geometry></collision>
+        <visual name="baffle1_s_v"><pose>5.4 -3.15 0.4 0 0 0</pose><geometry><box><size>0.18 1.90 0.8</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/Grey</name></script></material></visual>
+
+        <!-- U-Trap East (offset +y, opening toward +x as well) -->
+        <collision name="utrap2_back_c"><pose>7.2 0.4 0.4 0 0 0</pose><geometry><box><size>0.18 2.20 0.8</size></box></geometry></collision>
+        <visual name="utrap2_back_v"><pose>7.2 0.4 0.4 0 0 0</pose><geometry><box><size>0.18 2.20 0.8</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/Red</name></script></material></visual>
+
+        <collision name="utrap2_top_c"><pose>7.85 1.42 0.4 0 0 0</pose><geometry><box><size>1.30 0.16 0.8</size></box></geometry></collision>
+        <visual name="utrap2_top_v"><pose>7.85 1.42 0.4 0 0 0</pose><geometry><box><size>1.30 0.16 0.8</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/Red</name></script></material></visual>
+
+        <collision name="utrap2_bot_c"><pose>7.85 -0.62 0.4 0 0 0</pose><geometry><box><size>1.30 0.16 0.8</size></box></geometry></collision>
+        <visual name="utrap2_bot_v"><pose>7.85 -0.62 0.4 0 0 0</pose><geometry><box><size>1.30 0.16 0.8</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/Red</name></script></material></visual>
+
+        <!-- Structural pillars -->
+        <collision name="pillar1_c"><pose>1.6 1.9 0.4 0 0 0</pose><geometry><box><size>0.45 0.45 0.8</size></box></geometry></collision>
+        <visual name="pillar1_v"><pose>1.6 1.9 0.4 0 0 0</pose><geometry><box><size>0.45 0.45 0.8</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/Grey</name></script></material></visual>
+
+        <collision name="pillar2_c"><pose>1.6 -1.9 0.4 0 0 0</pose><geometry><box><size>0.45 0.45 0.8</size></box></geometry></collision>
+        <visual name="pillar2_v"><pose>1.6 -1.9 0.4 0 0 0</pose><geometry><box><size>0.45 0.45 0.8</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/Grey</name></script></material></visual>
+
+        <collision name="pillar3_c"><pose>9.6 -1.7 0.4 0 0 0</pose><geometry><box><size>0.45 0.45 0.8</size></box></geometry></collision>
+        <visual name="pillar3_v"><pose>9.6 -1.7 0.4 0 0 0</pose><geometry><box><size>0.45 0.45 0.8</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/Grey</name></script></material></visual>
+
+        <collision name="pillar4_c"><pose>9.6 1.9 0.4 0 0 0</pose><geometry><box><size>0.45 0.45 0.8</size></box></geometry></collision>
+        <visual name="pillar4_v"><pose>9.6 1.9 0.4 0 0 0</pose><geometry><box><size>0.45 0.45 0.8</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/Grey</name></script></material></visual>
+      </link>
+    </model>
+  </world>
+</sdf>

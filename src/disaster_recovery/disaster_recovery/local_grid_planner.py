@@ -365,7 +365,9 @@ class ProposedRecoveryPlanner:
         shortcut_rejoin_dist_m: float = 3.2,
         unstuck_window_sec: float = 2.8,
         unstuck_min_disp_m: float = 0.06,
+        phase2b_mode: bool = False,
     ):
+        self.phase2b_mode = bool(phase2b_mode)
         self.grid = RollingLocalGrid(
             size_m=size_m,
             resolution_m=resolution_m,
@@ -784,11 +786,17 @@ class ProposedRecoveryPlanner:
         if now_sec < self._escape_until:
             elapsed = now_sec - self._escape_start
             if elapsed < self._escape_reverse_dur:
-                v_esc = -0.14 if rear_min > 0.22 else 0.0
+                if self.phase2b_mode and self._repeat_escape_count >= 2:
+                    v_esc = -0.09 if rear_min > 0.14 else 0.0
+                else:
+                    v_esc = -0.14 if rear_min > 0.22 else 0.0
                 w_esc = 0.20 * self._escape_turn_dir
             else:
                 v_esc = 0.0
-                turn_rate = 0.92 if self._repeat_escape_count >= 1 else 0.78
+                if self.phase2b_mode and self._repeat_escape_count >= 2:
+                    turn_rate = w_max
+                else:
+                    turn_rate = 0.92 if self._repeat_escape_count >= 1 else 0.78
                 w_esc = max(-w_max, min(w_max, turn_rate * self._escape_turn_dir))
             return "ESCAPE", float(v_esc), float(w_esc), None
 

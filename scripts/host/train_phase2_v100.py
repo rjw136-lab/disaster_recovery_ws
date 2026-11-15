@@ -61,7 +61,7 @@ from disaster_recovery.rl_context_policy import (  # noqa: E402
     TemporalContextActorCritic,
 )
 
-EVAL_SEEDS = np.arange(10000, 10060, dtype=np.int64)
+EVAL_SEEDS = np.arange(10000, 10090, dtype=np.int64)
 
 
 class NvidiaSmiLogger:
@@ -937,7 +937,7 @@ def plot_learning_curves(
     ax = axes[0, 0]
     ax.plot(grid, tr_arr.mean(0), label="Train Mixed SR (3-seed mean)", color="#64748b", lw=2.0, ls="--")
     ax.fill_between(grid, tr_arr.mean(0) - tr_arr.std(0), tr_arr.mean(0) + tr_arr.std(0), color="#64748b", alpha=0.15)
-    ax.plot(grid, un_arr.mean(0), label="Unseen Holdout SR (60 seeds, mean)", color="#2563eb", lw=2.4)
+    ax.plot(grid, un_arr.mean(0), label="Unseen Holdout SR (90 seeds, mean)", color="#2563eb", lw=2.4)
     ax.fill_between(grid, un_arr.mean(0) - un_arr.std(0), un_arr.mean(0) + un_arr.std(0), color="#2563eb", alpha=0.18)
     onnx_sr = distill_res["onnx_eval"]["unseen_sr"] * 100.0
     ax.axhline(onnx_sr, color="#16a34a", lw=1.8, ls=":", label=f"Distilled ONNX Student ({onnx_sr:.1f}%)")
@@ -962,7 +962,7 @@ def plot_learning_curves(
     ax.legend(fontsize=8.5)
 
     ax = axes[1, 0]
-    cols = ["#0284c7", "#7c3aed", "#059669", "#e11d48"]
+    cols = ["#0284c7", "#7c3aed", "#059669", "#e11d48", "#d97706", "#0891b2"]
     for col, r in zip(cols, REGIME_NAMES):
         rm = np.vstack(reg_mats[r])
         ax.plot(grid, rm.mean(0), label=r, color=col, lw=2.0)
@@ -1006,9 +1006,14 @@ def main() -> int:
     parser.add_argument("--archive-root", default="/hdd/rl_archives")
     parser.add_argument("--evidence-dir", default="/hdd/evidence/training")
     parser.add_argument("--repo-img-dir", default=os.path.join(WS_ROOT, "docs", "images", "evidence"))
+    parser.add_argument("--onnx-out-dir", default="", help="Override ONNX output directory (default: src/disaster_recovery/config)")
+    parser.add_argument("--summary-out", default=os.path.join(WS_ROOT, "benchmark_results", "phase2_training_summary.json"), help="Output summary JSON path")
     parser.add_argument("--distill-existing-tracks", default="", help="Comma-separated tracks whose existing checkpoints should be distilled without retraining")
     parser.add_argument("--render-videos-only", action="store_true", help="Re-render 3D rollout videos/PNGs from existing checkpoints and ONNX models without retraining")
     args = parser.parse_args()
+
+    onnx_out_dir = args.onnx_out_dir.strip() or os.path.join(WS_ROOT, "src", "disaster_recovery", "config")
+    os.makedirs(onnx_out_dir, exist_ok=True)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     seeds = [int(x.strip()) for x in args.seeds.split(",") if x.strip()]
@@ -1058,7 +1063,7 @@ def main() -> int:
                 shutil.copy2(png_early, os.path.join(args.evidence_dir, os.path.basename(png_early)))
                 print(f"[RenderOnly] {track} early_upd25 -> {res_early}", flush=True)
 
-            out_onnx = os.path.join(WS_ROOT, "src", "disaster_recovery", "config", f"{track}_policy_student.onnx")
+            out_onnx = os.path.join(onnx_out_dir, f"{track}_policy_student.onnx")
             if os.path.exists(out_onnx):
                 sess = ort.InferenceSession(out_onnx, providers=["CPUExecutionProvider"])
                 in_name = sess.get_inputs()[0].name
@@ -1125,7 +1130,7 @@ def main() -> int:
                 ckpt_paths.append(cp)
                 seed_summaries.append(summ)
 
-            out_onnx = os.path.join(WS_ROOT, "src", "disaster_recovery", "config", f"{track}_policy_student.onnx")
+            out_onnx = os.path.join(onnx_out_dir, f"{track}_policy_student.onnx")
             dist_res = distill_ensemble_to_onnx(track=track, ckpt_paths=ckpt_paths, out_onnx_path=out_onnx, device=device)
 
             # Render final ONNX Student 3D MP4 & PNG visual proof on unseen procedural test case
@@ -1162,7 +1167,7 @@ def main() -> int:
         gpu_stats = gpu_logger.stop()
 
     all_track_results["gpu_telemetry"] = gpu_stats
-    summary_path = os.path.join(WS_ROOT, "benchmark_results", "phase2_training_summary.json")
+    summary_path = args.summary_out
     os.makedirs(os.path.dirname(summary_path), exist_ok=True)
     with open(summary_path, "w", encoding="utf-8") as f:
         json.dump(all_track_results, f, indent=2)

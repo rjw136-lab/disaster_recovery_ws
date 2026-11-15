@@ -28,7 +28,10 @@ REGIME_NAMES = (
     "tight_corridor",
     "dynamic_crossing",
     "plinth_slip_drift",
+    "u_pocket_culdesac",
+    "chicane_door_pinch",
 )
+NUM_REGIMES = len(REGIME_NAMES)
 
 TB3_MAX_V = 0.20
 TB3_MIN_V = -0.10  # Allow short unpin/reverse escape moves!
@@ -199,7 +202,7 @@ class VectorDisasterEnv:
     # ------------------------------------------------------------------
     def _build_single_layout(self, seed: int, forced_regime: Optional[int] = None) -> dict:
         r = np.random.RandomState(int(seed))
-        regime = int(forced_regime) if forced_regime is not None else int(r.randint(0, 4))
+        regime = int(forced_regime) if forced_regime is not None else int(r.randint(0, NUM_REGIMES))
 
         bounds = np.array([-2.2, 4.2, -1.8, 1.8], dtype=np.float32)
         boxes = np.zeros((self.MAX_BOXES, 4), dtype=np.float32)
@@ -328,14 +331,17 @@ class VectorDisasterEnv:
             n_dyn = int(r.randint(2, 4))
             for k in range(n_dyn):
                 rad = float(r.uniform(0.14, 0.17))
-                cx = float(r.uniform(0.55, gx - 0.35))
-                cy = float(r.uniform(-half_w * 0.65, half_w * 0.65))
-                speed = float(r.uniform(0.08, 0.16))
+                for _ in range(20):
+                    cx = float(r.uniform(0.75, gx - 0.35))
+                    cy = float(r.uniform(-half_w * 0.65, half_w * 0.65))
+                    if math.hypot(cx - rx, cy - ry) >= rad + 0.68 and math.hypot(cx - gx, cy - gy) >= rad + 0.42:
+                        break
+                speed = float(r.uniform(0.08, 0.15))
                 vang = float(r.uniform(-math.pi, math.pi))
                 cyls[k] = [cx, cy, rad, speed * math.cos(vang), speed * math.sin(vang)]
                 cyl_act[k] = True
 
-        else:
+        elif regime == 3:
             # Regime 3: Low-profile invisible plinth + heavy asymmetric slip
             half_w = float(r.uniform(1.1, 1.7))
             bounds = np.array([-1.0, 3.4, -half_w, half_w], dtype=np.float32)
@@ -355,6 +361,108 @@ class VectorDisasterEnv:
             py = float(r.uniform(-0.18, 0.18))
             pr = float(r.uniform(0.14, 0.20))
             plinth = np.array([px, py, pr, 1.0], dtype=np.float32)
+
+        elif regime == 4:
+            # Regime 4: U-pocket cul-de-sac (open mouth facing robot) + flank debris -> must reverse & loop around
+            half_w = float(r.uniform(1.25, 1.70))
+            bounds = np.array([-1.4, 3.6, -half_w, half_w], dtype=np.float32)
+            rx, ry = 0.0, float(r.uniform(-0.10, 0.10))
+            rth = float(r.uniform(-0.22, 0.22))
+            gx = float(r.uniform(2.25, 3.05))
+            gy = float(r.uniform(-half_w * 0.30, half_w * 0.30))
+
+            ux_back = float(r.uniform(1.20, 1.55))
+            uy = float(r.uniform(-0.22, 0.22))
+            pocket_hw = float(r.uniform(0.36, 0.48))
+            arm_len = float(r.uniform(0.40, 0.56))
+            wall_t = 0.06
+
+            # Back wall & two side arms forming a 'ㄷ' trap open toward -x
+            boxes[0] = [ux_back, uy, wall_t, pocket_hw + wall_t]
+            box_act[0] = True
+            boxes[1] = [ux_back - 0.5 * arm_len, uy + pocket_hw, 0.5 * arm_len, wall_t]
+            box_act[1] = True
+            boxes[2] = [ux_back - 0.5 * arm_len, uy - pocket_hw, 0.5 * arm_len, wall_t]
+            box_act[2] = True
+
+            # Optional 1..2 outer flank rocks keeping >= 0.42m bypass clearance on at least one side
+            open_side = 1.0 if uy <= 0.0 else -1.0
+            bypass_y = float(np.clip(uy + open_side * (pocket_hw + 0.46), -half_w + 0.26, half_w - 0.26))
+            # Half the time lure robot straight toward goal inside 'ㄷ' trap without bypass hint;
+            # half the time give flank bypass WP so both decoy escape and flank navigation are learned.
+            if r.rand() < 0.50:
+                wp1 = (gx, gy)
+            else:
+                wp1 = (ux_back + 0.15, bypass_y)
+
+            placed_r = []
+            for k in range(2):
+                rad = float(r.uniform(0.13, 0.17))
+                for _ in range(15):
+                    cx = float(r.uniform(0.55, gx - 0.35))
+                    cy = float(r.uniform(-half_w + rad + 0.18, half_w - rad - 0.18))
+                    # Keep mouth entry and chosen bypass lane passable
+                    if abs(cy - bypass_y) < rad + 0.34 and abs(cx - ux_back) < 0.70:
+                        continue
+                    if math.hypot(cx - rx, cy - ry) < rad + 0.36 or math.hypot(cx - gx, cy - gy) < rad + 0.34:
+                        continue
+                    if abs(cy - uy) < pocket_hw + rad + 0.16 and cx < ux_back + 0.20:
+                        continue
+                    if all(math.hypot(cx - px, cy - py) >= rad + pr + 0.25 for px, py, pr in placed_r):
+                        placed_r.append((cx, cy, rad))
+                        cyls[k] = [cx, cy, rad, 0.0, 0.0]
+                        cyl_act[k] = True
+                        break
+
+        else:
+            # Regime 5: Double S-chicane doorways + asymmetric debris pinch (house-matched)
+            corr_w = float(r.uniform(1.05, 1.55))
+            half_c = 0.5 * corr_w
+            bounds = np.array([-0.8, 3.8, -half_c, half_c], dtype=np.float32)
+            rx, ry = 0.0, float(r.uniform(-half_c * 0.25, half_c * 0.25))
+            rth = float(r.uniform(-0.20, 0.20))
+
+            d1_x = float(r.uniform(0.85, 1.20))
+            d2_x = float(r.uniform(d1_x + 0.85, min(2.45, d1_x + 1.25)))
+            gx = float(r.uniform(d2_x + 0.65, 3.25))
+            gy = float(r.uniform(-half_c * 0.35, half_c * 0.35))
+
+            side1 = 1.0 if r.rand() < 0.5 else -1.0
+            gap1_w = float(r.uniform(0.38, min(0.52, corr_w * 0.50)))
+            gap1_y = side1 * float(r.uniform(0.12, max(0.14, half_c - 0.5 * gap1_w - 0.05)))
+
+            gap2_w = float(r.uniform(0.38, min(0.52, corr_w * 0.50)))
+            gap2_y = -side1 * float(r.uniform(0.12, max(0.14, half_c - 0.5 * gap2_w - 0.05)))
+
+            wp1 = (d1_x, gap1_y)
+            wp2 = (d2_x, gap2_y)
+
+            b_idx = 0
+            for dx, g_y, g_w in ((d1_x, gap1_y, gap1_w), (d2_x, gap2_y, gap2_w)):
+                top_h = half_c - (g_y + 0.5 * g_w)
+                if top_h > 0.03 and b_idx < self.MAX_BOXES:
+                    boxes[b_idx] = [dx, g_y + 0.5 * g_w + 0.5 * top_h, 0.07, 0.5 * top_h]
+                    box_act[b_idx] = True
+                    b_idx += 1
+                bot_h = (g_y - 0.5 * g_w) - (-half_c)
+                if bot_h > 0.03 and b_idx < self.MAX_BOXES:
+                    boxes[b_idx] = [dx, -half_c + 0.5 * bot_h, 0.07, 0.5 * bot_h]
+                    box_act[b_idx] = True
+                    b_idx += 1
+
+            # Place 1..2 pinch rocks between zones while preserving >= 0.32m corridor clearance
+            rock_xs = (0.5 * (rx + d1_x), 0.5 * (d1_x + d2_x))
+            for k, rx_p in enumerate(rock_xs):
+                rad = float(r.uniform(0.13, 0.16))
+                if corr_w - 2.0 * rad < 0.34:
+                    continue
+                r_side = 1.0 if r.rand() < 0.5 else -1.0
+                if r_side > 0:
+                    cy = float(r.uniform(max(-half_c + 0.34 + rad, -0.05), half_c - rad - 0.02))
+                else:
+                    cy = float(r.uniform(-half_c + rad + 0.02, min(half_c - 0.34 - rad, 0.05)))
+                cyls[k] = [rx_p, cy, rad, 0.0, 0.0]
+                cyl_act[k] = True
 
         if wp1 is None:
             wp1 = (gx, gy)
@@ -414,7 +522,7 @@ class VectorDisasterEnv:
         for k_idx, i in enumerate(ids_np):
             if eval_seeds is not None:
                 seed = int(eval_seeds[k_idx % len(eval_seeds)])
-                forced_regime = seed % 4 if self.mode == "eval" else None
+                forced_regime = seed % NUM_REGIMES if self.mode == "eval" else None
                 layout = self._build_single_layout(seed, forced_regime=forced_regime)
             elif self.mode == "train" and self.hard_seeds and self.rng.rand() < plr_prob:
                 pick = self.hard_seeds[int(self.rng.randint(0, len(self.hard_seeds)))]
@@ -422,7 +530,7 @@ class VectorDisasterEnv:
                 layout = self._build_single_layout(seed, forced_regime=forced_regime)
             else:
                 seed = int(self.rng.randint(100_000, 999_999_999))
-                forced_regime = int((i + self.rng.randint(0, 4)) % 4)
+                forced_regime = int((i + self.rng.randint(0, NUM_REGIMES)) % NUM_REGIMES)
                 layout = self._build_single_layout(seed, forced_regime=forced_regime)
 
             self.ep_seed[i] = seed
@@ -488,8 +596,16 @@ class VectorDisasterEnv:
         self.plinth_escape_bonus_given[idx_t] = False
         self.plinth_unpin_bonus_given[idx_t] = False
         self.hit_plinth[idx_t] = False
-        g1 = np.where((b_regime == 2) & b_box_act[:, 0], b_boxes[:, 0, 0] + 0.12, 999.0).astype(np.float32)
-        g2 = np.where((b_regime == 2) & b_box_act[:, 1], b_boxes[:, 1, 0] + 0.12, 999.0).astype(np.float32)
+        g1 = np.where(
+            ((b_regime == 2) & b_box_act[:, 0]) | ((b_regime == 4) & b_box_act[:, 0]),
+            b_boxes[:, 0, 0] + 0.14,
+            np.where(b_regime == 5, b_nwps[:, 0, 0] + 0.10, 999.0),
+        ).astype(np.float32)
+        g2 = np.where(
+            (b_regime == 2) & b_box_act[:, 1],
+            b_boxes[:, 1, 0] + 0.14,
+            np.where(b_regime == 5, b_nwps[:, 1, 0] + 0.10, 999.0),
+        ).astype(np.float32)
         self.gate1_x[idx_t] = torch.from_numpy(g1).to(self.device)
         self.gate2_x[idx_t] = torch.from_numpy(g2).to(self.device)
         self.gate1_done[idx_t] = False

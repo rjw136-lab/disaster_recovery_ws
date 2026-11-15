@@ -35,6 +35,7 @@ Key Behaviors:
 import os
 import math
 import collections
+from typing import Optional
 import numpy as np
 import rclpy
 from rclpy.node import Node
@@ -93,13 +94,19 @@ def compute_rl_blend_weight(
     side_clearance: float,
     used_tight_pass: bool,
     max_alpha: float = 0.70,
+    min_side: Optional[float] = None,
 ) -> float:
     """Gate RL blend weight to 0 in narrow pinches/doorways while preserving RL speed in open corridors."""
     if used_tight_pass or front_min < 0.28 or side_clearance < 0.62:
         return 0.0
+    if min_side is not None and min_side < 0.19:
+        return 0.0
     front_gate = min(1.0, max(0.0, (front_min - 0.28) / (0.45 - 0.28)))
     side_gate = min(1.0, max(0.0, (side_clearance - 0.62) / (0.85 - 0.62)))
-    return float(max_alpha * min(front_gate, side_gate))
+    alpha = float(max_alpha * min(front_gate, side_gate))
+    if min_side is not None and min_side < 0.32:
+        alpha *= max(0.0, (min_side - 0.19) / (0.32 - 0.19))
+    return float(alpha)
 
 
 def quaternion_to_yaw(qx: float, qy: float, qz: float, qw: float) -> float:
@@ -248,6 +255,16 @@ class RecoveryController(Node):
         self.unstuck_window_sec = float(self.get_parameter('unstuck_window_sec').value)
         self.unstuck_min_disp_m = float(self.get_parameter('unstuck_min_disp_m').value)
         self.context_rl_onnx_path = str(self.get_parameter('context_rl_onnx_path').value)
+        self.is_phase2b = (self.recovery_strategy == 'proposed_rl')
+        self._prev_escape_count = 0
+        self._rl_cooldown_until = 0.0
+        self._rl_lockout_anchor = None
+        self._rl_lockout_until = 0.0
+        self._prev_front_min = None
+        self._prev_front_time = None
+        self._prev_alpha_rl = 0.0
+        self._dynamic_hold_until = 0.0
+        self._dynamic_hold_cooldown_until = 0.0
         self.reset_corr_on_episode = bool(self.get_parameter('reset_corr_on_episode').value) or (
             self.recovery_strategy in ('proposed', 'proposed_rl')
         )
@@ -313,6 +330,7 @@ class RecoveryController(Node):
                 shortcut_rejoin_dist_m=self.shortcut_rejoin_dist_m,
                 unstuck_window_sec=self.unstuck_window_sec,
                 unstuck_min_disp_m=self.unstuck_min_disp_m,
+                phase2b_mode=self.is_phase2b,
             )
             if self.recovery_strategy == 'proposed_rl':
                 rl_path = self.context_rl_onnx_path
@@ -336,6 +354,7 @@ class RecoveryController(Node):
                             onnx_path=rl_path,
                             v_max=self.v_max,
                             w_max=self.w_max,
+                            phase2b_mode=self.is_phase2b,
                         )
                         self.get_logger().info(
                             f"[PROPOSED_RL] Context-RL ONNX active: {os.path.basename(rl_path)}"
@@ -476,6 +495,15 @@ class RecoveryController(Node):
         self.actual_v = 0.0
         self.actual_w = 0.0
         self.recovery_step_count = 0
+        self._prev_escape_count = 0
+        self._rl_cooldown_until = 0.0
+        self._rl_lockout_anchor = None
+        self._rl_lockout_until = 0.0
+        self._prev_front_min = None
+        self._prev_front_time = None
+        self._prev_alpha_rl = 0.0
+        self._dynamic_hold_until = 0.0
+        self._dynamic_hold_cooldown_until = 0.0
         if self.local_planner is not None:
             self.local_planner.reset()
         if self.context_rl_policy is not None:
@@ -752,31 +780,50 @@ class RecoveryController(Node):
                     else:
                         target_xy = (self.current_x, self.current_y)
 
-                    if status_tag == "ASTAR_TRACK" and subgoal_xy is not None:
-                        v_rl, w_rl = self.context_rl_policy.predict(
-                            scan_ranges=self.latest_raw_ranges,
-                            rx=self.current_x,
-                            ry=self.current_y,
-                            rth=self.current_theta,
-                            tx=target_xy[0],
-                            ty=target_xy[1],
-                            cmd_v=self.last_cmd_v,
-                            cmd_w=self.last_cmd_w,
-                            act_v=self.actual_v,
-                            act_w=self.actual_w,
-                            step_norm=step_norm,
-                        )
-                        front_min, left_min, right_min, _ = self.local_planner.last_clearances
-                        alpha_rl = compute_rl_blend_weight(
-                            front_min=front_min,
-                            side_clearance=left_min + right_min,
-                            used_tight_pass=self.local_planner.last_used_tight_pass,
-                        )
-                        if alpha_rl > 0.0:
-                            alpha_astar = 1.0 - alpha_rl
-                            v_cmd = max(-0.10, min(self.v_max, alpha_rl * v_rl + alpha_astar * v_cmd))
-                            w_cmd = max(-self.w_max, min(self.w_max, alpha_rl * w_rl + alpha_astar * w_cmd))
-                    else:
+                    front_min, left_min, right_min, _ = self.local_planner.last_clearances
+                    df_dt = 0.0
+                    if (
+                        self.is_phase2b
+                        and self._prev_front_min is not None
+                        and self._prev_front_time is not None
+                    ):
+                        dt_f = now_sec - self._prev_front_time
+                        if 0.03 <= dt_f <= 0.50:
+                            df_dt = (front_min - self._prev_front_min) / dt_f
+
+                    if self.is_phase2b:
+                        cur_esc = self.local_planner.escape_count
+                        if cur_esc > self._prev_escape_count:
+                            self._rl_cooldown_until = now_sec + 4.5
+                            if self.local_planner._repeat_escape_count >= 1:
+                                self._rl_lockout_anchor = (self.current_x, self.current_y)
+                                self._rl_lockout_until = now_sec + 7.0
+                        self._prev_escape_count = cur_esc
+                        if self._rl_lockout_anchor is not None:
+                            lockout_radius = (
+                                0.50 if self.local_planner._repeat_escape_count >= 3 else 1.20
+                            )
+                            if now_sec >= self._rl_lockout_until or math.hypot(
+                                self.current_x - self._rl_lockout_anchor[0],
+                                self.current_y - self._rl_lockout_anchor[1],
+                            ) >= lockout_radius:
+                                self._rl_lockout_anchor = None
+
+                        # Dynamic obstacle head-on detection: brief pause instead of backing into corners
+                        if (
+                            now_sec >= self._dynamic_hold_until
+                            and now_sec >= self._dynamic_hold_cooldown_until
+                            and max(abs(self.last_cmd_w), abs(self.actual_w)) < 0.35
+                            and df_dt < -0.25
+                            and 0.20 <= front_min <= 0.55
+                        ):
+                            self._dynamic_hold_until = now_sec + 1.2
+                            self._dynamic_hold_cooldown_until = now_sec + 4.0
+
+                    if self.is_phase2b and now_sec < self._dynamic_hold_until and 0.20 <= front_min <= 0.60:
+                        v_cmd = 0.0
+                        w_cmd = 0.0
+                        self._prev_alpha_rl = 0.0
                         self.context_rl_policy.observe(
                             scan_ranges=self.latest_raw_ranges,
                             rx=self.current_x,
@@ -790,6 +837,95 @@ class RecoveryController(Node):
                             act_w=self.actual_w,
                             step_norm=step_norm,
                         )
+                    elif status_tag == "ASTAR_TRACK" and subgoal_xy is not None:
+                        if self.is_phase2b and front_min < 0.20:
+                            self._dynamic_hold_until = 0.0
+                        if self.is_phase2b and (
+                            now_sec < self._rl_cooldown_until
+                            or self._rl_lockout_anchor is not None
+                        ):
+                            alpha_rl = 0.0
+                        else:
+                            alpha_rl = compute_rl_blend_weight(
+                                front_min=front_min,
+                                side_clearance=left_min + right_min,
+                                used_tight_pass=self.local_planner.last_used_tight_pass,
+                                min_side=(min(left_min, right_min) if self.is_phase2b else None),
+                            )
+                            if (
+                                self.is_phase2b
+                                and alpha_rl > 0.0
+                                and max(abs(self.last_cmd_w), abs(self.actual_w)) < 0.35
+                                and df_dt < -0.25
+                            ):
+                                alpha_rl *= max(0.0, 1.0 + df_dt / 0.50)
+
+                        if self.is_phase2b:
+                            if front_min < 0.24 or min(left_min, right_min) < 0.17:
+                                alpha_rl = 0.0
+                            else:
+                                delta_a = alpha_rl - self._prev_alpha_rl
+                                if abs(delta_a) > 0.15:
+                                    alpha_rl = self._prev_alpha_rl + (0.15 if delta_a > 0.0 else -0.15)
+                            self._prev_alpha_rl = alpha_rl
+
+                        if alpha_rl > 0.0:
+                            v_rl, w_rl = self.context_rl_policy.predict(
+                                scan_ranges=self.latest_raw_ranges,
+                                rx=self.current_x,
+                                ry=self.current_y,
+                                rth=self.current_theta,
+                                tx=target_xy[0],
+                                ty=target_xy[1],
+                                cmd_v=self.last_cmd_v,
+                                cmd_w=self.last_cmd_w,
+                                act_v=self.actual_v,
+                                act_w=self.actual_w,
+                                step_norm=step_norm,
+                            )
+                            alpha_astar = 1.0 - alpha_rl
+                            v_blend = max(-0.10, min(self.v_max, alpha_rl * v_rl + alpha_astar * v_cmd))
+                            w_blend = max(-self.w_max, min(self.w_max, alpha_rl * w_rl + alpha_astar * w_cmd))
+                            if self.is_phase2b and (
+                                (left_min < 0.32 and w_rl > w_cmd + 0.05)
+                                or (right_min < 0.32 and w_rl < w_cmd - 0.05)
+                                or (w_rl * w_cmd < -0.04 and abs(w_rl - w_cmd) > 0.50)
+                            ):
+                                v_cmd = min(v_blend, v_cmd)
+                            else:
+                                v_cmd = v_blend
+                                w_cmd = w_blend
+                        else:
+                            self.context_rl_policy.observe(
+                                scan_ranges=self.latest_raw_ranges,
+                                rx=self.current_x,
+                                ry=self.current_y,
+                                rth=self.current_theta,
+                                tx=target_xy[0],
+                                ty=target_xy[1],
+                                cmd_v=self.last_cmd_v,
+                                cmd_w=self.last_cmd_w,
+                                act_v=self.actual_v,
+                                act_w=self.actual_w,
+                                step_norm=step_norm,
+                            )
+                    else:
+                        self._prev_alpha_rl = 0.0
+                        self.context_rl_policy.observe(
+                            scan_ranges=self.latest_raw_ranges,
+                            rx=self.current_x,
+                            ry=self.current_y,
+                            rth=self.current_theta,
+                            tx=target_xy[0],
+                            ty=target_xy[1],
+                            cmd_v=self.last_cmd_v,
+                            cmd_w=self.last_cmd_w,
+                            act_v=self.actual_v,
+                            act_w=self.actual_w,
+                            step_norm=step_norm,
+                        )
+                    self._prev_front_min = front_min
+                    self._prev_front_time = now_sec
                 self.state = SystemState.BACKTRACKING_HYBRID
                 self.active_target_wp = (
                     self.waypoint_stack[-1] if len(self.waypoint_stack) > 0 else self.start_pose

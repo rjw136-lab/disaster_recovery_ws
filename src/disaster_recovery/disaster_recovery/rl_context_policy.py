@@ -210,6 +210,7 @@ class ContextRLStudentPolicy:
         onnx_path: str,
         v_max: float = TB3_MAX_V,
         w_max: float = TB3_MAX_W,
+        phase2b_mode: bool = False,
     ):
         if not HAS_ORT:
             raise RuntimeError("onnxruntime is required for ContextRLStudentPolicy")
@@ -221,11 +222,14 @@ class ContextRLStudentPolicy:
         self.input_name = self.sess.get_inputs()[0].name
         self.v_max = float(v_max)
         self.w_max = float(w_max)
+        self.phase2b_mode = bool(phase2b_mode)
+        self._near_latch_ttl = np.zeros(24, dtype=np.int32)
         self.hist: Deque[np.ndarray] = collections.deque(maxlen=HISTORY_LEN)
         self.reset()
 
     def reset(self) -> None:
         self.hist.clear()
+        self._near_latch_ttl.fill(0)
         zero_step = np.zeros(STEP_FEAT_DIM, dtype=np.float32)
         zero_step[:24] = 1.0
         for _ in range(HISTORY_LEN):
@@ -244,19 +248,43 @@ class ContextRLStudentPolicy:
         act_v: float,
         act_w: float,
         step_norm: float = 0.0,
+        near_latch_ttl: Optional[np.ndarray] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
         feat = np.zeros(STEP_FEAT_DIM, dtype=np.float32)
         patch = np.zeros((PATCH_SIZE, PATCH_SIZE), dtype=np.float32)
 
         if scan_ranges is not None and len(scan_ranges) >= 24:
             r = np.asarray(scan_ranges, dtype=np.float32).copy()
-            r[(~np.isfinite(r)) | (r < 0.12)] = 3.5
-            r = np.clip(r, 0.12, 3.5)
-            n = len(r)
-            step = max(1, n // 24)
-            usable = step * 24
-            rolled = np.roll(r[:usable], step // 2)
-            bins_24 = rolled.reshape(24, step).min(axis=1) / 3.5
+            if near_latch_ttl is not None:
+                finite_pos = np.isfinite(r) & (r > 0.0)
+                r[~finite_pos] = 3.5
+                r = np.clip(r, 0.12, 3.5)
+                n = len(r)
+                step = max(1, n // 24)
+                usable = step * 24
+                rolled = np.roll(r[:usable], step // 2)
+                rolled_fin = np.roll(finite_pos[:usable], step // 2)
+                sec_r = rolled.reshape(24, step)
+                sec_fin = rolled_fin.reshape(24, step)
+                bins_24 = sec_r.min(axis=1) / 3.5
+                for s in range(24):
+                    if np.any(sec_fin[s]):
+                        s_min = float(sec_r[s].min())
+                        if s_min < 0.18:
+                            near_latch_ttl[s] = 15
+                        else:
+                            near_latch_ttl[s] = 0
+                    elif near_latch_ttl[s] > 0:
+                        bins_24[s] = 0.12 / 3.5
+                        near_latch_ttl[s] -= 1
+            else:
+                r[(~np.isfinite(r)) | (r < 0.12)] = 3.5
+                r = np.clip(r, 0.12, 3.5)
+                n = len(r)
+                step = max(1, n // 24)
+                usable = step * 24
+                rolled = np.roll(r[:usable], step // 2)
+                bins_24 = rolled.reshape(24, step).min(axis=1) / 3.5
             feat[:24] = bins_24
 
             angs = np.linspace(0.0, 2.0 * math.pi, n, endpoint=False, dtype=np.float32)
@@ -305,7 +333,8 @@ class ContextRLStudentPolicy:
     ) -> np.ndarray:
         """Append the current step feature vector to the rolling context buffer."""
         feat, patch = self._build_step_and_patch(
-            scan_ranges, rx, ry, rth, tx, ty, cmd_v, cmd_w, act_v, act_w, step_norm
+            scan_ranges, rx, ry, rth, tx, ty, cmd_v, cmd_w, act_v, act_w, step_norm,
+            near_latch_ttl=(self._near_latch_ttl if self.phase2b_mode else None),
         )
         self.hist.append(feat)
         return patch

@@ -1,0 +1,84 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <world name="default">
+    <!-- Low-friction slippery rubble floor (mu=0.32, mu2=0.22) -->
+    <model name="slip_ground_plane">
+      <static>1</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry><plane><normal>0 0 1</normal><size>100 100</size></plane></geometry>
+          <surface>
+            <friction>
+              <ode><mu>0.32</mu><mu2>0.22</mu2></ode>
+            </friction>
+          </surface>
+        </collision>
+        <visual name="visual">
+          <cast_shadows>0</cast_shadows>
+          <geometry><plane><normal>0 0 1</normal><size>100 100</size></plane></geometry>
+          <material>
+            <script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/CeilingTiled</name></script>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <include><uri>model://sun</uri></include>
+    <scene><shadows>false</shadows></scene>
+
+    <gui fullscreen='0'>
+      <camera name='user_camera'>
+        <pose>4.8 0.0 13.0 0 1.57 0</pose>
+        <view_controller>orbit</view_controller>
+      </camera>
+    </gui>
+
+    <physics type="ode">
+      <real_time_update_rate>500.0</real_time_update_rate>
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1</real_time_factor>
+    </physics>
+
+    <!-- Corridor arena: x in [-1.5, 11.2], y in [-2.4, 2.4] -->
+    <model name="slip_chicane_walls">
+      <static>1</static>
+      <link name="walls">
+        <collision name="wall_n_c"><pose>4.85 2.4 0.5 0 0 0</pose><geometry><box><size>12.9 0.2 1.0</size></box></geometry></collision>
+        <visual name="wall_n_v"><pose>4.85 2.4 0.5 0 0 0</pose><geometry><box><size>12.9 0.2 1.0</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/DarkGrey</name></script></material></visual>
+
+        <collision name="wall_s_c"><pose>4.85 -2.4 0.5 0 0 0</pose><geometry><box><size>12.9 0.2 1.0</size></box></geometry></collision>
+        <visual name="wall_s_v"><pose>4.85 -2.4 0.5 0 0 0</pose><geometry><box><size>12.9 0.2 1.0</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/DarkGrey</name></script></material></visual>
+
+        <collision name="wall_w_c"><pose>-1.5 0.0 0.5 0 0 0</pose><geometry><box><size>0.2 5.0 1.0</size></box></geometry></collision>
+        <visual name="wall_w_v"><pose>-1.5 0.0 0.5 0 0 0</pose><geometry><box><size>0.2 5.0 1.0</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/DarkGrey</name></script></material></visual>
+
+        <collision name="wall_e_c"><pose>11.2 0.0 0.5 0 0 0</pose><geometry><box><size>0.2 5.0 1.0</size></box></geometry></collision>
+        <visual name="wall_e_v"><pose>11.2 0.0 0.5 0 0 0</pose><geometry><box><size>0.2 5.0 1.0</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/DarkGrey</name></script></material></visual>
+
+        <!-- Doorway 1 at x=2.0: 0.85m opening y in [-1.85, -1.00] -->
+        <collision name="d1_top_c"><pose>2.0 0.70 0.4 0 0 0</pose><geometry><box><size>0.18 3.40 0.8</size></box></geometry></collision>
+        <visual name="d1_top_v"><pose>2.0 0.70 0.4 0 0 0</pose><geometry><box><size>0.18 3.40 0.8</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/Bricks</name></script></material></visual>
+        <collision name="d1_bot_c"><pose>2.0 -2.125 0.4 0 0 0</pose><geometry><box><size>0.18 0.55 0.8</size></box></geometry></collision>
+        <visual name="d1_bot_v"><pose>2.0 -2.125 0.4 0 0 0</pose><geometry><box><size>0.18 0.55 0.8</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/Bricks</name></script></material></visual>
+
+        <!-- Doorway 2 at x=4.2: 0.85m opening y in [0.95, 1.80] -->
+        <collision name="d2_bot_c"><pose>4.2 -0.725 0.4 0 0 0</pose><geometry><box><size>0.18 3.35 0.8</size></box></geometry></collision>
+        <visual name="d2_bot_v"><pose>4.2 -0.725 0.4 0 0 0</pose><geometry><box><size>0.18 3.35 0.8</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/Bricks</name></script></material></visual>
+        <collision name="d2_top_c"><pose>4.2 2.10 0.4 0 0 0</pose><geometry><box><size>0.18 0.60 0.8</size></box></geometry></collision>
+        <visual name="d2_top_v"><pose>4.2 2.10 0.4 0 0 0</pose><geometry><box><size>0.18 0.60 0.8</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/Bricks</name></script></material></visual>
+
+        <!-- Doorway 3 at x=6.4: 0.85m opening y in [-1.75, -0.90] -->
+        <collision name="d3_top_c"><pose>6.4 0.75 0.4 0 0 0</pose><geometry><box><size>0.18 3.30 0.8</size></box></geometry></collision>
+        <visual name="d3_top_v"><pose>6.4 0.75 0.4 0 0 0</pose><geometry><box><size>0.18 3.30 0.8</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/Bricks</name></script></material></visual>
+        <collision name="d3_bot_c"><pose>6.4 -2.075 0.4 0 0 0</pose><geometry><box><size>0.18 0.65 0.8</size></box></geometry></collision>
+        <visual name="d3_bot_v"><pose>6.4 -2.075 0.4 0 0 0</pose><geometry><box><size>0.18 0.65 0.8</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/Bricks</name></script></material></visual>
+
+        <!-- Doorway 4 at x=8.6: 0.85m opening y in [0.85, 1.70] -->
+        <collision name="d4_bot_c"><pose>8.6 -0.775 0.4 0 0 0</pose><geometry><box><size>0.18 3.25 0.8</size></box></geometry></collision>
+        <visual name="d4_bot_v"><pose>8.6 -0.775 0.4 0 0 0</pose><geometry><box><size>0.18 3.25 0.8</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/Bricks</name></script></material></visual>
+        <collision name="d4_top_c"><pose>8.6 2.05 0.4 0 0 0</pose><geometry><box><size>0.18 0.70 0.8</size></box></geometry></collision>
+        <visual name="d4_top_v"><pose>8.6 2.05 0.4 0 0 0</pose><geometry><box><size>0.18 0.70 0.8</size></box></geometry><material><script><uri>file://media/materials/scripts/gazebo.material</uri><name>Gazebo/Bricks</name></script></material></visual>
+      </link>
+    </model>
+  </world>
+</sdf>
