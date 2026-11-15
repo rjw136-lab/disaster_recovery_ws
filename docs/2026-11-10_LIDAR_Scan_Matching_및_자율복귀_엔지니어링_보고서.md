@@ -88,21 +88,23 @@
 ## 4. 2D 라이다 스캔 매칭 (ICP) 알고리즘 상세 설계
 
 ### 4.1 수학적 모델링
-로봇 프레임에서 유효 범위($0.15\,\text{m} \le r \le 3.5\,\text{m}$) 내의 2D 레이저 포인트 클라우드를 추출합니다.
+로봇 프레임에서 유효 범위($0.15\ \mathrm{m} \le r \le 3.5\ \mathrm{m}$) 내의 2D 레이저 포인트 클라우드를 추출한다.
+
 $$p_i = \begin{bmatrix} r_i \cos\alpha_i \\ r_i \sin\alpha_i \end{bmatrix}$$
 
-기준 웨이포인트의 스캔 점군을 $P_{\text{ref}}$, 현재 로봇의 스캔 점군을 $P_{\text{cur}}$라 할 때, 2차원 강체 변환(Rigid Transformation) $[R \mid t]$는 다음 최적화 문제를 풉니다:
-$$\min_{R, t} \sum_{i} \| R p_{\text{cur}, i} + t - p_{\text{ref}, \text{match}(i)} \|^2$$
+기준 웨이포인트의 스캔 점군을 $P_{\mathrm{ref}}$, 현재 로봇의 스캔 점군을 $P_{\mathrm{cur}}$ 라 할 때, 2차원 강체 변환(Rigid Transformation) $[R \mid t]$ 는 다음 최적화 문제를 푼다.
 
-1. **오도메트리 사전 정보 (Warm Start)**:
-   - 이전 프레임 오도메트리로부터 상대 변위 추정치 $(dx_0, dy_0, d\theta_0)$를 초기 변환 행렬로 부여하여, ICP가 2~3회 반복 내에 즉시 수렴하도록 유도합니다.
-2. **SVD(Singular Value Decomposition) 기반 최적 회전 계산**:
-   - 중심점 정렬 후 공분산 행렬 $H = \sum (p_{\text{cur}}' \cdot {p_{\text{ref}}'}^T)$ 분해:
-   $$H = U \Sigma V^T \implies R = V U^T$$
-3. **이상치 제거 (Outlier Rejection)**:
-   - 최근접 거리 $> 0.35\,\text{m}$인 점(사람, 움직이는 물체)은 매칭에서 자동 제외하며, 유효 인라이어가 15개 미만인 경우 안전하게 매칭을 스킵하고 오도메트리를 유지합니다.
-4. **상보필터(Complementary Filter) 융합**:
-   $$x_{\text{corr}} = (1 - \alpha) x_{\text{odom}} + \alpha x_{\text{lidar}} \quad (\alpha = 0.40)$$
+$$\min_{R, t} \sum_{i} \| R p_{\mathrm{cur}, i} + t - p_{\mathrm{ref}, \mathrm{match}(i)} \|^2$$
+
+1. **오도메트리 사전 정보 (Warm Start):** 이전 프레임 오도메트리로부터 상대 변위 추정치 $(dx_0, dy_0, d\theta_0)$ 를 초기 변환 행렬로 부여하여, ICP가 2~3회 반복 내에 즉시 수렴하도록 유도한다.
+2. **SVD(Singular Value Decomposition) 기반 최적 회전 계산:** 중심점 정렬 후 공분산 행렬 $H = \sum (p_{\mathrm{cur}}' \cdot {p_{\mathrm{ref}}'}^T)$ 를 분해한다.
+
+$$H = U \Sigma V^T \implies R = V U^T$$
+
+3. **이상치 제거 (Outlier Rejection):** 최근접 거리 $d > 0.35$ m인 점(사람, 움직이는 물체)은 매칭에서 자동 제외하며, 유효 인라이어가 15개 미만인 경우 안전하게 매칭을 스킵하고 오도메트리를 유지한다.
+4. **상보필터(Complementary Filter) 융합:**
+
+$$x_{\mathrm{corr}} = (1 - \alpha) x_{\mathrm{odom}} + \alpha x_{\mathrm{lidar}} \quad (\alpha = 0.40)$$
 
 ---
 
