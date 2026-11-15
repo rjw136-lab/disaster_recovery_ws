@@ -608,6 +608,10 @@ def train_teacher_seed(
         if record_stages and upd in (25, 150):
             model.eval()
             st_tag = "early" if upd == 25 else "mid"
+            torch.save(
+                {"state_dict": model.state_dict(), "hidden_dim": teacher_hidden_dim, "track": track, "seed": seed, "update": upd},
+                os.path.join(archive_dir, f"stage_{st_tag}_upd{upd}_seed{seed}.pt"),
+            )
             mp4_p = os.path.join(evidence_dir, f"phase2_{track}_{st_tag}_upd{upd}.mp4")
             png_p = os.path.join(repo_img_dir, f"phase2_{track}_{st_tag}_upd{upd}.png")
             vid_res = render_3d_rollout_video(
@@ -1010,6 +1014,7 @@ def main() -> int:
     parser.add_argument("--summary-out", default=os.path.join(WS_ROOT, "benchmark_results", "phase2_training_summary.json"), help="Output summary JSON path")
     parser.add_argument("--distill-existing-tracks", default="", help="Comma-separated tracks whose existing checkpoints should be distilled without retraining")
     parser.add_argument("--render-videos-only", action="store_true", help="Re-render 3D rollout videos/PNGs from existing checkpoints and ONNX models without retraining")
+    parser.add_argument("--stage-eval-seed", type=int, default=0, help="Override procedural eval seed for stage/student rollout GIFs")
     args = parser.parse_args()
 
     onnx_out_dir = args.onnx_out_dir.strip() or os.path.join(WS_ROOT, "src", "disaster_recovery", "config")
@@ -1136,7 +1141,7 @@ def main() -> int:
             # Render final ONNX Student 3D MP4 & PNG visual proof on unseen procedural test case
             stu_mp4 = os.path.join(args.evidence_dir, f"phase2_{track}_final_student.mp4")
             stu_png = os.path.join(args.repo_img_dir, f"phase2_{track}_final_student.png")
-            eval_seed_vis = 10019 if track == "real_tb3" else 10002
+            eval_seed_vis = args.stage_eval_seed if args.stage_eval_seed > 0 else (10019 if track == "real_tb3" else 10002)
             stu_vid = render_3d_rollout_video(
                 track, "Distilled Student ONNX",
                 dist_res.pop("eval_fn"),

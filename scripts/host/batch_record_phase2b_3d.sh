@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+set -eo pipefail
+
+WS="/ws/disaster_recovery_ws"
+ONNX="${WS}/src/disaster_recovery/config/sim_policy_student.onnx"
+AB_DIR="/hdd/rl_v2_exp/bench_phase2b_v3_dynfix"
+SNAP_DIR="${WS}/docs/images/evidence"
+VID_HDD="/hdd/rl_v2_exp/videos"
+VID_REPO="${WS}/docs/videos"
+
+mkdir -p "${SNAP_DIR}" "${VID_HDD}" "${VID_REPO}"
+
+source /opt/ros/humble/setup.bash
+source "${WS}/install/setup.bash"
+
+encode_gif_under_limit() {
+  local in_mp4="$1"
+  local out_gif="$2"
+  local pal="/tmp/pal_$$.png"
+  local max_bytes=7800000
+
+  for spec in "760:10" "700:9" "640:8" "580:7"; do
+    local w="${spec%%:*}"
+    local fps="${spec##*:}"
+    ffmpeg -y -v error -i "${in_mp4}" \
+      -vf "fps=${fps},scale=${w}:-1:flags=lanczos,palettegen=stats_mode=diff" "${pal}"
+    ffmpeg -y -v error -i "${in_mp4}" -i "${pal}" \
+      -lavfi "fps=${fps},scale=${w}:-1:flags=lanczos[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=3" \
+      "${out_gif}"
+    local sz
+    sz=$(stat -c%s "${out_gif}")
+    echo "[GIF] ${out_gif} (${w}px @ ${fps}fps) -> ${sz} B"
+    if [ "${sz}" -le "${max_bytes}" ]; then
+      rm -f "${pal}"
+      return 0
+    fi
+  done
+  rm -f "${pal}"
+}
+
+record_and_gif() {
+  local scenario="$1"
+  local trial="$2"
+  local out_mp4="$3"
+  local out_gif="$4"
+
+  echo "=== RECORDING ${scenario} trial #${trial} ==="
+  python3 "${WS}/scripts/host/record_3d_evidence.py" \
+    --scenario "${scenario}" \
+    --strategy proposed_rl \
+    --onnx-path "${ONNX}" \
+    --ab-dir "${AB_DIR}" \
+    --trial "${trial}" \
+    --out-mp4 "${out_mp4}" \
+    --snapshot-dir "${SNAP_DIR}" \
+    --display :98 \
+    --gz-port 11398 \
+    --ros-domain-id 98 \
+    --rtf 2.5 \
+    --fps 30
+
+  encode_gif_under_limit "${out_mp4}" "${out_gif}"
+}
+
+record_and_gif "dynamic_crossfire_alley" 2 "${VID_REPO}/phase2b_v3_dynamic_crossfire_alley_t02.mp4" "${SNAP_DIR}/p2b_dynamic_crossfire_alley.gif"
+record_and_gif "smoke_lidar_corruption" 2 "${VID_REPO}/phase2b_v3_smoke_lidar_corruption_t02.mp4" "${SNAP_DIR}/p2b_smoke_lidar_corruption.gif"
+record_and_gif "u_pocket_trap" 10 "${VID_HDD}/phase2b_v3_u_pocket_trap_t10.mp4" "${SNAP_DIR}/phase2b_u_pocket_trap_t10.gif"
+record_and_gif "slip_chicane" 1 "${VID_HDD}/phase2b_v3_slip_chicane_t01.mp4" "${SNAP_DIR}/phase2b_slip_chicane_t01.gif"
+record_and_gif "house_hard" 8 "${VID_HDD}/phase2b_v3_house_hard_t08.mp4" "${SNAP_DIR}/phase2b_house_hard_t08.gif"
+record_and_gif "dynamic_gauntlet" 1 "${VID_HDD}/phase2b_v3_dynamic_gauntlet_t01.mp4" "${SNAP_DIR}/phase2b_dynamic_gauntlet_t01.gif"
+record_and_gif "dynamic_gauntlet" 2 "${VID_HDD}/phase2b_v3_dynamic_gauntlet_t02.mp4" "${SNAP_DIR}/phase2b_dynamic_gauntlet_t02.gif"
+
+echo "=== ALL 7 PHASE 2-B 3D CLIPS & GIFS COMPLETE ==="

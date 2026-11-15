@@ -38,8 +38,9 @@
           </mesh>
         </geometry>
         <material>
-          <ambient>0.3 0.3 0.3 1.0</ambient>
-          <diffuse>0.3 0.3 0.3 1.0</diffuse>
+          <ambient>0.26 0.34 0.46 1.0</ambient>
+          <diffuse>0.34 0.44 0.58 1.0</diffuse>
+          <emissive>0.12 0.18 0.26 1.0</emissive>
         </material>
       </visual>
     </link>
@@ -123,24 +124,6 @@
         </geometry>
       </collision>
 
-            <visual name="robot_top_beacon">
-        <pose>0 0 0.22 0 0 0</pose>
-        <geometry><cylinder><radius>0.24</radius><length>0.025</length></cylinder></geometry>
-        <material>
-          <ambient>0.0 0.95 1.0 1.0</ambient>
-          <diffuse>0.0 0.95 1.0 1.0</diffuse>
-          <emissive>0.0 0.75 0.95 1.0</emissive>
-        </material>
-      </visual>
-      <visual name="robot_heading_arrow">
-        <pose>0.18 0 0.24 0 0 0</pose>
-        <geometry><box><size>0.26 0.08 0.03</size></box></geometry>
-        <material>
-          <ambient>1.0 0.95 0.1 1.0</ambient>
-          <diffuse>1.0 0.95 0.1 1.0</diffuse>
-          <emissive>0.9 0.85 0.0 1.0</emissive>
-        </material>
-      </visual>
       <visual name="lidar_sensor_visual">
         <pose>-0.032 0 0.171 0 0 0</pose>
         <geometry>
@@ -150,8 +133,9 @@
           </mesh>
         </geometry>
         <material>
-          <ambient>0.2 0.2 0.2 1.0</ambient>
-          <diffuse>0.2 0.2 0.2 1.0</diffuse>
+          <ambient>1.0 0.55 0.08 1.0</ambient>
+          <diffuse>1.0 0.58 0.10 1.0</diffuse>
+          <emissive>0.48 0.22 0.02 1.0</emissive>
         </material>
       </visual>
 
@@ -247,8 +231,8 @@
           </mesh>
         </geometry>
         <material>
-          <ambient>0.2 0.2 0.2 1.0</ambient>
-          <diffuse>0.2 0.2 0.2 1.0</diffuse>
+          <ambient>0.08 0.08 0.08 1.0</ambient>
+          <diffuse>0.12 0.12 0.12 1.0</diffuse>
         </material>
       </visual>
     </link>
@@ -309,8 +293,8 @@
           </mesh>
         </geometry>
         <material>
-          <ambient>0.2 0.2 0.2 1.0</ambient>
-          <diffuse>0.2 0.2 0.2 1.0</diffuse>
+          <ambient>0.08 0.08 0.08 1.0</ambient>
+          <diffuse>0.12 0.12 0.12 1.0</diffuse>
         </material>
       </visual>
     </link>

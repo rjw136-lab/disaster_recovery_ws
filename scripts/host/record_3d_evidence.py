@@ -22,6 +22,7 @@ import time
 from typing import List, Optional, Sequence, Tuple
 
 import rclpy
+from gazebo_msgs.srv import SpawnEntity
 from geometry_msgs.msg import Point
 from visualization_msgs.msg import Marker, MarkerArray
 
@@ -293,6 +294,129 @@ def _publish_rviz_markers(
     pub.publish(ma)
 
 
+def _subsampled_pts(pts: Sequence[Tuple[float, float]], min_step: float = 0.18) -> List[Tuple[float, float]]:
+    """Subsample a 2D polyline while preserving start and end points."""
+    if len(pts) <= 2:
+        return [(float(p[0]), float(p[1])) for p in pts]
+    out: List[Tuple[float, float]] = [(float(pts[0][0]), float(pts[0][1]))]
+    for px, py in pts[1:-1]:
+        if math.hypot(float(px) - out[-1][0], float(py) - out[-1][1]) >= min_step:
+            out.append((float(px), float(py)))
+    ex, ey = float(pts[-1][0]), float(pts[-1][1])
+    if math.hypot(ex - out[-1][0], ey - out[-1][1]) >= 0.02:
+        out.append((ex, ey))
+    return out
+
+
+def _build_ribbon_sdf(
+    model_name: str,
+    pts: Sequence[Tuple[float, float]],
+    width: float,
+    height: float,
+    z: float,
+    rgba: Tuple[float, float, float, float],
+    emissive_rgba: Tuple[float, float, float, float],
+) -> str:
+    """Build a static collisionless SDF floor ribbon connecting pts."""
+    r, g, b, a = rgba
+    er, eg, eb, ea = emissive_rgba
+    mat_xml = (
+        f"<material><ambient>{r:.3f} {g:.3f} {b:.3f} {a:.3f}</ambient>"
+        f"<diffuse>{r:.3f} {g:.3f} {b:.3f} {a:.3f}</diffuse>"
+        f"<emissive>{er:.3f} {eg:.3f} {eb:.3f} {ea:.3f}</emissive></material>"
+    )
+    visuals: List[str] = []
+    for idx in range(len(pts) - 1):
+        x0, y0 = pts[idx]
+        x1, y1 = pts[idx + 1]
+        seg_len = math.hypot(x1 - x0, y1 - y0)
+        if seg_len < 0.015:
+            continue
+        mx = 0.5 * (x0 + x1)
+        my = 0.5 * (y0 + y1)
+        yaw = math.atan2(y1 - y0, x1 - x0)
+        box_len = seg_len + width * 0.45
+        visuals.append(
+            f'<visual name="seg_{idx}"><cast_shadows>false</cast_shadows>'
+            f'<pose>{mx:.4f} {my:.4f} {z:.4f} 0 0 {yaw:.4f}</pose>'
+            f'<geometry><box><size>{box_len:.4f} {width:.4f} {height:.4f}</size></box></geometry>'
+            f'{mat_xml}</visual>'
+        )
+    if not visuals:
+        return ""
+    return (
+        f'<?xml version="1.0"?><sdf version="1.6"><model name="{model_name}">'
+        f'<static>true</static><link name="link">{"".join(visuals)}</link></model></sdf>'
+    )
+
+
+CAMERA_OVERRIDES_3D = {
+    "u_pocket_trap": "4.9 -4.05 11.8 0 1.24 1.5708",
+    "slip_chicane": "4.8 -3.85 11.2 0 1.24 1.5708",
+    "dynamic_crossfire_alley": "4.8 -3.85 11.2 0 1.24 1.5708",
+    "smoke_lidar_corruption": "4.8 -3.85 11.2 0 1.24 1.5708",
+    "dynamic_gauntlet": "0.0 -3.25 9.4 0 1.24 1.5708",
+    "house_hard": "-0.3 -5.00 13.8 0 1.24 1.5708",
+}
+
+
+def _make_camera_world(src_world: str, dst_world: str, scenario: str) -> str:
+    """Create a temporary .world copy with an angled 3D perspective overview camera."""
+    pose_str = CAMERA_OVERRIDES_3D.get(scenario)
+    if not pose_str or not os.path.exists(src_world):
+        return src_world
+    with open(src_world, "r", encoding="utf-8") as f:
+        txt = f.read()
+    new_txt, n = re.subn(
+        r"(<camera\b[^>]*>\s*<pose(?:\s+frame='')?>)([^<]+)(</pose>)",
+        rf"\g<1>{pose_str}\g<3>",
+        txt,
+        count=1,
+    )
+    if n == 0:
+        return src_world
+    os.makedirs(os.path.dirname(os.path.abspath(dst_world)), exist_ok=True)
+    with open(dst_world, "w", encoding="utf-8") as f:
+        f.write(new_txt)
+    return dst_world
+
+
+def _build_base_camp_sdf(rx: float, ry: float, radius: float = 0.36) -> str:
+    """Build a hollow emerald-green ring on the Gazebo floor marking Base Camp without covering the robot."""
+    n_seg = 16
+    ring_pts: List[Tuple[float, float]] = []
+    for k in range(n_seg + 1):
+        ang = 2.0 * math.pi * float(k) / float(n_seg)
+        ring_pts.append((rx + radius * math.cos(ang), ry + radius * math.sin(ang)))
+    return _build_ribbon_sdf(
+        "gz_base_camp",
+        ring_pts,
+        width=0.055,
+        height=0.004,
+        z=0.0025,
+        rgba=(0.10, 0.95, 0.35, 1.0),
+        emissive_rgba=(0.08, 0.80, 0.25, 1.0),
+    )
+
+
+def _spawn_gazebo_visual(spawn_cli, node, name: str, sdf_xml: str, wait: bool = False) -> None:
+    """Spawn a collisionless visual SDF in Gazebo via /spawn_entity."""
+    if not sdf_xml or spawn_cli is None:
+        return
+    if wait:
+        spawn_cli.wait_for_service(timeout_sec=3.0)
+    if not spawn_cli.service_is_ready():
+        return
+    req = SpawnEntity.Request()
+    req.name = name
+    req.xml = sdf_xml
+    req.robot_namespace = ""
+    req.reference_frame = "world"
+    fut = spawn_cli.call_async(req)
+    if wait:
+        rclpy.spin_until_future_complete(node, fut, timeout_sec=3.0)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Record 3D Gazebo + RViz2 A/B evidence MP4 and PNG snapshots")
     parser.add_argument("--scenario", required=True, choices=list(SCENARIOS.keys()))
@@ -369,10 +493,11 @@ def main() -> int:
     print(f"[GL] VirtualGL={'ENABLED (Tesla V100 EGL)' if use_vgl else 'DISABLED (Mesa llvmpipe CPU)'}", flush=True)
 
     rx, ry, ryaw = cfg.reset_pose
+    rec_world = _make_camera_world(cfg.world_file, f"/tmp/disaster_recovery/rec_world_{args.scenario}.world", args.scenario)
     p_gz = subprocess.Popen(
         [
             "bash", "-c",
-            env_prefix + f"ros2 launch disaster_recovery disaster_world.launch.py x_pose:={rx} y_pose:={ry} yaw_pose:={ryaw} world:={cfg.world_file} gui:=false",
+            env_prefix + f"ros2 launch disaster_recovery disaster_world.launch.py x_pose:={rx} y_pose:={ry} yaw_pose:={ryaw} world:={rec_world} gui:=false",
         ],
         stdout=open(f"/tmp/disaster_recovery/rec_gz_{args.scenario}_{args.strategy}.log", "w"),
         stderr=subprocess.STDOUT,
@@ -417,6 +542,7 @@ def main() -> int:
     node = SimHarnessNode()
     node.crossfire_dynamic = bool(cfg.crossfire_dynamic)
     pub_markers = node.create_publisher(MarkerArray, "/debris_markers", 10)
+    spawn_cli = node.create_client(SpawnEntity, "/spawn_entity")
     outbound_pts: List[Tuple[float, float]] = [(rx, ry)]
 
     try:
@@ -442,6 +568,7 @@ def main() -> int:
         _arrange_x11_windows(args.display)
 
         # Outbound exploration phase
+        _spawn_gazebo_visual(spawn_cli, node, "gz_base_camp", _build_base_camp_sdf(rx, ry), wait=True)
         node.set_heartbeat(True)
         node.trigger_episode_reset()
         node.sim_sleep(0.3)
@@ -482,6 +609,19 @@ def main() -> int:
 
         node.stop_drive()
         node.sim_sleep(0.2)
+
+        # Render full Outbound trajectory on Gazebo floor (sky-blue solid ribbon)
+        outbound_sub = _subsampled_pts(outbound_pts, min_step=0.18)
+        outbound_sdf = _build_ribbon_sdf(
+            "gz_outbound_path",
+            outbound_sub,
+            width=0.065,
+            height=0.004,
+            z=0.0035,
+            rgba=(0.05, 0.78, 1.0, 1.0),
+            emissive_rgba=(0.04, 0.62, 0.92, 1.0),
+        )
+        _spawn_gazebo_visual(spawn_cli, node, "gz_outbound_path", outbound_sdf, wait=True)
 
         # Start ffmpeg 3D recording BEFORE spawning debris & blackout!
         _arrange_x11_windows(args.display)
@@ -529,6 +669,8 @@ def main() -> int:
         saw_recovery = False
         success = False
         prev_rx, prev_ry = node.cur_x, node.cur_y
+        prev_gz_rx, prev_gz_ry = node.cur_x, node.cur_y
+        ret_gz_idx = 0
         while node.sim_now() - t_blackout < args.max_sim_sec:
             t_s = node.sim_now()
             while node.sim_now() - t_s < 0.033:
@@ -536,6 +678,19 @@ def main() -> int:
             if math.hypot(node.cur_x - prev_rx, node.cur_y - prev_ry) >= 0.03:
                 prev_rx, prev_ry = node.cur_x, node.cur_y
                 return_pts.append((node.cur_x, node.cur_y))
+            if math.hypot(node.cur_x - prev_gz_rx, node.cur_y - prev_gz_ry) >= 0.18:
+                seg_sdf = _build_ribbon_sdf(
+                    f"gz_ret_{ret_gz_idx}",
+                    [(prev_gz_rx, prev_gz_ry), (node.cur_x, node.cur_y)],
+                    width=0.080,
+                    height=0.006,
+                    z=0.0070,
+                    rgba=(0.10, 1.0, 0.28, 1.0),
+                    emissive_rgba=(0.08, 0.92, 0.22, 1.0),
+                )
+                _spawn_gazebo_visual(spawn_cli, node, f"gz_ret_{ret_gz_idx}", seg_sdf, wait=False)
+                ret_gz_idx += 1
+                prev_gz_rx, prev_gz_ry = node.cur_x, node.cur_y
             sim_el = max(0.0, node.sim_now() - t_blackout)
             dist_rem_now = math.hypot(node.cur_x - rx, node.cur_y - ry)
             telemetry_log.append((time.time() - t_rec_wall0, sim_el, str(node.ctrl_state), dist_rem_now))
@@ -546,6 +701,18 @@ def main() -> int:
                 saw_recovery = True
             if saw_recovery and node.ctrl_state in ("MISSION_COMPLETE", "NORMAL_TELEOP"):
                 success = True
+                if math.hypot(node.cur_x - prev_gz_rx, node.cur_y - prev_gz_ry) >= 0.03:
+                    seg_sdf = _build_ribbon_sdf(
+                        f"gz_ret_{ret_gz_idx}",
+                        [(prev_gz_rx, prev_gz_ry), (node.cur_x, node.cur_y)],
+                        width=0.080,
+                        height=0.006,
+                        z=0.0070,
+                        rgba=(0.10, 1.0, 0.28, 1.0),
+                        emissive_rgba=(0.08, 0.92, 0.22, 1.0),
+                    )
+                    _spawn_gazebo_visual(spawn_cli, node, f"gz_ret_{ret_gz_idx}", seg_sdf, wait=False)
+                    ret_gz_idx += 1
                 return_pts.append((node.cur_x, node.cur_y))
                 _publish_rviz_markers(pub_markers, node, rx, ry, debris_positions, outbound_pts, return_pts=return_pts, show_debris=True)
                 for _ in range(10):
@@ -666,7 +833,7 @@ def _apply_hud_overlay(
     for fp in font_paths:
         if os.path.exists(fp):
             try:
-                font_top = ImageFont.truetype(fp, 22)
+                font_top = ImageFont.truetype(fp, 19)
                 font_bot = ImageFont.truetype(fp, 24)
                 break
             except Exception:
@@ -727,11 +894,11 @@ def _apply_hud_overlay(
         draw.rectangle([(0, 0), (1920, 48)], fill=(15, 23, 42, 220))
         draw.line([(0, 48), (1920, 48)], fill=(56, 189, 248, 255), width=2)
         top_txt = (
-            f"  {strat_label}  |  {scenario} Trial #{trial:02d}  |  "
-            f"상태: {st_name}  |  경과: {sim_el:5.1f}s  |  잔여: {dist_rem:4.2f}m"
+            f"{strat_label} | {scenario} #{trial:02d} | "
+            f"{st_name} | {sim_el:5.1f}s | 잔여 {dist_rem:4.2f}m"
         )
-        draw.text((18, 10), top_txt, font=font_top, fill=(248, 250, 252, 255))
-        draw.text((1250, 10), "[RViz2: SLAM /map · 초록 복귀 궤적 · 노란 낙석 마커]", font=font_top, fill=(134, 239, 172, 255))
+        draw.text((16, 12), top_txt, font=font_top, fill=(248, 250, 252, 255))
+        draw.text((1240, 12), "[Gazebo+RViz2: 하늘=진입 · 초록=복귀 · 노랑=낙석]", font=font_top, fill=(134, 239, 172, 255))
 
         # Bottom Event Banner
         if sim_el <= 4.5:

@@ -19,7 +19,16 @@ import numpy as np
 
 
 DEFAULT_MODELS_ROOT = os.environ.get(
-    "GAZEBO_MODELS_DIR", os.path.expanduser("~/.gazebo/models")
+    "GAZEBO_MODELS_DIR",
+    ":".join(
+        p for p in [
+            os.path.expanduser("~/.gazebo/models"),
+            "/root/.gazebo/models",
+            "/usr/share/gazebo-11/models",
+            "/opt/ros/humble/share/turtlebot3_gazebo/models",
+            os.environ.get("GAZEBO_MODEL_PATH", ""),
+        ] if p
+    ),
 )
 SKIP_MODEL_SUBSTRINGS = (
     "ground_plane",
@@ -281,8 +290,24 @@ def _resolve_model_uri(uri: str, models_root: str) -> Optional[str]:
     if not uri or not uri.startswith("model://"):
         return None
     rel = uri[len("model://"):]
-    cand = os.path.join(models_root, rel)
-    return cand if os.path.exists(cand) else None
+    roots: List[str] = []
+    for entry in (models_root or "").split(":"):
+        entry = entry.strip()
+        if entry and entry not in roots:
+            roots.append(entry)
+    for fallback in (
+        "/opt/ros/humble/share/turtlebot3_gazebo/models",
+        "/root/.gazebo/models",
+        os.path.expanduser("~/.gazebo/models"),
+        "/usr/share/gazebo-11/models",
+    ):
+        if fallback not in roots:
+            roots.append(fallback)
+    for root in roots:
+        cand = os.path.join(root, rel)
+        if os.path.exists(cand):
+            return cand
+    return None
 
 
 def _process_geometry_elem(

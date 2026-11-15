@@ -259,12 +259,22 @@ flowchart TD
 
 ---
 
-### 3. 15대 재난 시나리오별 맵 구성 · 진입 경로 · 유리한 복귀 방식
+### 3. 15대 재난 시나리오별 맵 구성(3D · 2D) · 진입 경로 · 유리한 복귀 방식
+
+#### 3-1) 3D Gazebo 시뮬레이션 환경 맵 (9개 고유 월드 · 15대 시나리오 대응)
+
+<p align="center">
+  <img src="docs/images/scenario_worlds_15_3d.png" alt="15 Disaster Scenarios 3D Gazebo Environments" width="100%">
+  <br>
+  <em>▲ Gazebo 3D 기반 9개 고유 재난 시뮬레이션 환경 조감도 (붕괴 건물·터널·다실 가옥·동적 미로·U자 포켓·저마찰 시케인·동적 회랑·교차 골목·연기 복도, `docs/images/scenario_worlds_15_3d.png`)</em>
+</p>
+
+#### 3-2) 2D 구조 단면 및 시나리오별 이동·복귀 경로 지도
 
 <p align="center">
   <img src="docs/images/scenario_routes_15_atlas.png" alt="15 Disaster Scenarios Movement Routes and 4-Stage Return Trajectories Atlas" width="100%">
   <br>
-  <em>▲ 15개 시나리오 전체 이동 경로 지도: 출발 기지(★), 진입 경로(회색 점선), 통신 단절 지점(✖), 낙석(보라색 원), 알고리즘별 복귀 궤적 (`docs/images/scenario_routes_15_atlas.png`)</em>
+  <em>▲ 15개 시나리오 2D 벽체·구조 단면 및 이동 경로 지도: 고정 벽체·구조물(회색 단면), 출발 기지(★), 진입 경로(회색 점선), 통신 단절 지점(✖), 낙석(보라색 원), 알고리즘별 복귀 궤적 (`docs/images/scenario_routes_15_atlas.png`)</em>
 </p>
 
 | # | 시나리오 ID | 맵 특징 | 시작 좌표 | 주요 진입 경로 (Outbound) | 단절 거리 | 추가 장애물 조건 |
@@ -379,23 +389,27 @@ flowchart TD
 | <img src="docs/images/evidence/comp4_u_pocket_trap.gif" width="100%" alt="4-Way u_pocket_trap"> | <img src="docs/images/evidence/comp4_house_hard.gif" width="100%" alt="4-Way house_hard"> | <img src="docs/images/evidence/comp4_slip_chicane.gif" width="100%" alt="4-Way slip_chicane"> |
 
 #### 3) [3D Gazebo + RViz2 `/map` 듀얼 뷰] 신규 재난 시나리오 2종 (`#14` & `#15`) 실시간 복귀 영상
-| `#14 dynamic_crossfire_alley` (`Trial #02 · PASS · 61.4s`) | `#15 smoke_lidar_corruption` (`Trial #02 · PASS · 66.1s`) |
+| `#14 dynamic_crossfire_alley` (`Trial #02 · PASS · 76.4s · err 8.5cm`) | `#15 smoke_lidar_corruption` (`Trial #02 · PASS · 68.8s · err 7.4cm`) |
 | :---: | :---: |
 | <img src="docs/images/evidence/p2b_dynamic_crossfire_alley.gif" width="100%" alt="3D Gazebo dynamic_crossfire_alley"> | <img src="docs/images/evidence/p2b_smoke_lidar_corruption.gif" width="100%" alt="3D Gazebo smoke_lidar_corruption"> |
 
-#### 4) [3D Gazebo + RViz2 `/map` 듀얼 뷰] 비정형·동적 장애물 5종 (`u_pocket_trap` · `slip_chicane` · `house_hard` · `dynamic_gauntlet`)
-| U자 함정 탈출 (`u_pocket_trap #10 · PASS`) | 저마찰 시케인 (`slip_chicane #01 · PASS`) | 고난도 다실 가옥 (`house_hard #08 · PASS`) |
+#### 4) [3D Gazebo + RViz2 `/map` 듀얼 뷰] 비정형·동적 장애물 4개 시나리오 5편 (`u_pocket_trap` · `slip_chicane` · `house_hard` · `dynamic_gauntlet`)
+| U자 함정 탈출 (`u_pocket_trap #10 · PASS · 44.3s`) | 저마찰 시케인 (`slip_chicane #01 · PASS · 92.8s`) | 고난도 다실 가옥 (`house_hard #08 · PASS · 88.3s`) |
 | :---: | :---: | :---: |
 | <img src="docs/images/evidence/phase2b_u_pocket_trap_t10.gif" width="100%" alt="Phase 2-B u_pocket_trap t10"> | <img src="docs/images/evidence/phase2b_slip_chicane_t01.gif" width="100%" alt="Phase 2-B slip_chicane t01"> | <img src="docs/images/evidence/phase2b_house_hard_t08.gif" width="100%" alt="Phase 2-B house_hard t08"> |
 
-| 동적 배플 교차 #01 (`dynamic_gauntlet #01 · PASS`) | 동적 배플 교차 #02 (`dynamic_gauntlet #02 · PASS`) |
+| 동적 배플 교차 #01 (`dynamic_gauntlet #01 · PASS · 46.4s`) | 동적 배플 교차 #02 (`dynamic_gauntlet #02 · PASS · 45.4s`) |
 | :---: | :---: |
 | <img src="docs/images/evidence/phase2b_dynamic_gauntlet_t01.gif" width="100%" alt="Phase 2-B dynamic_gauntlet t01"> | <img src="docs/images/evidence/phase2b_dynamic_gauntlet_t02.gif" width="100%" alt="Phase 2-B dynamic_gauntlet t02"> |
 
-#### 5) Phase 2-B V100 커리큘럼 재학습 진화 과정 (`Early → Mid → Final Student`) & 학습 곡선
-| Early (`upd 25`) | Mid (`upd 150`) | Final Phase 2-B Student |
+> *모든 3D Gazebo+RViz2 영상은 TurtleBot3 Burger URDF 원형 메쉬, 바닥 진입 경로(하늘색) · 실시간 복귀 경로(초록색) · Base Camp 원형 링이 함께 렌더링되며 GitHub 표시 규격(`7.8MB` 이하)으로 압축되었다.*
+
+#### 5) Phase 2-B V100 커리큘럼 재학습 진화 과정 (`Early → Mid → Final Student` · `Seed 10112 dynamic_crossing`) & 학습 곡선
+| Early (`upd 25` · `COLLISION`, 83스텝) | Mid (`upd 150` · `TIMEOUT`, 321스텝) | Final Phase 2-B Student (`PASS`, 247스텝) |
 | :---: | :---: | :---: |
 | <img src="docs/images/evidence/phase2b_retrain_early_upd25.gif" width="100%" alt="Phase 2-B Retrain Early upd25"> | <img src="docs/images/evidence/phase2b_retrain_mid_upd150.gif" width="100%" alt="Phase 2-B Retrain Mid upd150"> | <img src="docs/images/evidence/phase2b_retrain_final_student.gif" width="100%" alt="Phase 2-B Retrain Final Student"> |
+
+> *동일 홀드아웃 `Seed 10112 (dynamic_crossing)` 기준: **Early**는 첫 배플 틈새에서 충돌(`COLLISION`), **Mid**는 벽과 이동 장애물은 피하나 목표 앞 배회로 시간 초과(`TIMEOUT`), **Final Student**는 S자 회피 후 `24.6s` 만에 목표에 안착(`PASS`)한다.*
 
 <p align="center">
   <img src="docs/images/evidence/phase2b_learning_curves_sim.png" alt="Phase 2-B V100 Retraining Learning Curves" width="68%">
