@@ -31,7 +31,16 @@ ros2 run camera_ros camera_node --ros-args \
 CAM_PID=$!
 sleep 2
 
-echo "  🚨 [3/3] 온보드 재난 복귀 패키지 구동 (robot_onboard.launch.py)..."
+# 프로필 선택 (기본값: 실물 보수 Phase 2-B 프로필 / --baseline 전달 시 기존 기본 프로필)
+LAUNCH_FILE="robot_onboard_real.launch.py"
+if [ "${1:-}" = "--baseline" ]; then
+    LAUNCH_FILE="robot_onboard.launch.py"
+fi
+
+echo "  🚨 [3/3] 온보드 재난 복귀 패키지 구동 (${LAUNCH_FILE})..."
+if ! python3 -c "import onnxruntime" 2>/dev/null; then
+    echo "  ⚠ [경고] onnxruntime 미설치 — Context-RL 비활성화 후 2D A* 폴백으로 동작합니다."
+fi
 echo "============================================================"
 echo "  🎮 로봇 모터(/cmd_vel), 라이다(/scan), 카메라, 오디오 모두 활성화됨!"
 echo "  🛑 종료하려면 언제든지 키보드 [Ctrl + C]를 누르세요."
@@ -48,7 +57,7 @@ trap cleanup SIGINT SIGTERM
 
 if [ -f "$HOME/disaster_recovery_ws/install/setup.bash" ]; then
     source "$HOME/disaster_recovery_ws/install/setup.bash"
-    ros2 launch disaster_recovery robot_onboard.launch.py
+    ros2 launch disaster_recovery "${LAUNCH_FILE}"
 else
     echo "⚠ disaster_recovery_ws 빌드 후 실행하세요."
 fi

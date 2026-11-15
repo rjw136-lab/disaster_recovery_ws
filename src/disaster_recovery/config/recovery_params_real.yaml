@@ -1,0 +1,98 @@
+# Conservative physical-robot profile for TurtleBot3 Burger (RPi 4 + LDS-01 + OpenCR + IMX219 + MQ-2)
+# Separates Track B (real_tb3_policy_student.onnx) and hardware safety limits from Gazebo simulation defaults.
+recovery_controller:
+  ros__parameters:
+    # Phase 2-B Strategy & Track B Physical-Robot Model
+    recovery_strategy: "proposed_rl"
+    enable_phase2b_envelope: true
+    context_rl_onnx_path: "real_tb3_policy_student.onnx"
+    smoke_lidar_noise_prob: 0.0       # Never inject synthetic smoke noise on real LDS-01 scans
+
+    # Safety Watchdog
+    heartbeat_timeout_sec: 3.0
+    gas_threshold: 0.40               # gas_sensor_node danger metric (1 - Rs/Rs_air), not ppm
+    gas_stale_timeout_sec: 2.0
+    gas_stale_triggers_recovery: false
+
+    # Breadcrumb Logging & Arrival Tolerance
+    log_dist_threshold_m: 0.30
+    log_angle_threshold_deg: 25.0
+    waypoint_reach_radius_m: 0.12
+    heading_tolerance_rad: 0.12
+    docking_start_distance_m: 0.50
+
+    # Conservative Initial Physical Velocities & Stiction Deadzone Floor
+    linear_speed_max: 0.15            # Conservative cap (75% of 0.20 m/s) for initial real trials
+    angular_speed_max: 0.55           # Conservative cap (85% of 0.65 rad/s)
+    min_effective_linear_vel: 0.025   # Overcomes OpenCR/Dynamixel static friction above 0.005 m/s
+    min_effective_angular_vel: 0.08   # Overcomes tire-floor pivot friction above 0.02 rad/s
+    kp_linear: 0.55
+    kp_angular: 1.30
+
+    # LDS-01 Safety Envelope & Rolling 2D Grid A*
+    lidar_min_range_m: 0.12
+    lidar_max_danger_range_m: 0.28    # Slightly wider safety stop margin than sim (0.25 m)
+    lidar_fov_half_deg: 22.0
+    local_grid_size_m: 6.0
+    local_grid_res_m: 0.04
+    local_grid_inflation_m: 0.095     # Extra C-space margin vs sim (0.085 m) for real slip
+    shortcut_rejoin_dist_m: 2.5       # Conservative topological shortcut window vs sim (3.2 m)
+    unstuck_window_sec: 2.8
+    unstuck_min_disp_m: 0.06
+    lookahead_dist_m: 0.45
+
+    # 2D ICP Scan Matching & ArUco Base-Camp Precision Docking
+    enable_scan_matching: true
+    scan_match_weight: 0.40
+    scan_match_max_dist_m: 0.45
+    use_aruco_docking: true           # Physical base camp uses printed ArUco ID 0 marker
+    aruco_docking_timeout_sec: 12.0   # Safety guard timeout if marker stays occluded
+
+    # Fallback Layers (when ONNX unavailable)
+    enable_hybrid_tracking: true
+    enable_td3_avoidance: true
+    td3_model_path: ""
+    td3_clearance_dist_m: 0.42
+    td3_max_avoid_steps: 250
+
+gas_sensor_node:
+  ros__parameters:
+    i2c_bus: 1
+    i2c_address: 72                   # 0x48 (ADS1115 ADDR -> GND)
+    adc_channel: 0                    # AIN0
+    adc_fsr_v: 4.096
+    sample_rate_hz: 20.0
+    ema_alpha: 0.15
+    divider_r1_kohm: 10.0
+    divider_r2_kohm: 20.0
+    sensor_vcc: 5.0
+    load_resistor_kohm: 10.0
+    warmup_sec: 60.0
+    baseline_samples: 100
+    rs_air_kohm: 0.0
+    max_consecutive_errors: 10
+
+aruco_docking:
+  ros__parameters:
+    marker_id: 0                      # DICT_4X4_50 ID 0 (scripts/rpi/generate_marker.py)
+    marker_size_m: 0.05               # Matches scripts/rpi/start.py & TURTLEBOT3_ARUCO_GUIDE.md (5.0 cm)
+    target_dock_dist_m: 0.20
+    dist_tolerance_m: 0.02
+    lateral_tolerance_m: 0.02
+    yaw_tolerance_rad: 0.05
+    kp_linear: 0.40
+    kp_lateral: 1.20
+    kp_yaw: 0.80
+    max_linear_speed: 0.06            # Conservative final creep speed (vs 0.08)
+    max_angular_speed: 0.30           # Conservative alignment turn speed (vs 0.35)
+    search_angular_speed: 0.18
+    search_timeout_sec: 10.0
+    camera_rotation_deg: 270          # IMX219 mounted sideways (270 deg upright compensation)
+
+audio_capture_node:
+  ros__parameters:
+    alsa_device: "plughw:1,0"
+    sample_rate: 48000
+    channels: 1
+    chunk_duration_sec: 0.5
+    audio_topic: "/audio/raw"

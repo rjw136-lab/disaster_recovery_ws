@@ -15,9 +15,11 @@ import numpy as np
 import pytest
 
 from disaster_recovery.recovery_controller import (
+    apply_motor_deadzone,
     compute_rl_blend_weight,
     icp_match_2d,
     normalize_angle,
+    resolve_config_asset,
 )
 from disaster_recovery.td3_policy import (
     TD3LocalAvoidancePolicy,
@@ -202,3 +204,84 @@ def test_clearance_gated_rl_blend_weight():
     # Intermediate transition -> strictly between 0 and 0.70
     w_mid = compute_rl_blend_weight(front_min=0.365, side_clearance=0.90, used_tight_pass=False)
     assert 0.0 < w_mid < 0.70
+
+
+def test_real_tb3_deadzone_and_asset_resolution():
+    """Verify real-robot stiction deadzone compensation and strict ONNX asset resolution."""
+    # Exact hold commands must stay untouched at (0.0, 0.0)
+    assert apply_motor_deadzone(0.0, 0.0, min_v=0.025, min_w=0.08, v_max=0.15, w_max=0.55) == (0.0, 0.0)
+
+    # Micro jitter inside deadband zeros cleanly while actionable commands overcome stiction
+    v_buzz, w_buzz = apply_motor_deadzone(0.003, -0.01, min_v=0.025, min_w=0.08, v_max=0.15, w_max=0.55)
+    assert v_buzz == 0.0 and w_buzz == 0.0
+
+    v_boost, w_boost = apply_motor_deadzone(0.012, -0.04, min_v=0.025, min_w=0.08, v_max=0.15, w_max=0.55)
+    assert abs(v_boost - 0.025) < 1e-6
+    assert abs(w_boost + 0.08) < 1e-6
+
+    v_cap, w_cap = apply_motor_deadzone(0.20, 0.65, min_v=0.025, min_w=0.08, v_max=0.15, w_max=0.55)
+    assert abs(v_cap - 0.15) < 1e-6 and abs(w_cap - 0.55) < 1e-6
+
+    cfg_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config"))
+    real_resolved = resolve_config_asset(
+        "real_tb3_policy_student.onnx", "sim_policy_student.onnx", search_dirs=[cfg_dir]
+    )
+    assert real_resolved == os.path.join(cfg_dir, "real_tb3_policy_student.onnx")
+
+    # Explicit non-existent model must return "" instead of silently loading sim weights
+    missing_resolved = resolve_config_asset(
+        "nonexistent_real_model.onnx", "sim_policy_student.onnx", search_dirs=[cfg_dir]
+    )
+    assert missing_resolved == ""
+
+    default_resolved = resolve_config_asset("", "sim_policy_student.onnx", search_dirs=[cfg_dir])
+    assert default_resolved == os.path.join(cfg_dir, "sim_policy_student.onnx")
+
+
+def test_real_robot_profile_and_lds01_zero_dropouts():
+    """Validate conservative recovery_params_real.yaml settings and LDS-01 0.0 dropout stability."""
+    import yaml
+    from disaster_recovery.rl_context_policy import ContextRLStudentPolicy
+
+    cfg_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config"))
+    real_yaml = os.path.join(cfg_dir, "recovery_params_real.yaml")
+    real_launch = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "launch", "robot_onboard_real.launch.py")
+    )
+    assert os.path.exists(real_yaml)
+    assert os.path.exists(real_launch)
+
+    with open(real_yaml, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+
+    rc = data["recovery_controller"]["ros__parameters"]
+    assert rc["recovery_strategy"] == "proposed_rl"
+    assert rc["enable_phase2b_envelope"] is True
+    assert rc["context_rl_onnx_path"] == "real_tb3_policy_student.onnx"
+    assert rc["smoke_lidar_noise_prob"] == 0.0
+    assert rc["linear_speed_max"] <= 0.16
+    assert rc["angular_speed_max"] <= 0.60
+    assert rc["min_effective_linear_vel"] > 0.0
+    assert rc["min_effective_angular_vel"] > 0.0
+    assert rc["use_aruco_docking"] is True
+
+    aruco = data["aruco_docking"]["ros__parameters"]
+    assert aruco["marker_id"] == 0
+    assert abs(aruco["marker_size_m"] - 0.05) < 1e-6
+    assert aruco["camera_rotation_deg"] == 270
+
+    # Ensure Track B ONNX handles LDS-01 zero-range dropouts cleanly under real speed caps
+    onnx_path = os.path.join(cfg_dir, rc["context_rl_onnx_path"])
+    assert os.path.exists(onnx_path)
+    policy = ContextRLStudentPolicy(
+        onnx_path=onnx_path,
+        v_max=rc["linear_speed_max"],
+        w_max=rc["angular_speed_max"],
+        phase2b_mode=True,
+    )
+    lds_ranges = np.full(360, 2.2, dtype=np.float32)
+    lds_ranges[::9] = 0.0  # Real LDS-01 no-return / out-of-range beams
+    lds_ranges[0] = 0.45
+    v, w = policy.predict(lds_ranges, 0.0, 0.0, 0.0, 1.0, 0.0, 0.08, 0.0, 0.06, 0.0, step_norm=0.2)
+    assert math.isfinite(v) and math.isfinite(w)
+    assert -0.10 <= v <= 0.20 and -0.65 <= w <= 0.65

@@ -89,6 +89,73 @@ def normalize_angle(angle: float) -> float:
     return angle
 
 
+def apply_motor_deadzone(
+    v_cmd: float,
+    w_cmd: float,
+    min_v: float = 0.0,
+    min_w: float = 0.0,
+    v_max: float = 0.20,
+    w_max: float = 0.65,
+    min_v_reverse: float = -0.10,
+) -> tuple[float, float]:
+    """Compensate OpenCR/Dynamixel stiction deadzone while keeping explicit zero holds untouched."""
+    v_out = float(v_cmd)
+    w_out = float(w_cmd)
+
+    if abs(v_out) <= 1e-4 and abs(w_out) <= 1e-4:
+        return 0.0, 0.0
+
+    if min_v > 0.0:
+        if abs(v_out) <= 0.005:
+            v_out = 0.0
+        elif abs(v_out) < min_v:
+            v_out = math.copysign(min_v, v_out)
+
+    if min_w > 0.0:
+        if abs(w_out) <= 0.02:
+            w_out = 0.0
+        elif abs(w_out) < min_w:
+            w_out = math.copysign(min_w, w_out)
+
+    v_out = max(float(min_v_reverse), min(float(v_max), v_out))
+    w_out = max(-float(w_max), min(float(w_max), w_out))
+    return v_out, w_out
+
+
+def resolve_config_asset(
+    configured_path: str,
+    default_filename: str,
+    search_dirs: Optional[list[str]] = None,
+) -> str:
+    """Resolve an explicit asset path or filename in package config directories without silent sim fallback."""
+    if search_dirs is None:
+        search_dirs = []
+        try:
+            from ament_index_python.packages import get_package_share_directory
+            search_dirs.append(os.path.join(get_package_share_directory("disaster_recovery"), "config"))
+        except Exception:
+            pass
+        mod_dir = os.path.dirname(os.path.abspath(__file__))
+        search_dirs.append(os.path.abspath(os.path.join(mod_dir, "..", "config")))
+
+    req = (configured_path or "").strip()
+    if req:
+        if os.path.exists(req):
+            return req
+        if not os.path.isabs(req):
+            for cfg_dir in search_dirs:
+                cand = os.path.join(cfg_dir, req)
+                if os.path.exists(cand):
+                    return cand
+        return ""
+
+    for cfg_dir in search_dirs:
+        cand = os.path.join(cfg_dir, default_filename)
+        if os.path.exists(cand):
+            return cand
+    return ""
+
+
 def compute_rl_blend_weight(
     front_min: float,
     side_clearance: float,
@@ -220,6 +287,8 @@ class RecoveryController(Node):
         self.declare_parameter('context_rl_onnx_path', '')
         self.declare_parameter('enable_phase2b_envelope', True)
         self.declare_parameter('smoke_lidar_noise_prob', 0.0)
+        self.declare_parameter('min_effective_linear_vel', 0.0)
+        self.declare_parameter('min_effective_angular_vel', 0.0)
 
         # Retrieve parameters
         self.heartbeat_timeout = self.get_parameter('heartbeat_timeout_sec').value
@@ -259,6 +328,8 @@ class RecoveryController(Node):
         self.context_rl_onnx_path = str(self.get_parameter('context_rl_onnx_path').value)
         self.enable_phase2b_envelope = bool(self.get_parameter('enable_phase2b_envelope').value)
         self.smoke_lidar_noise_prob = float(self.get_parameter('smoke_lidar_noise_prob').value)
+        self.min_effective_linear_vel = float(self.get_parameter('min_effective_linear_vel').value)
+        self.min_effective_angular_vel = float(self.get_parameter('min_effective_angular_vel').value)
         self.is_phase2b = (self.recovery_strategy == 'proposed_rl') and self.enable_phase2b_envelope
         self._scan_tick_seq = 0
         self._prev_escape_count = 0
@@ -338,21 +409,7 @@ class RecoveryController(Node):
                 phase2b_mode=self.is_phase2b,
             )
             if self.recovery_strategy == 'proposed_rl':
-                rl_path = self.context_rl_onnx_path
-                if not rl_path or not os.path.exists(rl_path):
-                    rl_cands = []
-                    try:
-                        from ament_index_python.packages import get_package_share_directory
-                        pkg_cfg = os.path.join(get_package_share_directory("disaster_recovery"), "config")
-                        rl_cands.append(os.path.join(pkg_cfg, "sim_policy_student.onnx"))
-                    except Exception:
-                        pass
-                    mod_dir = os.path.dirname(os.path.abspath(__file__))
-                    rl_cands.append(os.path.abspath(os.path.join(mod_dir, "..", "config", "sim_policy_student.onnx")))
-                    for c in rl_cands:
-                        if os.path.exists(c):
-                            rl_path = c
-                            break
+                rl_path = resolve_config_asset(self.context_rl_onnx_path, "sim_policy_student.onnx")
                 if rl_path and os.path.exists(rl_path):
                     try:
                         self.context_rl_policy = ContextRLStudentPolicy(
@@ -367,7 +424,8 @@ class RecoveryController(Node):
                     except Exception as exc:
                         self.get_logger().warn(f"[PROPOSED_RL] ONNX load failed ({exc}), falling back to A*")
                 else:
-                    self.get_logger().warn("[PROPOSED_RL] sim_policy_student.onnx not found, falling back to A*")
+                    target_name = self.context_rl_onnx_path.strip() or "sim_policy_student.onnx"
+                    self.get_logger().warn(f"[PROPOSED_RL] {target_name} not found, falling back to A*")
             else:
                 self.get_logger().info(
                     "[PROPOSED] Rolling 2D Grid A* + Topological Shortcut + Unstuck Escape active"
@@ -982,6 +1040,14 @@ class RecoveryController(Node):
                 self.state = SystemState.BACKTRACKING_HYBRID
                 self.active_target_wp = (
                     self.waypoint_stack[-1] if len(self.waypoint_stack) > 0 else self.start_pose
+                )
+                v_cmd, w_cmd = apply_motor_deadzone(
+                    v_cmd,
+                    w_cmd,
+                    min_v=self.min_effective_linear_vel,
+                    min_w=self.min_effective_angular_vel,
+                    v_max=self.v_max,
+                    w_max=self.w_max,
                 )
                 cmd = Twist()
                 cmd.linear.x = float(v_cmd)
