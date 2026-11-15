@@ -414,7 +414,7 @@ flowchart TD
 | <img src="docs/images/evidence/comp4_u_pocket_trap.gif" width="100%" alt="4-Way u_pocket_trap"> | <img src="docs/images/evidence/comp4_house_hard.gif" width="100%" alt="4-Way house_hard"> | <img src="docs/images/evidence/comp4_slip_chicane.gif" width="100%" alt="4-Way slip_chicane"> |
 
 #### 3) [3D Gazebo + RViz2 `/map` 듀얼 뷰] 신규 재난 시나리오 2종 (`#14` & `#15`) 실시간 복귀 영상
-| `#14 dynamic_crossfire_alley` (`Trial #02 · PASS · 46.4s · err 8.7cm`) | `#15 smoke_lidar_corruption` (`Trial #02 · PASS · 70.4s · err 7.1cm`) |
+| `#14 dynamic_crossfire_alley` (`Trial #01 · PASS · 46.4s · err 8.0cm`) | `#15 smoke_lidar_corruption` (`Trial #02 · PASS · 70.4s · err 7.1cm`) |
 | :---: | :---: |
 | <img src="docs/images/evidence/p2b_dynamic_crossfire_alley.gif" width="100%" alt="3D Gazebo dynamic_crossfire_alley"> | <img src="docs/images/evidence/p2b_smoke_lidar_corruption.gif" width="100%" alt="3D Gazebo smoke_lidar_corruption"> |
 
@@ -423,12 +423,12 @@ flowchart TD
 | :---: | :---: | :---: |
 | <img src="docs/images/evidence/phase2b_u_pocket_trap_t10.gif" width="100%" alt="Phase 2-B u_pocket_trap t10"> | <img src="docs/images/evidence/phase2b_slip_chicane_t01.gif" width="100%" alt="Phase 2-B slip_chicane t01"> | <img src="docs/images/evidence/phase2b_house_hard_t08.gif" width="100%" alt="Phase 2-B house_hard t08"> |
 
-| 동적 배플 교차 #01 (`dynamic_gauntlet #01 · PASS · 42.8s`) | 동적 배플 교차 #02 (`dynamic_gauntlet #02 · PASS · 44.9s`) |
+| 동적 배플 교차 #01 (`dynamic_gauntlet #01 · PASS · 46.9s`) | 동적 배플 교차 #02 (`dynamic_gauntlet #02 · PASS · 45.3s`) |
 | :---: | :---: |
 | <img src="docs/images/evidence/phase2b_dynamic_gauntlet_t01.gif" width="100%" alt="Phase 2-B dynamic_gauntlet t01"> | <img src="docs/images/evidence/phase2b_dynamic_gauntlet_t02.gif" width="100%" alt="Phase 2-B dynamic_gauntlet t02"> |
 
 > *모든 3D Gazebo+RViz2 영상에는 흰색 3D TurtleBot3 Burger 본체·주황색 LDS 라이다·전방 시안 방향 화살표·바닥 진입선(하늘색)·실시간 복귀선(초록색)·Base Camp 링이 함께 렌더링되며 GitHub 표시 규격(`7.8MB` 이하)으로 압축되었다. (`#15 smoke_lidar_corruption` 바닥의 반투명 연황갈색 원형 영역은 연기·분진으로 LiDAR 난반사 잡음이 주입되는 위험 구역을 뜻한다.)*  
-> *특히 `dynamic_gauntlet #01`(시계 진입 → 서측 지름길 `42.8s`)과 `#02`(반시계 진입 → 중앙 배플 상단 지름길 `44.9s`)는 단순 역주행 대신, 위에서 설명한 **비파괴 위상 지름길(`_plan_topological_astar`, `observed_free` 검증 완료 통로) + 최단 복귀 보상**이 결합되어 가장 빠른 안전 경로로 직결 복귀한 사례다.*
+> *특히 `dynamic_gauntlet #01`(시계 진입 → 서측 지름길 `46.9s`)과 `#02`(반시계 진입 → 중앙 배플 상단 지름길 `45.3s`)는 단순 역주행 대신, 위에서 설명한 **비파괴 위상 지름길(`_plan_topological_astar`, `observed_free` 검증 완료 통로) + 최단 복귀 보상**이 결합되어 가장 빠른 안전 경로로 직결 복귀한 사례다.*
 
 #### 5) Phase 2-B V100 커리큘럼 재학습 진화 과정 (`Early → Mid → Final Student` · `Seed 10068 collapsed_debris` 기둥 7개) & 학습 곡선
 | Early (`upd 25` · `TIMEOUT`, 321스텝) | Mid (`upd 150` · `PASS`, 310스텝) | Final Phase 2-B Student (`PASS`, 208스텝) |
