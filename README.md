@@ -419,7 +419,7 @@ flowchart TD
 | <img src="docs/images/evidence/p2b_dynamic_crossfire_alley.gif" width="100%" alt="3D Gazebo dynamic_crossfire_alley"> | <img src="docs/images/evidence/p2b_smoke_lidar_corruption.gif" width="100%" alt="3D Gazebo smoke_lidar_corruption"> |
 
 #### 4) [3D Gazebo + RViz2 `/map` 듀얼 뷰] 비정형·동적 장애물 4개 시나리오 5편 (`u_pocket_trap` · `slip_chicane` · `house_hard` · `dynamic_gauntlet`)
-| U자 함정 탈출 (`u_pocket_trap #10 · PASS · 43.3s`) | 저마찰 시케인 (`slip_chicane #01 · PASS · 94.3s`) | 고난도 다실 가옥 (`house_hard #08 · PASS · 87.7s`) |
+| U자 함정 탈출 (`u_pocket_trap #10 · PASS · 43.3s`) | 저마찰 시케인 (`slip_chicane #01 · PASS · 94.3s`) | 고난도 다실 가옥 (`house_hard #09 · PASS · 87.7s`) |
 | :---: | :---: | :---: |
 | <img src="docs/images/evidence/phase2b_u_pocket_trap_t10.gif" width="100%" alt="Phase 2-B u_pocket_trap t10"> | <img src="docs/images/evidence/phase2b_slip_chicane_t01.gif" width="100%" alt="Phase 2-B slip_chicane t01"> | <img src="docs/images/evidence/phase2b_house_hard_t08.gif" width="100%" alt="Phase 2-B house_hard t08"> |
 
