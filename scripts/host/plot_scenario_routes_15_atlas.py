@@ -60,6 +60,8 @@ def ensure_reference_model_cache(ws_root: str) -> str:
         os.environ.get("GAZEBO_MODEL_PATH", ""),
         os.environ.get("GAZEBO_MODELS_DIR", ""),
         os.path.expanduser("~/.gazebo/models"),
+        os.path.join(os.path.dirname(ws_root), ".gazebo", "models"),
+        "/home/jwroh/ws/.gazebo/models",
         "/opt/ros/humble/share/turtlebot3_gazebo/models",
         "/opt/ros/jazzy/share/turtlebot3_gazebo/models",
         "/usr/share/gazebo-11/models",

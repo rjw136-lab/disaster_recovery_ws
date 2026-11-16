@@ -23,6 +23,7 @@ DEFAULT_MODELS_ROOT = os.environ.get(
     ":".join(
         p for p in [
             os.path.expanduser("~/.gazebo/models"),
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".gazebo", "models")),
             "/root/.gazebo/models",
             "/usr/share/gazebo-11/models",
             "/opt/ros/humble/share/turtlebot3_gazebo/models",
