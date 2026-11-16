@@ -359,16 +359,10 @@ def _process_geometry_elem(
         if len(local_tris) == 0:
             return
         tris_w = _transform_tris(local_tris, mat_world, scale)
-        if "tunnel_1" in label.lower():
-            segs = _slice_triangles_xy(tris_w, z_slice)
-            for seg in segs:
+        slice_heights = (z_slice,) if "tunnel_1" in label.lower() else (z_slice, 0.28)
+        for zh in slice_heights:
+            for seg in _slice_triangles_xy(tris_w, zh):
                 fp.segments.append((label, seg))
-        else:
-            band = tris_w[(tris_w[:, :, 2].max(axis=1) >= 0.05) & (tris_w[:, :, 2].min(axis=1) <= 0.55)]
-            if len(band) > 0:
-                hull = _convex_hull_2d(band.reshape(-1, 3)[:, :2])
-                if len(hull) >= 3:
-                    fp.polygons.append((label, hull))
 
 
 def _process_model_elem(
