@@ -433,6 +433,7 @@ def main() -> int:
     parser.add_argument("--rtf", type=float, default=1.0)
     parser.add_argument("--fps", type=int, default=30, help="Recording FPS (30 or 60)")
     parser.add_argument("--max-sim-sec", type=float, default=145.0, help="Max sim seconds after blackout")
+    parser.add_argument("--out-trace-json", default="", help="Optional JSON path to save outbound/return trajectory coordinates")
     args = parser.parse_args()
 
     cfg = SCENARIOS[args.scenario]
@@ -725,6 +726,26 @@ def main() -> int:
         fx, fy = (true_p[0], true_p[1]) if true_p else (node.cur_x, node.cur_y)
         err_cm = math.hypot(fx - rx, fy - ry) * 100.0
         print(f"[RECORDED] {args.scenario}/{args.strategy} trial#{args.trial} | success={success} err={err_cm:.1f}cm sim_dur={node.sim_now()-t_blackout:.1f}s -> {args.out_mp4}")
+        if args.out_trace_json:
+            os.makedirs(os.path.dirname(os.path.abspath(args.out_trace_json)), exist_ok=True)
+            trace_payload = {
+                "scenario": args.scenario,
+                "strategy": args.strategy,
+                "trial": int(args.trial),
+                "seed": spec.get("seed"),
+                "target_depth_m": spec.get("target_depth"),
+                "success": bool(success),
+                "error_cm": round(float(err_cm), 2),
+                "return_duration_s": round(float(node.sim_now() - t_blackout), 2),
+                "base_pose": [round(float(rx), 4), round(float(ry), 4)],
+                "turnoff_pose": [round(float(return_pts[0][0]), 4), round(float(return_pts[0][1]), 4)] if return_pts else None,
+                "debris_positions": [[round(float(dx), 4), round(float(dy), 4)] for dx, dy in debris_positions],
+                "outbound_path": [[round(float(x), 4), round(float(y), 4)] for x, y in outbound_pts],
+                "return_path": [[round(float(x), 4), round(float(y), 4)] for x, y in return_pts],
+            }
+            with open(args.out_trace_json, "w", encoding="utf-8") as tf:
+                json.dump(trace_payload, tf, indent=2, ensure_ascii=False)
+            print(f"[TRACE SAVED] {args.out_trace_json} (out={len(outbound_pts)} pts, ret={len(return_pts)} pts)")
 
     finally:
         if p_ffmpeg is not None and p_ffmpeg.poll() is None:
