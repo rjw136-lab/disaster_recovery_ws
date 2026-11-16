@@ -54,7 +54,7 @@ REFERENCE_MODEL_FILES = {
 
 
 def ensure_reference_model_cache(ws_root: str) -> str:
-    """Resolve House/Maze collision SDFs explicitly instead of accepting blank maps."""
+    """Resolve House/Maze SDFs and the Tunnel COLLADA mesh; never accept blank geometry."""
     roots = []
     raw_roots = [
         os.environ.get("GAZEBO_MODEL_PATH", ""),
@@ -93,7 +93,7 @@ def ensure_reference_model_cache(ws_root: str) -> str:
             shutil.copy2(source, target)
             print("[MODEL] Reused local SDF: " + source)
         else:
-            print("[MODEL] Downloading missing SDF: " + rel_path)
+            print("[MODEL] Downloading missing Gazebo asset: " + rel_path)
             try:
                 urllib.request.urlretrieve(url, target)
             except Exception as exc:
