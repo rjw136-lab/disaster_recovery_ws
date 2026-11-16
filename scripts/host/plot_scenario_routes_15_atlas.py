@@ -218,6 +218,18 @@ def main() -> int:
         r_p2a = selected["phase2a"]
         r_p2b = selected["phase2b"]
 
+        gauntlet_trials = {}
+        if sc == "dynamic_gauntlet":
+            for trial_num in (1, 2):
+                records = {
+                    "baseline": _select_trial(stages["bas"], trial_num, sc, "baseline"),
+                    "phase1": _select_trial(stages["p1"], trial_num, sc, "phase1"),
+                    "phase2a": _select_trial(stages["p2a"], trial_num, sc, "phase2a"),
+                    "phase2b": _select_trial(stages["p2b"], trial_num, sc, "phase2b"),
+                }
+                _validate_stage_identity(sc, trial_num, records)
+                gauntlet_trials[trial_num] = records
+
         if sc == "dynamic_gauntlet":
             for stage_name, rec in selected.items():
                 out = np.asarray(rec.get("outbound_path", []), dtype=float)
@@ -298,46 +310,134 @@ def main() -> int:
             for _, dx, dy, dr in fp.dynamic_markers:
                 ax.add_patch(mpatches.Circle((dx, dy), max(dr, 0.16), facecolor="#fca5a5", edgecolor="#b91c1c", ls="--", lw=1.0, alpha=0.7, zorder=2))
 
-        # 2. Spawned fallen debris rocks (purple circles)
-        for deb in r_p2b.get("debris_positions", []):
-            ax.add_patch(mpatches.Circle((deb[0], deb[1]), 0.22, facecolor="#a855f7", edgecolor="#581c87", lw=0.8, alpha=0.72, zorder=3))
+        if sc == "dynamic_gauntlet":
+            stage_colors = {
+                "baseline": "#dc2626",
+                "phase1": "#2563eb",
+                "phase2a": "#ea580c",
+                "phase2b": "#16a34a",
+            }
+            trial_styles = {
+                1: {"outbound": ":", "return": "-", "debris": "o", "turnoff": "X"},
+                2: {"outbound": "-.", "return": "--", "debris": "s", "turnoff": "D"},
+            }
 
-        # 3. Outbound exploration trajectory (grey dashed)
-        out_pts = np.array(r_p2b.get("outbound_path", []), dtype=float)
-        if len(out_pts) >= 2:
-            ax.plot(out_pts[:, 0], out_pts[:, 1], color="#64748b", ls="--", lw=1.25, alpha=0.85, zorder=4)
+            for trial_num, records in gauntlet_trials.items():
+                style = trial_styles[trial_num]
 
-        # 4. 4-Stage Return trajectories
-        for rec, col, ls, lw, zo in (
-            (r_bas, "#dc2626", ":", 1.35, 5),
-            (r_p1, "#2563eb", "-.", 1.50, 6),
-            (r_p2a, "#ea580c", "--", 1.50, 7),
-            (r_p2b, "#16a34a", "-", 2.35, 8),
-        ):
-            r_pts = np.array(rec.get("return_path", []), dtype=float)
-            if len(r_pts) >= 2:
-                ax.plot(r_pts[:, 0], r_pts[:, 1], color=col, ls=ls, lw=lw, alpha=0.92, zorder=zo)
+                for deb in records["phase2b"].get("debris_positions", []):
+                    ax.scatter(
+                        [deb[0]], [deb[1]], marker=style["debris"], s=42,
+                        facecolor="#a855f7" if trial_num == 1 else "#e879f9",
+                        edgecolor="#581c87", linewidth=0.8, alpha=0.78, zorder=3,
+                    )
 
-        # 5. Base Camp (blue star) & Blackout point (orange X)
-        if len(out_pts) >= 1:
-            ax.scatter([out_pts[0, 0]], [out_pts[0, 1]], marker="*", s=160, color="#2563eb", edgecolor="#0f172a", lw=0.7, zorder=10)
-        tp = r_p2b.get("turnoff_pose")
-        if tp:
-            ax.scatter([tp[0]], [tp[1]], marker="X", s=85, color="#f59e0b", edgecolor="#78350f", lw=0.8, zorder=10)
+                for stage_name, rec in records.items():
+                    color = stage_colors[stage_name]
+                    out_pts = np.asarray(rec.get("outbound_path", []), dtype=float)
+                    ret_pts = np.asarray(rec.get("return_path", []), dtype=float)
 
-        if sc in {"house", "house_hard", "maze", "maze_hard"}:
-            geometry_tag = f"WALLS:{wall_count} | "
-        elif sc in {"tunnel", "tunnel_hard"}:
-            geometry_tag = f"MESH SEG:{segment_count} | "
+                    if out_pts.ndim == 2 and len(out_pts) >= 2 and out_pts.shape[1] >= 2:
+                        ax.plot(
+                            out_pts[:, 0], out_pts[:, 1], color=color,
+                            ls=style["outbound"], lw=1.05, alpha=0.48, zorder=4,
+                        )
+                    else:
+                        print(f"[WARN] T{trial_num} {stage_name}: invalid outbound_path")
+
+                    if ret_pts.ndim == 2 and len(ret_pts) >= 2 and ret_pts.shape[1] >= 2:
+                        ax.plot(
+                            ret_pts[:, 0], ret_pts[:, 1], color=color,
+                            ls=style["return"], lw=1.55, alpha=0.88, zorder=6,
+                        )
+                    else:
+                        print(f"[WARN] T{trial_num} {stage_name}: invalid return_path")
+
+                    tp = rec.get("turnoff_pose")
+                    if tp is not None and len(tp) >= 2:
+                        ax.scatter(
+                            [tp[0]], [tp[1]], marker=style["turnoff"], s=34,
+                            color=color, edgecolor="#0f172a", linewidth=0.45, zorder=9,
+                        )
+                    else:
+                        print(f"[WARN] T{trial_num} {stage_name}: missing turnoff_pose")
+
+            base = gauntlet_trials[1]["baseline"].get("outbound_path", [])
+            if len(base):
+                ax.scatter(
+                    [base[0][0]], [base[0][1]], marker="*", s=160,
+                    color="#2563eb", edgecolor="#0f172a", lw=0.7, zorder=10,
+                )
         else:
-            geometry_tag = ""
-        tag_s = (
-            f"[{geometry_tag}BAS:{'O' if r_bas['success'] else 'X'} | "
-            f"P1:{'O' if r_p1['success'] else 'X'} | "
-            f"P2A:{'O' if r_p2a['success'] else 'X'} | "
-            f"P2B:{'O' if r_p2b['success'] else 'X'}]"
-        )
-        ax.set_title(f"{title_base}\n{tag_s}", fontsize=9.8, fontweight="bold", pad=6, color="#0f172a")
+            for deb in r_p2b.get("debris_positions", []):
+                ax.add_patch(mpatches.Circle(
+                    (deb[0], deb[1]), 0.22, facecolor="#a855f7",
+                    edgecolor="#581c87", lw=0.8, alpha=0.72, zorder=3
+                ))
+
+            out_pts = np.array(r_p2b.get("outbound_path", []), dtype=float)
+            if len(out_pts) >= 2:
+                ax.plot(
+                    out_pts[:, 0], out_pts[:, 1], color="#64748b",
+                    ls="--", lw=1.25, alpha=0.85, zorder=4
+                )
+
+            for rec, col, ls, lw, zo in (
+                (r_bas, "#dc2626", ":", 1.35, 5),
+                (r_p1, "#2563eb", "-.", 1.50, 6),
+                (r_p2a, "#ea580c", "--", 1.50, 7),
+                (r_p2b, "#16a34a", "-", 2.35, 8),
+            ):
+                r_pts = np.array(rec.get("return_path", []), dtype=float)
+                if len(r_pts) >= 2:
+                    ax.plot(
+                        r_pts[:, 0], r_pts[:, 1], color=col,
+                        ls=ls, lw=lw, alpha=0.92, zorder=zo
+                    )
+
+            if len(out_pts) >= 1:
+                ax.scatter(
+                    [out_pts[0, 0]], [out_pts[0, 1]], marker="*", s=160,
+                    color="#2563eb", edgecolor="#0f172a", lw=0.7, zorder=10
+                )
+            tp = r_p2b.get("turnoff_pose")
+            if tp:
+                ax.scatter(
+                    [tp[0]], [tp[1]], marker="X", s=85, color="#f59e0b",
+                    edgecolor="#78350f", lw=0.8, zorder=10
+                )
+
+        if sc == "dynamic_gauntlet":
+            status_lines = []
+            for trial_num, records in gauntlet_trials.items():
+                status = " | ".join(
+                    f"{label}:{'O' if records[key]['success'] else 'X'}"
+                    for label, key in (
+                        ("BAS", "baseline"),
+                        ("P1", "phase1"),
+                        ("P2A", "phase2a"),
+                        ("P2B", "phase2b"),
+                    )
+                )
+                status_lines.append(f"T{trial_num} [{status}]")
+            tag_s = "\n".join(status_lines)
+            panel_title = "#13 Dynamic Gauntlet (Trial 1 + 2)"
+        else:
+            if sc in {"house", "house_hard", "maze", "maze_hard"}:
+                geometry_tag = f"WALLS:{wall_count} | "
+            elif sc in {"tunnel", "tunnel_hard"}:
+                geometry_tag = f"MESH SEG:{segment_count} | "
+            else:
+                geometry_tag = ""
+            tag_s = (
+                f"[{geometry_tag}BAS:{'O' if r_bas['success'] else 'X'} | "
+                f"P1:{'O' if r_p1['success'] else 'X'} | "
+                f"P2A:{'O' if r_p2a['success'] else 'X'} | "
+                f"P2B:{'O' if r_p2b['success'] else 'X'}]"
+            )
+            panel_title = title_base
+
+        ax.set_title(f"{panel_title}\n{tag_s}", fontsize=9.8, fontweight="bold", pad=6, color="#0f172a")
         ax.set_xlim(roi[0], roi[1])
         ax.set_ylim(roi[2], roi[3])
         ax.set_aspect("equal", adjustable="box")
@@ -345,23 +445,28 @@ def main() -> int:
         ax.tick_params(labelsize=7.5)
 
     handles = [
-        mlines.Line2D([], [], color="#cbd5e1", marker="s", markersize=8, markeredgecolor="#475569", ls="None", label="Gazebo Fixed Walls / Obstacles"),
-        mlines.Line2D([], [], color="#2563eb", marker="*", markersize=11, markeredgecolor="#0f172a", ls="None", label="Base Camp (Start Pose)"),
-        mlines.Line2D([], [], color="#64748b", ls="--", lw=1.5, label="Outbound Exploration Route (Entry)"),
-        mlines.Line2D([], [], color="#f59e0b", marker="X", markersize=8, markeredgecolor="#78350f", ls="None", label="Blackout Turnoff Point"),
-        mlines.Line2D([], [], color="#a855f7", marker="o", markersize=8, markeredgecolor="#581c87", ls="None", label="Spawned Fallen Debris"),
+        mlines.Line2D([], [], color="#cbd5e1", marker="s", markersize=8, markeredgecolor="#475569", ls="None", label="Gazebo Walls / Obstacles"),
+        mlines.Line2D([], [], color="#2563eb", marker="*", markersize=11, markeredgecolor="#0f172a", ls="None", label="Base Camp"),
+        mlines.Line2D([], [], color="#dc2626", ls=":", lw=1.6, label="Baseline"),
+        mlines.Line2D([], [], color="#2563eb", ls="-.", lw=1.6, label="Phase 1"),
+        mlines.Line2D([], [], color="#ea580c", ls="--", lw=1.6, label="Phase 2-A"),
+        mlines.Line2D([], [], color="#16a34a", ls="-", lw=2.5, label="Phase 2-B"),
+        mlines.Line2D([], [], color="#64748b", ls=":", lw=1.5, label="T1 Outbound"),
+        mlines.Line2D([], [], color="#64748b", ls="-", lw=1.5, label="T1 Return"),
+        mlines.Line2D([], [], color="#64748b", ls="-.", lw=1.5, label="T2 Outbound"),
+        mlines.Line2D([], [], color="#64748b", ls="--", lw=1.5, label="T2 Return"),
+        mlines.Line2D([], [], color="#a855f7", marker="o", markersize=7, markeredgecolor="#581c87", ls="None", label="T1 Debris"),
+        mlines.Line2D([], [], color="#e879f9", marker="s", markersize=7, markeredgecolor="#581c87", ls="None", label="T2 Debris"),
+        mlines.Line2D([], [], color="#64748b", marker="X", markersize=7, ls="None", label="T1 Turnoff"),
+        mlines.Line2D([], [], color="#64748b", marker="D", markersize=7, ls="None", label="T2 Turnoff"),
         mlines.Line2D([], [], color="#fca5a5", marker="o", markersize=8, markeredgecolor="#dc2626", ls="--", lw=1.4, label="Dynamic Moving Obstacle"),
-        mlines.Line2D([], [], color="#dc2626", ls=":", lw=1.6, label="Baseline Return (4-Tier Bug)"),
-        mlines.Line2D([], [], color="#2563eb", ls="-.", lw=1.6, label="Phase 1 Return (Rolling Grid A*)"),
-        mlines.Line2D([], [], color="#ea580c", ls="--", lw=1.6, label="Phase 2-A Return (Naive RL)"),
-        mlines.Line2D([], [], color="#16a34a", ls="-", lw=2.5, label="Phase 2-B Return (Adaptive Envelope + RL)"),
     ]
     fig.legend(
         handles=handles,
         loc="upper center",
         bbox_to_anchor=(0.5, 0.962),
-        ncol=5,
-        fontsize=9.2,
+        ncol=8,
+        fontsize=8.0,
         frameon=True,
         facecolor="#ffffff",
         edgecolor="#cbd5e1",

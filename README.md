@@ -302,6 +302,11 @@ flowchart TD
   <em>▲ 15개 시나리오 2D 벽체·구조 단면 및 이동 경로 지도: 고정 벽체·구조물(회색 단면), 출발 기지(★), 진입 경로(회색 점선), 통신 단절 지점(✖), 낙석(보라색 원), 알고리즘별 복귀 궤적 (`docs/images/scenario_routes_15_atlas.png`)</em>
 </p>
 
+> **Selected Trial Visualization (`Trial 1` · `Trial 2` 궤적 비교 기준):**
+> - 본 Atlas(`docs/images/scenario_routes_15_atlas.png`)는 각 실험 단계별 **10회 반복 시행 중 선정된 `Trial 1` 및 `Trial 2`의 실제 기록 궤적(`outbound_path`, `return_path`)** 을 보정 없이 그대로 시각화한 궤적 단위(trajectory-level) 비교 자료입니다.
+> - 선정된 궤적은 10회 전체 시행의 평균 성능이나 통계적 대표 표본을 의미하지 않습니다.
+> - `#13 dynamic_gauntlet`의 **Phase 2-A**는 총 `8/10 (80%)` 성공률을 기록했으며(`Trial 2 (Seed 2228)` 및 `Trial 5 (Seed 2531)` 실패), 본 Atlas에는 실제 실패 사례인 `Trial 2`의 기록 궤적이 수정 없이 포함되어 있습니다.
+
 | # | 시나리오 ID | 맵 특징 | 시작 좌표 | 주요 진입 경로 (Outbound) | 단절 거리 | 추가 장애물 조건 |
 | :-: | :--- | :--- | :---: | :--- | :---: | :--- |
 | **1** | `collapsed` | `20×20m` 붕괴 실내 | `(0.0, -4.0)` | 남측 기지 ➔ 중앙 잔해 통로 ➔ 북측 구역 | `12.0-20.0m` | 낙석 `3-6`개 |
