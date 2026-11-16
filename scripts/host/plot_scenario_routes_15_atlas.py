@@ -157,6 +157,46 @@ def _load_stage_trials(sc: str) -> Dict[str, dict]:
     }
 
 
+def _select_trial(records: List[dict], trial_num: int, scenario: str, stage: str) -> dict:
+    """Select by stored trial ID, never by an assumed JSON array position."""
+    matches = [r for r in records if int(r.get("trial", -1)) == int(trial_num)]
+    if len(matches) != 1:
+        found = [r.get("trial") for r in records]
+        raise RuntimeError(
+            f"{scenario}/{stage}: expected exactly one Trial #{trial_num}, "
+            f"found {len(matches)}; available trial IDs={found}"
+        )
+    return matches[0]
+
+
+def _validate_stage_identity(scenario: str, trial_num: int, records: Dict[str, dict]) -> None:
+    """Reject cross-run overlays when the four phases do not share the same trial seed."""
+    trials = {stage: rec.get("trial") for stage, rec in records.items()}
+    if any(value is None or int(value) != int(trial_num) for value in trials.values()):
+        raise RuntimeError(
+            f"{scenario}: trial identity mismatch for requested Trial #{trial_num}: {trials}"
+        )
+
+    seeds = {stage: rec.get("seed") for stage, rec in records.items()}
+    known_seeds = {value for value in seeds.values() if value is not None}
+    if len(known_seeds) > 1:
+        raise RuntimeError(
+            f"{scenario} Trial #{trial_num}: phase JSONs use different seeds {seeds}. "
+            "These trajectories must not be overlaid as one A/B comparison. "
+            "Regenerate/copy all phases from the same fixed-spec run."
+        )
+    if scenario == "dynamic_gauntlet" and len(known_seeds) != 1:
+        raise RuntimeError(
+            f"{scenario} Trial #{trial_num}: seed metadata is missing; "
+            "cannot verify the clockwise-entry / west-shortcut comparison."
+        )
+
+    print(
+        f"[TRIAL] {scenario} #{trial_num:02d}: "
+        + ", ".join(f"{stage}={seeds.get(stage, 'no-seed')}" for stage in records)
+    )
+
+
 def main() -> int:
     global MODEL_ROOTS
     MODEL_ROOTS = ensure_reference_model_cache(WS_ROOT)
@@ -166,10 +206,33 @@ def main() -> int:
     for ax, (sc, title_base, t_idx, w_file, roi) in zip(axes.flat, PANELS):
         ax.set_facecolor("#ffffff")
         stages = _load_stage_trials(sc)
-        r_bas = stages["bas"][t_idx - 1]
-        r_p1 = stages["p1"][t_idx - 1]
-        r_p2a = stages["p2a"][t_idx - 1]
-        r_p2b = stages["p2b"][t_idx - 1]
+        selected = {
+            "baseline": _select_trial(stages["bas"], t_idx, sc, "baseline"),
+            "phase1": _select_trial(stages["p1"], t_idx, sc, "phase1"),
+            "phase2a": _select_trial(stages["p2a"], t_idx, sc, "phase2a"),
+            "phase2b": _select_trial(stages["p2b"], t_idx, sc, "phase2b"),
+        }
+        _validate_stage_identity(sc, t_idx, selected)
+        r_bas = selected["baseline"]
+        r_p1 = selected["phase1"]
+        r_p2a = selected["phase2a"]
+        r_p2b = selected["phase2b"]
+
+        if sc == "dynamic_gauntlet":
+            for stage_name, rec in selected.items():
+                out = np.asarray(rec.get("outbound_path", []), dtype=float)
+                ret = np.asarray(rec.get("return_path", []), dtype=float)
+                turnoff = rec.get("turnoff_pose")
+                print(
+                    f"[GAUNTLET TRACE] {stage_name}: "
+                    f"out={len(out)} pts {out[0].tolist() if len(out) else None}"
+                    f" -> {out[-1].tolist() if len(out) else None}; "
+                    f"return={len(ret)} pts {ret[0].tolist() if len(ret) else None}"
+                    f" -> {ret[-1].tolist() if len(ret) else None}; "
+                    f"turnoff={turnoff}; "
+                    f"duration={rec.get('return_duration_s')}s; "
+                    f"success={rec.get('success')}"
+                )
 
         # 1. Gazebo collision geometry at LiDAR height (0.17m).
         # Explicit model roots prevent House/Maze partitions from silently disappearing.
