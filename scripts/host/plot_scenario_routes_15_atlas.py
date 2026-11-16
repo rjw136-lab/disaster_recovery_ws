@@ -44,6 +44,12 @@ REFERENCE_MODEL_FILES = {
         "https://raw.githubusercontent.com/ROBOTIS-GIT/turtlebot3_simulations/main/"
         "turtlebot3_gazebo/models/turtlebot3_dqn_world/inner_walls/model.sdf"
     ),
+    # The tunnel world defines tunnel_1 as a mesh collision, not primitive walls.
+    # Its DAE is the actual interior shell used by disaster_tunnel_world.world.
+    "tunnel_1/meshes/model.dae": (
+        "https://raw.githubusercontent.com/Zhefan-Xu/drone_gazebo/"
+        "ad138e698384b17277cff402d69b7a34001696e6/models/tunnel_1/meshes/model.dae"
+    ),
 }
 
 
@@ -183,8 +189,17 @@ def main() -> int:
                 f"{sc}: only {wall_count} wall polygons found; expected 4 perimeter "
                 "walls + 7 inner partitions. Check turtlebot3_dqn_world/inner_walls/model.sdf."
             )
+        segment_count = len(fp.segments)
+        if sc in {"tunnel", "tunnel_hard"} and segment_count < 30:
+            raise RuntimeError(
+                f"{sc}: only {segment_count} tunnel mesh slice segments found. "
+                "The tunnel_1 COLLADA collision mesh was not resolved or sliced at z=0.17 m. "
+                "Check .cache_atlas_models/tunnel_1/meshes/model.dae."
+            )
         if sc in {"house", "house_hard", "maze", "maze_hard"}:
             print(f"[GEOMETRY] {sc}: {wall_count} collision polygons loaded at z=0.17 m")
+        if sc in {"tunnel", "tunnel_hard"}:
+            print(f"[GEOMETRY] {sc}: {segment_count} tunnel mesh slice segments loaded at z=0.17 m")
 
         if fp.polygons:
             polys = [p for _, p in fp.polygons if len(p) >= 3]
@@ -200,7 +215,15 @@ def main() -> int:
             ax.add_collection(pc)
         if fp.segments:
             segs = [s for _, s in fp.segments]
-            lc = LineCollection(segs, colors="#475569", linewidths=0.75, alpha=0.80, zorder=1)
+            if sc in {"tunnel", "tunnel_hard"}:
+                # Darker, slightly heavier mesh cross-section makes the tunnel
+                # interior shell legible at the atlas panel's print scale.
+                lc = LineCollection(
+                    segs, colors="#334155", linewidths=1.05,
+                    alpha=0.92, antialiased=True, zorder=1
+                )
+            else:
+                lc = LineCollection(segs, colors="#475569", linewidths=0.75, alpha=0.80, zorder=1)
             ax.add_collection(lc)
         if sc == "dynamic_crossfire_alley":
             # Active return-phase sweep trajectories across Gate 1 & Gate 2
@@ -239,9 +262,14 @@ def main() -> int:
         if tp:
             ax.scatter([tp[0]], [tp[1]], marker="X", s=85, color="#f59e0b", edgecolor="#78350f", lw=0.8, zorder=10)
 
-        wall_tag = f"WALLS:{wall_count} | " if sc in {"house", "house_hard", "maze", "maze_hard"} else ""
+        if sc in {"house", "house_hard", "maze", "maze_hard"}:
+            geometry_tag = f"WALLS:{wall_count} | "
+        elif sc in {"tunnel", "tunnel_hard"}:
+            geometry_tag = f"MESH SEG:{segment_count} | "
+        else:
+            geometry_tag = ""
         tag_s = (
-            f"[{wall_tag}BAS:{'O' if r_bas['success'] else 'X'} | "
+            f"[{geometry_tag}BAS:{'O' if r_bas['success'] else 'X'} | "
             f"P1:{'O' if r_p1['success'] else 'X'} | "
             f"P2A:{'O' if r_p2a['success'] else 'X'} | "
             f"P2B:{'O' if r_p2b['success'] else 'X'}]"
