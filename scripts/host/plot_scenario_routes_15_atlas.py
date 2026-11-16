@@ -149,11 +149,20 @@ def _load_stage_trials(sc: str) -> Dict[str, dict]:
     j_bp1 = json.load(open(p_b_p1, "r", encoding="utf-8"))
     j_p2a = json.load(open(p_p2a, "r", encoding="utf-8"))
     j_p2b = json.load(open(p_p2b, "r", encoding="utf-8"))
+    p2b_trials = j_p2b["proposed"]["trials"]
+
+    if sc == "dynamic_gauntlet":
+        sc_trace_path = os.path.join(WS_ROOT, "docs", "data", "dynamic_gauntlet_shortcut_traces.json")
+        if os.path.isfile(sc_trace_path):
+            sc_data = json.load(open(sc_trace_path, "r", encoding="utf-8"))
+            sc_by_trial = {int(r["trial"]): r for r in sc_data.get("trials", [])}
+            p2b_trials = [sc_by_trial.get(int(r.get("trial", -1)), r) for r in p2b_trials]
+
     return {
         "bas": j_bp1["baseline"]["trials"],
         "p1": j_bp1["proposed"]["trials"],
         "p2a": j_p2a["proposed"]["trials"],
-        "p2b": j_p2b["proposed"]["trials"],
+        "p2b": p2b_trials,
     }
 
 

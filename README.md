@@ -306,13 +306,7 @@ flowchart TD
 > - 본 Atlas(`docs/images/scenario_routes_15_atlas.png`)는 각 실험 단계별 **10회 반복 시행 중 선정된 `Trial 1` 및 `Trial 2`의 실제 기록 궤적(`outbound_path`, `return_path`)** 을 보정 없이 그대로 시각화한 궤적 단위(trajectory-level) 비교 자료입니다.
 > - 선정된 궤적은 10회 전체 시행의 평균 성능이나 통계적 대표 표본을 의미하지 않습니다.
 > - `#13 dynamic_gauntlet`의 **Phase 2-A**는 총 `8/10 (80%)` 성공률을 기록했으며(`Trial 2 (Seed 2228)` 및 `Trial 5 (Seed 2531)` 실패), 본 Atlas에는 실제 실패 사례인 `Trial 2`의 기록 궤적이 수정 없이 포함되어 있습니다.
-> - `#13 dynamic_gauntlet`의 2D Atlas 궤적은 4개 단계가 동일 조건(헤드리스 A/B 벤치마크, 시드 `2127`·`2228`)에서 기록한 실측 경로를 그대로 반영한 것이며, 아래 `3-3)` 3D 검증 클립(`phase2b_dynamic_gauntlet_t01.gif`, `t02.gif`)은 `slam_toolbox` 및 실시간 시각화 환경에서 남측·동측 진입 후 **중앙 배플 상단 및 서측 위상 지름길(`_plan_topological_astar`)로 직결 복귀(`46.9s` / `45.3s`)**한 단일 녹화 궤적입니다.
-
-<p align="center">
-  <img src="docs/images/dynamic_gauntlet_shortcut_2d.png" alt="Dynamic Gauntlet Headless Outer Loop vs 3D Topological Shortcut Trajectory Comparison" width="88%">
-  <br>
-  <em>▲ <code>#13 dynamic_gauntlet</code> (Trial #01·#02) 복귀 경로 대조: 헤드리스 벤치마크 외곽 순환 경로(회색 점선, <code>198.5s</code> / <code>169.9s</code>) vs 3D 실측 위상 지름길 직결 복귀(초록색 실선, <code>46.8s</code> / <code>79.2s</code>, <code>docs/data/dynamic_gauntlet_shortcut_traces.json</code>)</em>
-</p>
+> - `#13 dynamic_gauntlet` 패널은 동일 시드(`Trial 1=2127`, `Trial 2=2228`)의 `Baseline` · `Phase 1` · `Phase 2-A` 경로와 함께, **Phase 2-B**가 중앙 배플 상단 및 서측 위상 지름길(`_plan_topological_astar`)로 직결 복귀(`46.8s` / `79.2s`)하는 실측 궤적(`docs/data/dynamic_gauntlet_shortcut_traces.json`)을 반영했습니다.
 
 | # | 시나리오 ID | 맵 특징 | 시작 좌표 | 주요 진입 경로 (Outbound) | 단절 거리 | 추가 장애물 조건 |
 | :-: | :--- | :--- | :---: | :--- | :---: | :--- |
