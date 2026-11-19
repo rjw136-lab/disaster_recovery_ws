@@ -49,6 +49,9 @@ def generate_launch_description():
     else:
         urdf_path = os.path.join(pkg_tb3_gazebo, 'models', f'turtlebot3_{model}', 'model.sdf')
 
+    declare_use_sim_time_cmd = DeclareLaunchArgument(
+        'use_sim_time', default_value='true', description='Use simulation (Gazebo) clock if true'
+    )
     declare_world_cmd = DeclareLaunchArgument('world', description='Full path to Gazebo world file')
     declare_gui_cmd = DeclareLaunchArgument('gui', default_value='true', description='Set to false for headless')
     declare_x_cmd = DeclareLaunchArgument('x_pose', default_value='0.0', description='Initial X position')
@@ -71,6 +74,31 @@ def generate_launch_description():
         launch_arguments={'use_sim_time': use_sim_time}.items()
     )
 
+    # Static TFs for TurtleBot3 Burger camera:
+    # 1) base_link -> camera_link: xyz=(0.040, 0.0, 0.130), rpy=(0, 0, 0)
+    # 2) camera_link -> camera_rgb_optical_frame: xyz=(0, 0, 0), rpy=(-pi/2, 0, -pi/2)
+    camera_base_tf_cmd = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='base_to_camera_tf',
+        arguments=['0.040', '0.0', '0.130', '0.0', '0.0', '0.0', 'base_link', 'camera_link'],
+        parameters=[{'use_sim_time': use_sim_time}],
+        output='screen'
+    )
+
+    camera_optical_tf_cmd = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='camera_to_optical_tf',
+        arguments=[
+            '0.0', '0.0', '0.0',
+            '-1.5707963267948966', '0.0', '-1.5707963267948966',
+            'camera_link', 'camera_rgb_optical_frame'
+        ],
+        parameters=[{'use_sim_time': use_sim_time}],
+        output='screen'
+    )
+
     spawn_entity_cmd = Node(
         package='gazebo_ros',
         executable='spawn_entity.py',
@@ -87,6 +115,7 @@ def generate_launch_description():
     )
 
     ld = LaunchDescription()
+    ld.add_action(declare_use_sim_time_cmd)
     ld.add_action(declare_world_cmd)
     ld.add_action(declare_gui_cmd)
     ld.add_action(declare_x_cmd)
@@ -96,5 +125,7 @@ def generate_launch_description():
     ld.add_action(gzserver_cmd)
     ld.add_action(gzclient_cmd)
     ld.add_action(robot_state_publisher_cmd)
+    ld.add_action(camera_base_tf_cmd)
+    ld.add_action(camera_optical_tf_cmd)
     ld.add_action(spawn_entity_cmd)
     return ld

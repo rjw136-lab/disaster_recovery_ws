@@ -33,9 +33,10 @@ Key Behaviors:
 """
 
 import os
+import json
 import math
 import collections
-from typing import Optional
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import rclpy
 from rclpy.node import Node
@@ -156,21 +157,222 @@ def resolve_config_asset(
     return ""
 
 
+def resolve_semantic_rl_asset(
+    semantic_onnx_path: str,
+    fallback_onnx_path: str = "",
+    default_semantic_filename: str = "sim_policy_student_semantic_v3.onnx",
+    default_fallback_filename: str = "sim_policy_student.onnx",
+    search_dirs: Optional[list[str]] = None,
+) -> Tuple[str, bool]:
+    """
+    Resolve Phase 3 3-channel semantic ONNX model path, falling back gracefully to
+    the Phase 2-B 1-channel ONNX model if the semantic model is not yet present.
+    Returns (resolved_path, is_semantic_model).
+    """
+    req_sem = (semantic_onnx_path or "").strip()
+    if req_sem:
+        sem_resolved = resolve_config_asset(req_sem, default_semantic_filename, search_dirs=search_dirs)
+        if sem_resolved:
+            return sem_resolved, True
+    else:
+        base_hint = (fallback_onnx_path or "").strip()
+        inferred_default = default_semantic_filename
+        if "real_tb3" in os.path.basename(base_hint):
+            inferred_default = "real_tb3_policy_student_semantic_v3.onnx"
+        sem_resolved = resolve_config_asset("", inferred_default, search_dirs=search_dirs)
+        if sem_resolved:
+            return sem_resolved, True
+
+    fb_resolved = resolve_config_asset(fallback_onnx_path, default_fallback_filename, search_dirs=search_dirs)
+    return fb_resolved, False
+
+
+class SemanticObjectCache:
+    """
+    Lightweight onboard semantic cache for RPi 4 / recovery_controller.
+    Stores verified permanent objects received on /semantic_map/cached_objects (in odom frame)
+    and locally triggered gas hazards (/gas/level >= gas_threshold) so Ch 1 (low-lying obstacles)
+    and Ch 2 (gas hazard & survivor protection zones) persist across communication loss.
+    """
+
+    CH2_CLASSES = frozenset({"person", "gas_hazard", "audio_distress"})
+
+    def __init__(
+        self,
+        dedup_radius_m: float = 0.45,
+        default_ch1_radius_m: float = 0.22,
+        default_ch2_radius_m: float = 0.55,
+    ):
+        self.dedup_radius_m = float(dedup_radius_m)
+        self.default_ch1_radius_m = float(default_ch1_radius_m)
+        self.default_ch2_radius_m = float(default_ch2_radius_m)
+        self._entries: List[Dict[str, Any]] = []
+
+    def clear(self) -> None:
+        self._entries.clear()
+
+    def __len__(self) -> int:
+        return len(self._entries)
+
+    @classmethod
+    def infer_channel(cls, class_name: str, explicit_channel: Optional[int] = None) -> int:
+        if explicit_channel in (1, 2):
+            return int(explicit_channel)
+        norm = str(class_name or "").strip().lower()
+        return 2 if norm in cls.CH2_CLASSES else 1
+
+    def upsert_object(
+        self,
+        class_name: str,
+        x: float,
+        y: float,
+        radius: Optional[float] = None,
+        channel: Optional[int] = None,
+        conf: float = 1.0,
+        low_confidence: bool = False,
+        marker_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        if not (math.isfinite(x) and math.isfinite(y)):
+            return {}
+        ch = self.infer_channel(class_name, channel)
+        default_r = self.default_ch2_radius_m if ch == 2 else self.default_ch1_radius_m
+        r_val = float(radius) if (radius is not None and math.isfinite(radius) and radius > 0.0) else default_r
+        cls_str = str(class_name or ("GAS_HAZARD" if ch == 2 else "obstacle"))
+
+        # 1. Match by explicit marker_id when positive and same channel
+        if marker_id is not None and int(marker_id) > 0:
+            mid = int(marker_id)
+            for entry in self._entries:
+                if entry.get("marker_id") == mid and entry.get("channel") == ch:
+                    entry["class_name"] = cls_str
+                    entry["x"] = float(x)
+                    entry["y"] = float(y)
+                    entry["radius"] = float(r_val)
+                    entry["conf"] = float(conf)
+                    entry["low_confidence"] = bool(low_confidence)
+                    return entry
+
+        # 2. Spatial deduplication within dedup_radius_m on same channel
+        for entry in self._entries:
+            if entry.get("channel") == ch:
+                dist = math.hypot(float(x) - float(entry["x"]), float(y) - float(entry["y"]))
+                if dist <= self.dedup_radius_m:
+                    entry["class_name"] = cls_str
+                    entry["x"] = 0.5 * (float(entry["x"]) + float(x))
+                    entry["y"] = 0.5 * (float(entry["y"]) + float(y))
+                    entry["radius"] = max(float(entry["radius"]), float(r_val))
+                    entry["conf"] = max(float(entry.get("conf", 0.5)), float(conf))
+                    entry["low_confidence"] = bool(entry.get("low_confidence", False) and low_confidence)
+                    if marker_id is not None and int(marker_id) > 0:
+                        entry["marker_id"] = int(marker_id)
+                    return entry
+
+        new_entry = {
+            "marker_id": int(marker_id) if (marker_id is not None and int(marker_id) > 0) else None,
+            "class_name": cls_str,
+            "x": float(x),
+            "y": float(y),
+            "radius": float(r_val),
+            "channel": int(ch),
+            "conf": float(conf),
+            "low_confidence": bool(low_confidence),
+        }
+        self._entries.append(new_entry)
+        return new_entry
+
+    def update_from_json(self, json_str: str) -> int:
+        if not json_str:
+            return 0
+        try:
+            payload = json.loads(json_str)
+        except Exception:
+            return 0
+        if not isinstance(payload, dict):
+            return 0
+        objects = payload.get("objects", [])
+        if not isinstance(objects, list):
+            return 0
+
+        count = 0
+        for obj in objects:
+            if not isinstance(obj, dict):
+                continue
+            try:
+                ox = float(obj["x"])
+                oy = float(obj["y"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            cls_name = str(obj.get("class_name", "obstacle"))
+            raw_ch = obj.get("channel", None)
+            ch = int(raw_ch) if raw_ch in (1, 2) else None
+            raw_r = obj.get("radius", None)
+            rad = float(raw_r) if raw_r is not None else None
+            conf = float(obj.get("conf", 1.0))
+            low_conf = bool(obj.get("low_confidence", False))
+            raw_mid = obj.get("marker_id", None)
+            mid = int(raw_mid) if isinstance(raw_mid, (int, float)) else None
+            self.upsert_object(
+                class_name=cls_name,
+                x=ox,
+                y=oy,
+                radius=rad,
+                channel=ch,
+                conf=conf,
+                low_confidence=low_conf,
+                marker_id=mid,
+            )
+            count += 1
+        return count
+
+    def record_local_gas_hazard(
+        self,
+        x: float,
+        y: float,
+        gas_level: float = 1.0,
+        radius: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        return self.upsert_object(
+            class_name="GAS_HAZARD",
+            x=float(x),
+            y=float(y),
+            radius=float(radius) if radius is not None else self.default_ch2_radius_m,
+            channel=2,
+            conf=min(1.0, max(0.5, float(gas_level))),
+            low_confidence=False,
+        )
+
+    def get_channel_tuples(
+        self,
+    ) -> Tuple[List[Tuple[float, float, float]], List[Tuple[float, float, float]]]:
+        """Return (ch1_obstacles, ch2_hazards) as lists of (x, y, radius) in odom frame."""
+        ch1: List[Tuple[float, float, float]] = []
+        ch2: List[Tuple[float, float, float]] = []
+        for entry in self._entries:
+            tup = (float(entry["x"]), float(entry["y"]), float(entry["radius"]))
+            if int(entry.get("channel", 1)) == 2:
+                ch2.append(tup)
+            else:
+                ch1.append(tup)
+        return ch1, ch2
+
+
 def compute_rl_blend_weight(
     front_min: float,
     side_clearance: float,
     used_tight_pass: bool,
     max_alpha: float = 0.70,
     min_side: Optional[float] = None,
+    has_nearby_semantic: bool = False,
 ) -> float:
     """Gate RL blend weight to 0 in narrow pinches/doorways while preserving RL speed in open corridors."""
+    eff_max_alpha = max(max_alpha, 0.82) if has_nearby_semantic else max_alpha
     if used_tight_pass or front_min < 0.28 or side_clearance < 0.62:
         return 0.0
     if min_side is not None and min_side < 0.19:
         return 0.0
     front_gate = min(1.0, max(0.0, (front_min - 0.28) / (0.45 - 0.28)))
     side_gate = min(1.0, max(0.0, (side_clearance - 0.62) / (0.85 - 0.62)))
-    alpha = float(max_alpha * min(front_gate, side_gate))
+    alpha = float(eff_max_alpha * min(front_gate, side_gate))
     if min_side is not None and min_side < 0.32:
         alpha *= max(0.0, (min_side - 0.19) / (0.32 - 0.19))
     return float(alpha)
@@ -285,6 +487,8 @@ class RecoveryController(Node):
         self.declare_parameter('unstuck_min_disp_m', 0.06)
         self.declare_parameter('reset_corr_on_episode', False)
         self.declare_parameter('context_rl_onnx_path', '')
+        self.declare_parameter('use_semantic_rl_policy', False)
+        self.declare_parameter('semantic_rl_onnx_path', '')
         self.declare_parameter('enable_phase2b_envelope', True)
         self.declare_parameter('smoke_lidar_noise_prob', 0.0)
         self.declare_parameter('min_effective_linear_vel', 0.0)
@@ -326,11 +530,14 @@ class RecoveryController(Node):
         self.unstuck_window_sec = float(self.get_parameter('unstuck_window_sec').value)
         self.unstuck_min_disp_m = float(self.get_parameter('unstuck_min_disp_m').value)
         self.context_rl_onnx_path = str(self.get_parameter('context_rl_onnx_path').value)
+        self.use_semantic_rl_policy = bool(self.get_parameter('use_semantic_rl_policy').value)
+        self.semantic_rl_onnx_path = str(self.get_parameter('semantic_rl_onnx_path').value)
         self.enable_phase2b_envelope = bool(self.get_parameter('enable_phase2b_envelope').value)
         self.smoke_lidar_noise_prob = float(self.get_parameter('smoke_lidar_noise_prob').value)
         self.min_effective_linear_vel = float(self.get_parameter('min_effective_linear_vel').value)
         self.min_effective_angular_vel = float(self.get_parameter('min_effective_angular_vel').value)
         self.is_phase2b = (self.recovery_strategy == 'proposed_rl') and self.enable_phase2b_envelope
+        self.semantic_cache = SemanticObjectCache()
         self._scan_tick_seq = 0
         self._prev_escape_count = 0
         self._rl_cooldown_until = 0.0
@@ -409,7 +616,19 @@ class RecoveryController(Node):
                 phase2b_mode=self.is_phase2b,
             )
             if self.recovery_strategy == 'proposed_rl':
-                rl_path = resolve_config_asset(self.context_rl_onnx_path, "sim_policy_student.onnx")
+                if self.use_semantic_rl_policy:
+                    rl_path, is_sem = resolve_semantic_rl_asset(
+                        self.semantic_rl_onnx_path,
+                        fallback_onnx_path=self.context_rl_onnx_path,
+                        default_semantic_filename="sim_policy_student_semantic_v3.onnx",
+                        default_fallback_filename="sim_policy_student.onnx",
+                    )
+                    if not is_sem and rl_path:
+                        self.get_logger().warn(
+                            f"[PROPOSED_RL] Semantic ONNX not found; falling back gracefully to 1ch {os.path.basename(rl_path)}"
+                        )
+                else:
+                    rl_path = resolve_config_asset(self.context_rl_onnx_path, "sim_policy_student.onnx")
                 if rl_path and os.path.exists(rl_path):
                     try:
                         self.context_rl_policy = ContextRLStudentPolicy(
@@ -419,12 +638,17 @@ class RecoveryController(Node):
                             phase2b_mode=self.is_phase2b,
                         )
                         self.get_logger().info(
-                            f"[PROPOSED_RL] Context-RL ONNX active: {os.path.basename(rl_path)}"
+                            f"[PROPOSED_RL] Context-RL ONNX active: {os.path.basename(rl_path)} "
+                            f"(channels={self.context_rl_policy.patch_channels}, semantic={self.use_semantic_rl_policy})"
                         )
                     except Exception as exc:
                         self.get_logger().warn(f"[PROPOSED_RL] ONNX load failed ({exc}), falling back to A*")
                 else:
-                    target_name = self.context_rl_onnx_path.strip() or "sim_policy_student.onnx"
+                    target_name = (
+                        self.semantic_rl_onnx_path.strip() or "sim_policy_student_semantic_v3.onnx"
+                        if self.use_semantic_rl_policy
+                        else self.context_rl_onnx_path.strip() or "sim_policy_student.onnx"
+                    )
                     self.get_logger().warn(f"[PROPOSED_RL] {target_name} not found, falling back to A*")
             else:
                 self.get_logger().info(
@@ -509,6 +733,9 @@ class RecoveryController(Node):
         self.sub_reset_episode = self.create_subscription(
             Bool, '/recovery/reset_episode', self.cb_reset_episode, reliable_qos
         )
+        self.sub_semantic_cached = self.create_subscription(
+            String, '/semantic_map/cached_objects', self.cb_semantic_cached_objects, reliable_qos
+        )
 
         # -------------------------------------------------------------------------
         # Publishers
@@ -526,6 +753,34 @@ class RecoveryController(Node):
     # -----------------------------------------------------------------------------
     # Callbacks
     # -----------------------------------------------------------------------------
+    def cb_semantic_cached_objects(self, msg: String):
+        """Cache verified permanent semantic objects (in odom frame) in onboard memory across comm loss."""
+        if not msg.data:
+            return
+        self.semantic_cache.update_from_json(msg.data)
+
+    def _get_active_semantic_channels(
+        self,
+    ) -> Tuple[List[Tuple[float, float, float]], List[Tuple[float, float, float]]]:
+        """Return (ch1_obstacles, ch2_hazards) when use_semantic_rl_policy is True, else ([], [])."""
+        if not self.use_semantic_rl_policy:
+            return [], []
+        return self.semantic_cache.get_channel_tuples()
+
+    def _has_nearby_semantic_item(
+        self,
+        sem_obs: Sequence[Tuple[float, float, float]],
+        sem_haz: Sequence[Tuple[float, float, float]],
+        reach_m: float = 0.95,
+    ) -> bool:
+        for ox, oy, rad in sem_obs:
+            if math.hypot(ox - self.current_x, oy - self.current_y) <= reach_m + rad:
+                return True
+        for hx, hy, rad in sem_haz:
+            if math.hypot(hx - self.current_x, hy - self.current_y) <= reach_m + rad:
+                return True
+        return False
+
     def cb_reset_episode(self, msg: Bool):
         """Reset inter-trial odometry correction, waypoint stack, and local planner cleanly."""
         if not msg.data:
@@ -567,6 +822,7 @@ class RecoveryController(Node):
         self._prev_alpha_rl = 0.0
         self._dynamic_hold_until = 0.0
         self._dynamic_hold_cooldown_until = 0.0
+        self.semantic_cache.clear()
         if self.local_planner is not None:
             self.local_planner.reset()
         if self.context_rl_policy is not None:
@@ -628,8 +884,14 @@ class RecoveryController(Node):
             self.get_logger().info("First Heartbeat packet received from Host PC.")
 
     def cb_gas(self, msg: Float32):
-        self.current_gas_level = msg.data
+        self.current_gas_level = float(msg.data)
         self.last_gas_time = self.get_clock().now()
+        if self.current_gas_level >= self.gas_threshold and self.odom_initialized:
+            self.semantic_cache.record_local_gas_hazard(
+                x=self.current_x,
+                y=self.current_y,
+                gas_level=self.current_gas_level,
+            )
 
     @staticmethod
     def _despike_lidar_ranges(ranges: np.ndarray) -> np.ndarray:
@@ -892,6 +1154,12 @@ class RecoveryController(Node):
                         target_xy = (self.current_x, self.current_y)
 
                     front_min, left_min, right_min, _ = self.local_planner.last_clearances
+                    sem_obs, sem_haz = self._get_active_semantic_channels()
+                    has_nearby_sem = (
+                        self._has_nearby_semantic_item(sem_obs, sem_haz)
+                        if self.use_semantic_rl_policy
+                        else False
+                    )
                     df_dt = 0.0
                     if (
                         self.is_phase2b
@@ -947,6 +1215,8 @@ class RecoveryController(Node):
                             act_v=self.actual_v,
                             act_w=self.actual_w,
                             step_norm=step_norm,
+                            semantic_obstacles=sem_obs,
+                            semantic_hazards=sem_haz,
                         )
                     elif status_tag == "ASTAR_TRACK" and subgoal_xy is not None:
                         if self.is_phase2b and front_min < 0.20:
@@ -962,6 +1232,7 @@ class RecoveryController(Node):
                                 side_clearance=left_min + right_min,
                                 used_tight_pass=self.local_planner.last_used_tight_pass,
                                 min_side=(min(left_min, right_min) if self.is_phase2b else None),
+                                has_nearby_semantic=has_nearby_sem,
                             )
                             if (
                                 self.is_phase2b
@@ -976,8 +1247,9 @@ class RecoveryController(Node):
                                 alpha_rl = 0.0
                             else:
                                 delta_a = alpha_rl - self._prev_alpha_rl
-                                if abs(delta_a) > 0.15:
-                                    alpha_rl = self._prev_alpha_rl + (0.15 if delta_a > 0.0 else -0.15)
+                                max_step_a = 0.25 if has_nearby_sem else 0.15
+                                if abs(delta_a) > max_step_a:
+                                    alpha_rl = self._prev_alpha_rl + (max_step_a if delta_a > 0.0 else -max_step_a)
                             self._prev_alpha_rl = alpha_rl
 
                         if alpha_rl > 0.0:
@@ -993,6 +1265,8 @@ class RecoveryController(Node):
                                 act_v=self.actual_v,
                                 act_w=self.actual_w,
                                 step_norm=step_norm,
+                                semantic_obstacles=sem_obs,
+                                semantic_hazards=sem_haz,
                             )
                             alpha_astar = 1.0 - alpha_rl
                             v_blend = max(-0.10, min(self.v_max, alpha_rl * v_rl + alpha_astar * v_cmd))
@@ -1000,7 +1274,11 @@ class RecoveryController(Node):
                             if self.is_phase2b and (
                                 (left_min < 0.32 and w_rl > w_cmd + 0.05)
                                 or (right_min < 0.32 and w_rl < w_cmd - 0.05)
-                                or (w_rl * w_cmd < -0.04 and abs(w_rl - w_cmd) > 0.50)
+                                or (
+                                    (not has_nearby_sem)
+                                    and w_rl * w_cmd < -0.04
+                                    and abs(w_rl - w_cmd) > 0.50
+                                )
                             ):
                                 v_cmd = min(v_blend, v_cmd)
                             else:
@@ -1019,6 +1297,8 @@ class RecoveryController(Node):
                                 act_v=self.actual_v,
                                 act_w=self.actual_w,
                                 step_norm=step_norm,
+                                semantic_obstacles=sem_obs,
+                                semantic_hazards=sem_haz,
                             )
                     else:
                         self._prev_alpha_rl = 0.0
@@ -1034,6 +1314,8 @@ class RecoveryController(Node):
                             act_v=self.actual_v,
                             act_w=self.actual_w,
                             step_norm=step_norm,
+                            semantic_obstacles=sem_obs,
+                            semantic_hazards=sem_haz,
                         )
                     self._prev_front_min = front_min
                     self._prev_front_time = now_sec

@@ -419,6 +419,17 @@ Visualization Manager:
       Value: false
     Enabled: true
     Name: Cartographer
+  - Class: rviz_default_plugins/MarkerArray
+    Enabled: true
+    Name: Semantic Map Markers
+    Namespaces: {}
+    Topic:
+      Depth: 10
+      Durability Policy: Volatile
+      History Policy: Keep Last
+      Reliability Policy: Reliable
+      Value: /semantic_map/markers
+    Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48

@@ -32,6 +32,7 @@ Key Functions:
 
 import ctypes
 import glob
+import json
 import os
 import threading
 import queue
@@ -108,6 +109,14 @@ class HostAIPipelineNode(Node):
         self.declare_parameter('confidence_threshold', 0.40)
         self.declare_parameter('person_conf_threshold', 0.55)
         self.declare_parameter('only_person_detection', True)
+        self.declare_parameter(
+            'mapped_classes',
+            [
+                'person', 'chair', 'couch', 'potted plant', 'bed',
+                'dining table', 'toilet', 'tv', 'bottle', 'backpack',
+                'suitcase', 'bench'
+            ]
+        )
         self.declare_parameter('min_consecutive_detections', 2)
         self.declare_parameter('yolo_max_fps', 15.0)
         self.declare_parameter('cuda_device', 0)
@@ -131,6 +140,14 @@ class HostAIPipelineNode(Node):
         self.conf_th = self.get_parameter('confidence_threshold').value
         self.person_conf_th = self.get_parameter('person_conf_threshold').value
         self.only_person = self.get_parameter('only_person_detection').value
+        raw_mapped_classes = self.get_parameter('mapped_classes').value
+        if isinstance(raw_mapped_classes, str):
+            self.mapped_classes = [c.strip().lower() for c in raw_mapped_classes.split(',') if c.strip()]
+        elif isinstance(raw_mapped_classes, (list, tuple)):
+            self.mapped_classes = [str(c).strip().lower() for c in raw_mapped_classes if str(c).strip()]
+        else:
+            self.mapped_classes = []
+        self.mapped_classes_set = set(self.mapped_classes)
         self.min_consecutive = self.get_parameter('min_consecutive_detections').value
         self.yolo_max_fps = max(1.0, float(self.get_parameter('yolo_max_fps').value))
         self.device_id = self.get_parameter('cuda_device').value
@@ -161,6 +178,8 @@ class HostAIPipelineNode(Node):
         self.latest_frame = None
         self.latest_raw_msg = None
         self.latest_compressed_bytes = None
+        self.latest_stamp = None
+        self.latest_frame_id = 'camera_rgb_optical_frame'
         self.frame_lock = threading.Lock()
         self.new_frame_event = threading.Event()
         self.vision_thread_running = True
@@ -263,6 +282,7 @@ class HostAIPipelineNode(Node):
         self.pub_heartbeat = self.create_publisher(Header, '/heartbeat', 10)
         self.sub_enable_hb = self.create_subscription(Bool, '/host/enable_heartbeat', self._cb_enable_heartbeat, 10)
         self.pub_detection_img = self.create_publisher(Image, '/detection/image', 1)
+        self.pub_detection_objects = self.create_publisher(String, '/detection/objects', 10)
         self.pub_victim_alert = self.create_publisher(String, '/disaster/victim_alert', 10)
         self.pub_audio_alert = self.create_publisher(String, '/disaster/audio_alert', 10)
 
@@ -316,12 +336,19 @@ class HostAIPipelineNode(Node):
         # Defer RGB->BGR conversion until worker pops a frame to avoid wasting CPU on skipped frames
         with self.frame_lock:
             self.latest_raw_msg = (bytes(msg.data), int(msg.height), int(msg.width), str(msg.encoding))
+            self.latest_compressed_bytes = None
             self.latest_frame = None
+            self.latest_stamp = msg.header.stamp
+            self.latest_frame_id = msg.header.frame_id or 'camera_rgb_optical_frame'
         self.new_frame_event.set()
 
     def cb_compressed_image(self, msg: CompressedImage):
         with self.frame_lock:
             self.latest_compressed_bytes = msg.data
+            self.latest_raw_msg = None
+            self.latest_frame = None
+            self.latest_stamp = msg.header.stamp
+            self.latest_frame_id = msg.header.frame_id or 'camera_rgb_optical_frame'
         self.new_frame_event.set()
 
     def vision_worker_loop(self):
@@ -347,6 +374,8 @@ class HostAIPipelineNode(Node):
                 self.latest_raw_msg = None
                 frame = self.latest_frame
                 self.latest_frame = None
+                frame_stamp = self.latest_stamp
+                frame_id = self.latest_frame_id
 
             if raw_bytes is None and raw_img is None and frame is None:
                 continue
@@ -378,15 +407,44 @@ class HostAIPipelineNode(Node):
             if frame is None:
                 continue
 
+            orig_h, orig_w = frame.shape[:2]
+
             # 1. Rotate to upright orientation (e.g. 270 degrees)
             frame = self.rotate_image(frame)
 
             # 2. Process YOLO and publish
-            self.process_frame(frame)
+            self.process_frame(
+                frame,
+                stamp=frame_stamp,
+                frame_id=frame_id,
+                orig_width=orig_w,
+                orig_height=orig_h,
+            )
 
-    def process_frame(self, cv_img):
+    def process_frame(
+        self,
+        cv_img,
+        stamp=None,
+        frame_id: str = None,
+        orig_width: int = None,
+        orig_height: int = None,
+    ):
         if self.yolo_model is None:
             return
+
+        if stamp is None:
+            stamp = self.latest_stamp if self.latest_stamp is not None else self.get_clock().now().to_msg()
+        if frame_id is None:
+            frame_id = self.latest_frame_id or 'camera_rgb_optical_frame'
+
+        rot_h, rot_w = cv_img.shape[:2]
+        if orig_width is None or orig_height is None:
+            if self.rotation_angle in (90, 270):
+                orig_width = rot_h
+                orig_height = rot_w
+            else:
+                orig_width = rot_w
+                orig_height = rot_h
 
         # Perform inference on GTX 1050 Ti
         # If only_person is enabled, restrict YOLO detection strictly to class 0 ('person')
@@ -401,9 +459,10 @@ class HostAIPipelineNode(Node):
         results = self.yolo_model(cv_img, **inference_kwargs)
 
         has_boxes = any(len(r.boxes) > 0 for r in results)
-        annotated_frame = cv_img if not has_boxes else None
+        annotated_frame = cv_img.copy() if not has_boxes else None
         person_detected = False
         highest_conf = 0.0
+        detections_payload = []
 
         for r in results:
             if has_boxes and annotated_frame is None:
@@ -411,14 +470,57 @@ class HostAIPipelineNode(Node):
             for box in r.boxes:
                 cls_id = int(box.cls[0])
                 conf = float(box.conf[0])
-                cls_name = self.yolo_model.names.get(cls_id, '')
+                cls_name = str(self.yolo_model.names.get(cls_id, ''))
+                cls_name_lower = cls_name.lower()
+                is_person = (cls_id == 0 or cls_name_lower == 'person')
 
                 # Only trigger if the detected class is strictly 'person' (COCO ID 0)
                 # and confidence meets the human-specific threshold (default 0.55)
-                if (cls_id == 0 or cls_name.lower() == 'person') and conf >= self.person_conf_th:
+                if is_person and conf >= self.person_conf_th:
                     person_detected = True
                     if conf > highest_conf:
                         highest_conf = conf
+
+                # Filter for semantic mapping /detection/objects
+                if self.only_person:
+                    if not is_person:
+                        continue
+                elif self.mapped_classes_set:
+                    if cls_name_lower not in self.mapped_classes_set and not (
+                        is_person and 'person' in self.mapped_classes_set
+                    ):
+                        continue
+
+                if conf < self.conf_th:
+                    continue
+
+                raw_xyxy = box.xyxy[0] if hasattr(box, 'xyxy') and len(box.xyxy) > 0 else [0.0, 0.0, 0.0, 0.0]
+                xyxy_list = raw_xyxy.tolist() if hasattr(raw_xyxy, 'tolist') else list(raw_xyxy)
+                detections_payload.append({
+                    'class_id': cls_id,
+                    'class_name': cls_name if cls_name else ('person' if is_person else str(cls_id)),
+                    'conf': round(conf, 4),
+                    'bbox_xyxy': [
+                        float(xyxy_list[0]),
+                        float(xyxy_list[1]),
+                        float(xyxy_list[2]),
+                        float(xyxy_list[3]),
+                    ],
+                })
+
+        # Publish /detection/objects JSON with preserved header.stamp and pre-rotation dimensions
+        stamp_sec = int(getattr(stamp, 'sec', 0))
+        stamp_nanosec = int(getattr(stamp, 'nanosec', 0))
+        objects_msg = String()
+        objects_msg.data = json.dumps({
+            'stamp': {'sec': stamp_sec, 'nanosec': stamp_nanosec},
+            'frame_id': str(frame_id),
+            'image_width': int(orig_width),
+            'image_height': int(orig_height),
+            'rotation_angle': int(self.rotation_angle),
+            'detections': detections_payload,
+        })
+        self.pub_detection_objects.publish(objects_msg)
 
         # Debounce: Consecutive frame filter to prevent single-frame flickering false positives
         if person_detected:
@@ -465,10 +567,12 @@ class HostAIPipelineNode(Node):
             try:
                 if self.bridge is not None:
                     out_msg = self.bridge.cv2_to_imgmsg(annotated_frame, encoding='bgr8')
+                    out_msg.header.stamp = stamp
+                    out_msg.header.frame_id = str(frame_id)
                 else:
                     out_msg = Image()
-                    out_msg.header.stamp = self.get_clock().now().to_msg()
-                    out_msg.header.frame_id = 'camera_link'
+                    out_msg.header.stamp = stamp
+                    out_msg.header.frame_id = str(frame_id)
                     out_msg.height = annotated_frame.shape[0]
                     out_msg.width = annotated_frame.shape[1]
                     out_msg.encoding = 'bgr8'

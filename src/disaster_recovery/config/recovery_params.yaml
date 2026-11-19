@@ -30,6 +30,8 @@ recovery_controller:
     td3_clearance_dist_m: 0.42        # Obstacle bypass clearance threshold
     td3_max_avoid_steps: 250          # 25s avoidance timeout at 10Hz before advancing WP
     context_rl_onnx_path: ""          # Auto-resolve sim_policy_student.onnx when recovery_strategy=proposed_rl
+    use_semantic_rl_policy: false     # Phase 3 3-channel Semantic RL policy switch (false=1ch Phase 2-B default)
+    semantic_rl_onnx_path: ""         # Auto-resolve sim_policy_student_semantic_v3.onnx when use_semantic_rl_policy=true
 
 gas_sensor_node:
   ros__parameters:

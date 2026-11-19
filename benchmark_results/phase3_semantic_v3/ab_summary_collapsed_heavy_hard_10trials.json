@@ -1,0 +1,32 @@
+{
+  "collapsed_heavy_hard": {
+    "baseline": {
+      "scenario": "collapsed_heavy_hard",
+      "label_ko": "붕괴 건물 EXTREME (10~13개 초고밀도 군집)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 0,
+      "success_rate_pct": 0.0,
+      "mean_error_cm_all": 667.03,
+      "mean_error_cm_pass": null,
+      "mean_time_s_all": 308.17,
+      "mean_time_s_pass": null,
+      "mean_ret_path_m_pass": null,
+      "mean_explored_m": 18.87
+    },
+    "proposed": {
+      "scenario": "collapsed_heavy_hard",
+      "label_ko": "붕괴 건물 EXTREME (10~13개 초고밀도 군집)",
+      "strategy": "proposed_rl",
+      "trials": 10,
+      "passes": 10,
+      "success_rate_pct": 100.0,
+      "mean_error_cm_all": 8.5,
+      "mean_error_cm_pass": 8.5,
+      "mean_time_s_all": 137.18,
+      "mean_time_s_pass": 137.18,
+      "mean_ret_path_m_pass": 18.17,
+      "mean_explored_m": 18.87
+    }
+  }
+}

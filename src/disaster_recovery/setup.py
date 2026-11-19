@@ -28,6 +28,7 @@ setup(
             'recovery_controller = disaster_recovery.recovery_controller:main',
             'aruco_docking = disaster_recovery.aruco_docking:main',
             'host_ai_pipeline = disaster_recovery.host_ai_pipeline:main',
+            'semantic_map_node = disaster_recovery.semantic_map_node:main',
             'gas_sensor_node = disaster_recovery.gas_sensor_node:main',
             'audio_capture_node = disaster_recovery.audio_capture_node:main',
             'blackbox_recorder = disaster_recovery.blackbox_recorder:main',

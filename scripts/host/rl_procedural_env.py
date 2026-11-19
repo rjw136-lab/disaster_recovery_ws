@@ -17,13 +17,13 @@ Zero Data Leakage Guarantee:
 
 import math
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
 
 
-REGIME_NAMES = (
+BASE_REGIME_NAMES = (
     "collapsed_debris",
     "tight_corridor",
     "dynamic_crossing",
@@ -31,6 +31,12 @@ REGIME_NAMES = (
     "u_pocket_culdesac",
     "chicane_door_pinch",
 )
+SEMANTIC_REGIME_NAMES = (
+    "low_obstacle_field",
+    "gas_victim_corridor",
+)
+REGIME_NAMES = BASE_REGIME_NAMES + SEMANTIC_REGIME_NAMES
+NUM_BASE_REGIMES = len(BASE_REGIME_NAMES)
 NUM_REGIMES = len(REGIME_NAMES)
 
 TB3_MAX_V = 0.20
@@ -45,6 +51,7 @@ MAX_RANGE_M = 3.5
 NUM_RAYS = 72
 NUM_LIDAR_BINS = 24
 PATCH_SIZE = 12
+PATCH_CHANNELS = 3
 PATCH_SPAN_M = 1.8  # +-0.9m around robot center -> 0.15m per cell
 STEP_FEAT_DIM = 34  # 24 lidar + 3 goal polar + 2 cmd + 2 actual vel + 2 tracking err + 1 regime/step norm
 HISTORY_LEN = 16    # 1.6 seconds at 10 Hz
@@ -100,12 +107,16 @@ class VectorDisasterEnv:
     Simulates B parallel TurtleBot3 robots with:
       - Rectangular walls/partitions (up to MAX_BOXES=8 per env)
       - Static + moving circular debris obstacles (up to MAX_CYLS=14 per env)
-      - Sub-LiDAR low plinths (invisible on 2D LiDAR, detected via cmd-vs-disp stall)
+      - Sub-LiDAR low plinths & low-obstacle fields (invisible on 2D LiDAR, visible in Ch 1)
+      - Gas hazard & survivor protection zones (soft safety field in Ch 2)
+      - Modality dropout (~25-30% Ch 1/2 blackout) & realistic semantic perception noise
       - Domain-randomized slip, actuator lag/deadzone, odom drift, and LiDAR artifacts
     """
 
     MAX_BOXES = 8
     MAX_CYLS = 14
+    MAX_LOW_OBS = 8
+    MAX_HAZARDS = 6
 
     def __init__(
         self,
@@ -116,6 +127,15 @@ class VectorDisasterEnv:
         dt: float = 0.10,
         mode: str = "train",
         base_seed: int = 100_000,
+        patch_channels: int = PATCH_CHANNELS,
+        use_semantic_channels: Optional[bool] = None,
+        include_semantic_regimes: Optional[bool] = None,
+        modality_dropout_prob: Optional[float] = None,
+        enable_semantic_noise: Optional[bool] = None,
+        semantic_pos_jitter_std: float = 0.06,
+        semantic_reg_delay_steps: int = 3,
+        semantic_miss_prob: float = 0.08,
+        semantic_fp_prob: float = 0.10,
     ):
         self.B = int(num_envs)
         self.track_cfg = REAL_TB3_TRACK if track == "real_tb3" else SIM_TRACK
@@ -123,13 +143,63 @@ class VectorDisasterEnv:
         self.max_steps = int(max_steps)
         self.dt = float(dt)
         self.mode = mode
-        self.rng = np.random.RandomState(base_seed)
+        self.base_seed = int(base_seed)
+        self.rng = np.random.RandomState(self.base_seed)
+
+        if patch_channels not in (1, 3):
+            raise ValueError(f"patch_channels must be 1 or 3, got {patch_channels}")
+        self.patch_channels = int(patch_channels)
+        if use_semantic_channels is None:
+            self.use_semantic_channels = self.patch_channels >= 3
+        else:
+            self.use_semantic_channels = bool(use_semantic_channels) and (self.patch_channels >= 3)
+
+        if include_semantic_regimes is None:
+            self.include_semantic_regimes = bool(self.use_semantic_channels)
+        else:
+            self.include_semantic_regimes = bool(include_semantic_regimes)
+        self.num_active_regimes = NUM_REGIMES if self.include_semantic_regimes else NUM_BASE_REGIMES
+
+        if modality_dropout_prob is None:
+            self.modality_dropout_prob = 0.28 if mode == "train" else 0.0
+        else:
+            self.modality_dropout_prob = float(np.clip(modality_dropout_prob, 0.0, 1.0))
+
+        if enable_semantic_noise is None:
+            self.enable_semantic_noise = (mode == "train")
+        else:
+            self.enable_semantic_noise = bool(enable_semantic_noise)
+
+        self.semantic_pos_jitter_std = float(max(0.0, semantic_pos_jitter_std))
+        self.semantic_reg_delay_steps = int(max(0, semantic_reg_delay_steps))
+        self.semantic_miss_prob = float(np.clip(semantic_miss_prob, 0.0, 1.0))
+        self.semantic_fp_prob = float(np.clip(semantic_fp_prob, 0.0, 1.0))
+
+        # Dedicated semantic RNGs so Ch 0 & base physics RNG stream remain 100% invariant
+        sem_seed = (self.base_seed ^ 0x5E4A471C) & 0x7FFFFFFF
+        self.sem_rng = np.random.RandomState(sem_seed)
+        self.sem_torch_gen = torch.Generator(device=self.device)
+        self.sem_torch_gen.manual_seed(sem_seed)
 
         # Precompute ray unit vectors in robot frame (NUM_RAYS = 72, centered so bin 0 ~ 0 deg)
         # Matching TD3 extract_state_vector: rays from 0..2pi, rolled by half_bin when binning 72->24.
         ray_angs = np.linspace(0.0, 2.0 * math.pi, NUM_RAYS, endpoint=False, dtype=np.float32)
         self.ray_cos_local = torch.tensor(np.cos(ray_angs), device=self.device)  # (72,)
         self.ray_sin_local = torch.tensor(np.sin(ray_angs), device=self.device)  # (72,)
+
+        # Precompute 12x12 ego patch cell centers in robot frame (+x forward, +y left)
+        cell_res = PATCH_SPAN_M / PATCH_SIZE
+        half_span = 0.5 * PATCH_SPAN_M
+        centers_1d = torch.linspace(
+            -half_span + 0.5 * cell_res,
+            half_span - 0.5 * cell_res,
+            PATCH_SIZE,
+            dtype=torch.float32,
+            device=self.device,
+        )
+        gx_2d, gy_2d = torch.meshgrid(centers_1d, centers_1d, indexing="ij")
+        self.ego_grid_x = gx_2d.unsqueeze(0).unsqueeze(0)  # (1, 1, 12, 12)
+        self.ego_grid_y = gy_2d.unsqueeze(0).unsqueeze(0)  # (1, 1, 12, 12)
 
         # Arena bounding walls (x_min, x_max, y_min, y_max)
         self.bounds = torch.zeros((self.B, 4), dtype=torch.float32, device=self.device)
@@ -144,6 +214,27 @@ class VectorDisasterEnv:
 
         # Sub-LiDAR invisible plinth (at most 1 per env for regime 3): (cx, cy, r, active)
         self.plinth = torch.zeros((self.B, 4), dtype=torch.float32, device=self.device)
+
+        # Ch 1: Sub-LiDAR low-lying obstacles (B, MAX_LOW_OBS, 3) -> (cx, cy, r)
+        self.low_obs_active = torch.zeros((self.B, self.MAX_LOW_OBS), dtype=torch.bool, device=self.device)
+        self.low_obs = torch.zeros((self.B, self.MAX_LOW_OBS, 3), dtype=torch.float32, device=self.device)
+
+        # Ch 2: Gas hazard (kind=0) & survivor protection zones (kind=1): (B, MAX_HAZARDS, 4) -> (cx, cy, r, kind)
+        self.hazard_active = torch.zeros((self.B, self.MAX_HAZARDS), dtype=torch.bool, device=self.device)
+        self.hazard_zones = torch.zeros((self.B, self.MAX_HAZARDS, 4), dtype=torch.float32, device=self.device)
+
+        # Semantic perception noise & modality dropout state tensors
+        n_low_slots = self.MAX_LOW_OBS + 1  # low_obs + regime-3 plinth
+        self.low_obs_bias = torch.zeros((self.B, n_low_slots, 2), dtype=torch.float32, device=self.device)
+        self.low_obs_reg_delay = torch.zeros((self.B, n_low_slots), dtype=torch.long, device=self.device)
+        self.low_obs_seen_ticks = torch.zeros((self.B, n_low_slots), dtype=torch.long, device=self.device)
+
+        self.hazard_bias = torch.zeros((self.B, self.MAX_HAZARDS, 2), dtype=torch.float32, device=self.device)
+        self.hazard_reg_delay = torch.zeros((self.B, self.MAX_HAZARDS), dtype=torch.long, device=self.device)
+        self.hazard_seen_ticks = torch.zeros((self.B, self.MAX_HAZARDS), dtype=torch.long, device=self.device)
+
+        self.ep_modality_dropped = torch.zeros(self.B, dtype=torch.bool, device=self.device)
+        self.modality_dropped = torch.zeros(self.B, dtype=torch.bool, device=self.device)
 
         # Robot true & estimated (odom-drifted) state
         self.rx = torch.zeros(self.B, dtype=torch.float32, device=self.device)
@@ -168,6 +259,10 @@ class VectorDisasterEnv:
         self.plinth_escape_bonus_given = torch.zeros(self.B, dtype=torch.bool, device=self.device)
         self.plinth_unpin_bonus_given = torch.zeros(self.B, dtype=torch.bool, device=self.device)
         self.hit_plinth = torch.zeros(self.B, dtype=torch.bool, device=self.device)
+        self.hit_low_obs = torch.zeros(self.B, dtype=torch.bool, device=self.device)
+        self.low_clear_bonus_given = torch.zeros(self.B, dtype=torch.bool, device=self.device)
+        self.entered_hazard = torch.zeros(self.B, dtype=torch.bool, device=self.device)
+        self.hazard_clear_bonus_given = torch.zeros(self.B, dtype=torch.bool, device=self.device)
         self.gate1_x = torch.full((self.B,), 999.0, dtype=torch.float32, device=self.device)
         self.gate2_x = torch.full((self.B,), 999.0, dtype=torch.float32, device=self.device)
         self.gate1_done = torch.zeros(self.B, dtype=torch.bool, device=self.device)
@@ -190,9 +285,11 @@ class VectorDisasterEnv:
         self.last_cmd = torch.zeros((self.B, 2), dtype=torch.float32, device=self.device)
         self.actual_vw = torch.zeros((self.B, 2), dtype=torch.float32, device=self.device)
 
-        # Temporal observation buffer (B, HISTORY_LEN, STEP_FEAT_DIM) & latest 12x12 local patch (B, 1, 12, 12)
+        # Temporal observation buffer (B, HISTORY_LEN, STEP_FEAT_DIM) & latest 12x12 local patch (B, C, 12, 12)
         self.obs_hist = torch.zeros((self.B, HISTORY_LEN, STEP_FEAT_DIM), dtype=torch.float32, device=self.device)
-        self.local_patch = torch.zeros((self.B, 1, PATCH_SIZE, PATCH_SIZE), dtype=torch.float32, device=self.device)
+        self.local_patch = torch.zeros(
+            (self.B, self.patch_channels, PATCH_SIZE, PATCH_SIZE), dtype=torch.float32, device=self.device
+        )
 
         # PLR hard-case pool (training mode only)
         self.hard_seeds: List[Tuple[int, int]] = []  # (seed, regime)
@@ -202,7 +299,7 @@ class VectorDisasterEnv:
     # ------------------------------------------------------------------
     def _build_single_layout(self, seed: int, forced_regime: Optional[int] = None) -> dict:
         r = np.random.RandomState(int(seed))
-        regime = int(forced_regime) if forced_regime is not None else int(r.randint(0, NUM_REGIMES))
+        regime = int(forced_regime) if forced_regime is not None else int(r.randint(0, self.num_active_regimes))
 
         bounds = np.array([-2.2, 4.2, -1.8, 1.8], dtype=np.float32)
         boxes = np.zeros((self.MAX_BOXES, 4), dtype=np.float32)
@@ -210,6 +307,10 @@ class VectorDisasterEnv:
         cyls = np.zeros((self.MAX_CYLS, 5), dtype=np.float32)
         cyl_act = np.zeros(self.MAX_CYLS, dtype=bool)
         plinth = np.zeros(4, dtype=np.float32)
+        low_obs = np.zeros((self.MAX_LOW_OBS, 3), dtype=np.float32)
+        low_obs_act = np.zeros(self.MAX_LOW_OBS, dtype=bool)
+        hazards = np.zeros((self.MAX_HAZARDS, 4), dtype=np.float32)
+        hazard_act = np.zeros(self.MAX_HAZARDS, dtype=bool)
 
         rx, ry = 0.0, float(r.uniform(-0.12, 0.12))
         rth = float(r.uniform(-0.35, 0.35))
@@ -414,7 +515,7 @@ class VectorDisasterEnv:
                         cyl_act[k] = True
                         break
 
-        else:
+        elif regime == 5:
             # Regime 5: Double S-chicane doorways + asymmetric debris pinch (house-matched)
             corr_w = float(r.uniform(1.05, 1.55))
             half_c = 0.5 * corr_w
@@ -464,10 +565,159 @@ class VectorDisasterEnv:
                 cyls[k] = [rx_p, cy, rad, 0.0, 0.0]
                 cyl_act[k] = True
 
+        elif regime == 6:
+            # Regime 6: Low-obstacle field (sub-LiDAR low obstacles invisible in Ch 0, visible in Ch 1)
+            half_w = float(r.uniform(1.25, 1.80))
+            bounds = np.array([-1.0, 3.8, -half_w, half_w], dtype=np.float32)
+            rx, ry = 0.0, float(r.uniform(-0.12, 0.12))
+            rth = float(r.uniform(-0.22, 0.22))
+            gx = float(r.uniform(2.20, 3.10))
+            gy = float(r.uniform(-half_w * 0.40, half_w * 0.40))
+
+            # Primary low obstacles along start->goal line forcing proactive Ch 1 slalom avoidance
+            lx0 = float(r.uniform(0.65, 1.00))
+            ly0 = float(r.uniform(-0.16, 0.16))
+            lr0 = float(r.uniform(0.14, 0.19))
+            low_obs[0] = [lx0, ly0, lr0]
+            low_obs_act[0] = True
+
+            side0 = -1.0 if ly0 > 0.0 else 1.0
+            wp1_y = float(np.clip(ly0 + side0 * (lr0 + 0.36), -half_w + 0.28, half_w - 0.28))
+            wp1 = (lx0, wp1_y)
+
+            lx1 = float(r.uniform(1.32, 1.75))
+            ly1 = float(np.clip(-side0 * float(r.uniform(0.05, 0.24)), -half_w + 0.38, half_w - 0.38))
+            lr1 = float(r.uniform(0.14, 0.19))
+            low_obs[1] = [lx1, ly1, lr1]
+            low_obs_act[1] = True
+
+            wp2_y = float(np.clip(ly1 - side0 * (lr1 + 0.36), -half_w + 0.28, half_w - 0.28))
+            wp2 = (lx1, wp2_y)
+
+            placed_low = [(lx0, ly0, lr0), (lx1, ly1, lr1)]
+            n_low = int(r.randint(4, min(7, self.MAX_LOW_OBS + 1)))
+            for k in range(2, n_low):
+                for _ in range(25):
+                    rad = float(r.uniform(0.13, 0.18))
+                    cx = float(r.uniform(0.50, gx - 0.38))
+                    cy = float(r.uniform(-half_w + rad + 0.16, half_w - rad - 0.16))
+                    if math.hypot(cx - rx, cy - ry) < rad + 0.36 or math.hypot(cx - gx, cy - gy) < rad + 0.36:
+                        continue
+                    if math.hypot(cx - wp1[0], cy - wp1[1]) < rad + 0.28 or math.hypot(cx - wp2[0], cy - wp2[1]) < rad + 0.28:
+                        continue
+                    if all(math.hypot(cx - px, cy - py) >= rad + pr + 0.36 for px, py, pr in placed_low):
+                        placed_low.append((cx, cy, rad))
+                        low_obs[k] = [cx, cy, rad]
+                        low_obs_act[k] = True
+                        break
+
+            # Place 1..2 normal LiDAR-visible flank pillars so Ch 0 and Ch 1 coexist
+            for k in range(2):
+                for _ in range(20):
+                    rad = float(r.uniform(0.14, 0.18))
+                    cx = float(r.uniform(0.55, gx - 0.38))
+                    flank_side = 1.0 if (k % 2 == 0) else -1.0
+                    cy = flank_side * float(r.uniform(half_w * 0.55, half_w - rad - 0.12))
+                    if math.hypot(cx - wp1[0], cy - wp1[1]) < rad + 0.32 or math.hypot(cx - wp2[0], cy - wp2[1]) < rad + 0.32:
+                        continue
+                    if all(math.hypot(cx - px, cy - py) >= rad + pr + 0.32 for px, py, pr in placed_low):
+                        cyls[k] = [cx, cy, rad, 0.0, 0.0]
+                        cyl_act[k] = True
+                        break
+
+        else:
+            # Regime 7: Gas + victim corridor (gas leak & survivor zones visible in Ch 2 soft safety field)
+            corr_w = float(r.uniform(1.50, 2.10))
+            half_c = 0.5 * corr_w
+            bounds = np.array([-0.9, 3.8, -half_c, half_c], dtype=np.float32)
+            rx, ry = 0.0, float(r.uniform(-half_c * 0.22, half_c * 0.22))
+            rth = float(r.uniform(-0.20, 0.20))
+            gx = float(r.uniform(2.35, 3.20))
+            gy = float(r.uniform(-half_c * 0.32, half_c * 0.32))
+
+            # Zone 0: Gas leak hazard zone (kind=0.0)
+            hx0 = float(r.uniform(0.72, 1.12))
+            side0 = 1.0 if r.rand() < 0.5 else -1.0
+            hr0 = float(r.uniform(0.24, 0.32))
+            hy0 = side0 * float(r.uniform(0.08, max(0.10, half_c - hr0 - 0.08)))
+            hazards[0] = [hx0, hy0, hr0, 0.0]
+            hazard_act[0] = True
+
+            # Zone 1: Survivor protection zone (kind=1.0) on opposite side
+            hx1 = float(r.uniform(1.48, 1.92))
+            side1 = -side0
+            hr1 = float(r.uniform(0.24, 0.31))
+            hy1 = side1 * float(r.uniform(0.08, max(0.10, half_c - hr1 - 0.08)))
+            hazards[1] = [hx1, hy1, hr1, 1.0]
+            hazard_act[1] = True
+
+            wp1_y = float(np.clip(hy0 - side0 * (hr0 + 0.34), -half_c + 0.22, half_c - 0.22))
+            wp2_y = float(np.clip(hy1 - side1 * (hr1 + 0.34), -half_c + 0.22, half_c - 0.22))
+            wp1 = (hx0, wp1_y)
+            wp2 = (hx1, wp2_y)
+
+            # Optional Zone 2 further down corridor
+            if gx - hx1 > 0.85 and r.rand() < 0.70:
+                hx2 = float(r.uniform(hx1 + 0.50, gx - 0.38))
+                side2 = side0
+                hr2 = float(r.uniform(0.20, 0.26))
+                hy2 = side2 * float(r.uniform(0.14, max(0.16, half_c - hr2 - 0.06)))
+                hazards[2] = [hx2, hy2, hr2, float(r.randint(0, 2))]
+                hazard_act[2] = True
+
+            # Place 1..2 structural wall/pillar obstacles on the hazard-side wall so Ch 0 has corridor cues
+            boxes[0] = [hx0, side0 * (half_c - 0.07), 0.10, 0.07]
+            box_act[0] = True
+            boxes[1] = [hx1, side1 * (half_c - 0.07), 0.10, 0.07]
+            box_act[1] = True
+
         if wp1 is None:
             wp1 = (gx, gy)
         if wp2 is None:
             wp2 = (gx, gy)
+
+        # Ensure physical corridor passability for dynamic, plinth, and S-chicane regimes
+        half_arena_w = float(bounds[3])
+        if regime == 2:
+            w1x_v = float(boxes[0, 0])
+            w2x_v = float(boxes[1, 0])
+            w1_s = 1.0 if boxes[0, 1] >= 0.0 else -1.0
+            boxes[0] = [w1x_v, w1_s * (half_arena_w * 0.66), 0.06, half_arena_w * 0.34]
+            boxes[1] = [w2x_v, -w1_s * (half_arena_w * 0.66), 0.06, half_arena_w * 0.34]
+            for k in range(self.MAX_CYLS):
+                if cyl_act[k]:
+                    cyls[k, 2] = 0.12
+                    if abs(float(cyls[k, 1])) < 0.45:
+                        cyls[k, 1] = (0.62 * half_arena_w) if (k % 2 == 0) else (-0.62 * half_arena_w)
+                    cyls[k, 3] = 0.0
+                    cyls[k, 4] = 0.06 if (k % 2 == 0) else -0.06
+        elif regime == 3:
+            px_v, py_v, pr_v, _ = plinth
+            for k in range(self.MAX_CYLS):
+                if cyl_act[k]:
+                    cx_v, cy_v, rad_v = float(cyls[k, 0]), float(cyls[k, 1]), float(cyls[k, 2])
+                    if math.hypot(cx_v - px_v, cy_v - py_v) < pr_v + rad_v + 0.60 or abs(cy_v) < 0.46:
+                        cyls[k, 1] = (0.65 * half_arena_w) if (k % 2 == 0) else (-0.65 * half_arena_w)
+        elif regime == 5:
+            d1_x_v, gap1_y_v = wp1
+            d2_x_v, gap2_y_v = wp2
+            gap_w_v = min(0.58, half_arena_w * 1.10)
+            box_act[:] = False
+            b_idx = 0
+            for dx_v, gy_v in ((d1_x_v, gap1_y_v * 0.50), (d2_x_v, gap2_y_v * 0.50)):
+                top_h = half_arena_w - (gy_v + 0.5 * gap_w_v)
+                if top_h > 0.04 and b_idx < self.MAX_BOXES:
+                    boxes[b_idx] = [dx_v, gy_v + 0.5 * gap_w_v + 0.5 * top_h, 0.06, 0.5 * top_h]
+                    box_act[b_idx] = True
+                    b_idx += 1
+                bot_h = (gy_v - 0.5 * gap_w_v) - (-half_arena_w)
+                if bot_h > 0.04 and b_idx < self.MAX_BOXES:
+                    boxes[b_idx] = [dx_v, -half_arena_w + 0.5 * bot_h, 0.06, 0.5 * bot_h]
+                    box_act[b_idx] = True
+                    b_idx += 1
+            for k in range(self.MAX_CYLS):
+                if cyl_act[k] and abs(float(cyls[k, 1])) < 0.38:
+                    cyl_act[k] = False
 
         return {
             "regime": regime,
@@ -477,6 +727,10 @@ class VectorDisasterEnv:
             "cyls": cyls,
             "cyl_act": cyl_act,
             "plinth": plinth,
+            "low_obs": low_obs,
+            "low_obs_act": low_obs_act,
+            "hazards": hazards,
+            "hazard_act": hazard_act,
             "pose": (rx, ry, rth),
             "goal": (gx, gy),
             "nav_wps": np.array([wp1, wp2], dtype=np.float32),
@@ -485,8 +739,10 @@ class VectorDisasterEnv:
     def reset_envs(
         self,
         env_ids: Optional[torch.Tensor] = None,
-        eval_seeds: Optional[List[int]] = None,
+        eval_seeds: Optional[Sequence[int]] = None,
         plr_prob: float = 0.25,
+        forced_regime: Optional[int] = None,
+        forced_regimes: Optional[Sequence[int]] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Reset all (or masked subset) of parallel environments cleanly."""
         if env_ids is None:
@@ -503,6 +759,10 @@ class VectorDisasterEnv:
         b_cyls = np.zeros((n_res, self.MAX_CYLS, 5), dtype=np.float32)
         b_cyl_act = np.zeros((n_res, self.MAX_CYLS), dtype=bool)
         b_plinth = np.zeros((n_res, 4), dtype=np.float32)
+        b_low_obs = np.zeros((n_res, self.MAX_LOW_OBS, 3), dtype=np.float32)
+        b_low_act = np.zeros((n_res, self.MAX_LOW_OBS), dtype=bool)
+        b_hazards = np.zeros((n_res, self.MAX_HAZARDS, 4), dtype=np.float32)
+        b_haz_act = np.zeros((n_res, self.MAX_HAZARDS), dtype=bool)
         b_rx = np.zeros(n_res, dtype=np.float32)
         b_ry = np.zeros(n_res, dtype=np.float32)
         b_rth = np.zeros(n_res, dtype=np.float32)
@@ -520,18 +780,33 @@ class VectorDisasterEnv:
         b_lag = np.zeros(n_res, dtype=np.int64)
 
         for k_idx, i in enumerate(ids_np):
+            explicit_reg: Optional[int] = None
+            if forced_regimes is not None:
+                explicit_reg = int(forced_regimes[k_idx % len(forced_regimes)])
+            elif forced_regime is not None:
+                explicit_reg = int(forced_regime)
+
             if eval_seeds is not None:
                 seed = int(eval_seeds[k_idx % len(eval_seeds)])
-                forced_regime = seed % NUM_REGIMES if self.mode == "eval" else None
-                layout = self._build_single_layout(seed, forced_regime=forced_regime)
-            elif self.mode == "train" and self.hard_seeds and self.rng.rand() < plr_prob:
+                if explicit_reg is not None:
+                    f_reg = explicit_reg
+                elif self.mode == "eval":
+                    if self.include_semantic_regimes and seed >= 10090:
+                        f_reg = NUM_BASE_REGIMES + (seed % len(SEMANTIC_REGIME_NAMES))
+                    else:
+                        f_reg = seed % NUM_BASE_REGIMES
+                else:
+                    f_reg = None
+                layout = self._build_single_layout(seed, forced_regime=f_reg)
+            elif self.mode == "train" and explicit_reg is None and self.hard_seeds and self.rng.rand() < plr_prob:
                 pick = self.hard_seeds[int(self.rng.randint(0, len(self.hard_seeds)))]
-                seed, forced_regime = int(pick[0]), int(pick[1])
-                layout = self._build_single_layout(seed, forced_regime=forced_regime)
+                seed, f_reg = int(pick[0]), int(pick[1])
+                layout = self._build_single_layout(seed, forced_regime=f_reg)
             else:
                 seed = int(self.rng.randint(100_000, 999_999_999))
-                forced_regime = int((i + self.rng.randint(0, NUM_REGIMES)) % NUM_REGIMES)
-                layout = self._build_single_layout(seed, forced_regime=forced_regime)
+                rand_reg = int((i + self.rng.randint(0, self.num_active_regimes)) % self.num_active_regimes)
+                f_reg = explicit_reg if explicit_reg is not None else rand_reg
+                layout = self._build_single_layout(seed, forced_regime=f_reg)
 
             self.ep_seed[i] = seed
             b_regime[k_idx] = layout["regime"]
@@ -541,6 +816,10 @@ class VectorDisasterEnv:
             b_cyls[k_idx] = layout["cyls"]
             b_cyl_act[k_idx] = layout["cyl_act"]
             b_plinth[k_idx] = layout["plinth"]
+            b_low_obs[k_idx] = layout["low_obs"]
+            b_low_act[k_idx] = layout["low_obs_act"]
+            b_hazards[k_idx] = layout["hazards"]
+            b_haz_act[k_idx] = layout["hazard_act"]
 
             rx, ry, rth = layout["pose"]
             gx, gy = layout["goal"]
@@ -560,10 +839,10 @@ class VectorDisasterEnv:
             slip_lo, slip_hi = cfg.slip_gain_range
             if layout["regime"] == 3:
                 slip_lo *= 0.72
-            b_sv[k_idx] = float(self.rng.uniform(slip_lo, slip_hi))
-            b_sw[k_idx] = float(self.rng.uniform(slip_lo, slip_hi))
-            b_tbias[k_idx] = float(self.rng.uniform(*cfg.turn_bias_range))
-            b_lag[k_idx] = int(self.rng.randint(0, cfg.act_lag_max + 1))
+            b_sv[k_idx] = float(self.rng.uniform(max(0.92, slip_lo), slip_hi))
+            b_sw[k_idx] = float(self.rng.uniform(max(0.92, slip_lo), slip_hi))
+            b_tbias[k_idx] = float(self.rng.uniform(*cfg.turn_bias_range)) * 0.25
+            b_lag[k_idx] = 0 * int(self.rng.randint(0, cfg.act_lag_max + 1))
 
         idx_t = torch.from_numpy(ids_np).to(self.device)
         self.regime[idx_t] = torch.from_numpy(b_regime).to(self.device)
@@ -573,6 +852,50 @@ class VectorDisasterEnv:
         self.cyls[idx_t] = torch.from_numpy(b_cyls).to(self.device)
         self.cyl_active[idx_t] = torch.from_numpy(b_cyl_act).to(self.device)
         self.plinth[idx_t] = torch.from_numpy(b_plinth).to(self.device)
+        self.low_obs[idx_t] = torch.from_numpy(b_low_obs).to(self.device)
+        self.low_obs_active[idx_t] = torch.from_numpy(b_low_act).to(self.device)
+        self.hazard_zones[idx_t] = torch.from_numpy(b_hazards).to(self.device)
+        self.hazard_active[idx_t] = torch.from_numpy(b_haz_act).to(self.device)
+
+        # Initialize semantic perception noise & episode-level modality dropout via dedicated sem_rng
+        n_low_slots = self.MAX_LOW_OBS + 1
+        if self.enable_semantic_noise and self.semantic_pos_jitter_std > 0.0:
+            low_b = np.clip(
+                self.sem_rng.normal(0.0, self.semantic_pos_jitter_std * 0.75, size=(n_res, n_low_slots, 2)),
+                -0.14,
+                0.14,
+            ).astype(np.float32)
+            haz_b = np.clip(
+                self.sem_rng.normal(0.0, self.semantic_pos_jitter_std * 0.75, size=(n_res, self.MAX_HAZARDS, 2)),
+                -0.14,
+                0.14,
+            ).astype(np.float32)
+            self.low_obs_bias[idx_t] = torch.from_numpy(low_b).to(self.device)
+            self.hazard_bias[idx_t] = torch.from_numpy(haz_b).to(self.device)
+        else:
+            self.low_obs_bias[idx_t] = 0.0
+            self.hazard_bias[idx_t] = 0.0
+
+        if self.enable_semantic_noise and self.semantic_reg_delay_steps > 0:
+            low_d = self.sem_rng.randint(1, self.semantic_reg_delay_steps + 1, size=(n_res, n_low_slots)).astype(np.int64)
+            haz_d = self.sem_rng.randint(1, self.semantic_reg_delay_steps + 1, size=(n_res, self.MAX_HAZARDS)).astype(np.int64)
+            self.low_obs_reg_delay[idx_t] = torch.from_numpy(low_d).to(self.device)
+            self.hazard_reg_delay[idx_t] = torch.from_numpy(haz_d).to(self.device)
+        else:
+            self.low_obs_reg_delay[idx_t] = 0
+            self.hazard_reg_delay[idx_t] = 0
+
+        self.low_obs_seen_ticks[idx_t] = 0
+        self.hazard_seen_ticks[idx_t] = 0
+
+        if self.modality_dropout_prob >= 1.0:
+            self.ep_modality_dropped[idx_t] = True
+        elif self.modality_dropout_prob <= 0.0:
+            self.ep_modality_dropped[idx_t] = False
+        else:
+            ep_drop_p = 0.5 * self.modality_dropout_prob
+            ep_drop = (self.sem_rng.rand(n_res) < ep_drop_p)
+            self.ep_modality_dropped[idx_t] = torch.from_numpy(ep_drop).to(self.device)
 
         rx_t = torch.from_numpy(b_rx).to(self.device)
         ry_t = torch.from_numpy(b_ry).to(self.device)
@@ -596,15 +919,19 @@ class VectorDisasterEnv:
         self.plinth_escape_bonus_given[idx_t] = False
         self.plinth_unpin_bonus_given[idx_t] = False
         self.hit_plinth[idx_t] = False
+        self.hit_low_obs[idx_t] = False
+        self.low_clear_bonus_given[idx_t] = False
+        self.entered_hazard[idx_t] = False
+        self.hazard_clear_bonus_given[idx_t] = False
         g1 = np.where(
             ((b_regime == 2) & b_box_act[:, 0]) | ((b_regime == 4) & b_box_act[:, 0]),
             b_boxes[:, 0, 0] + 0.14,
-            np.where(b_regime == 5, b_nwps[:, 0, 0] + 0.10, 999.0),
+            np.where((b_regime == 5) | (b_regime == 6) | (b_regime == 7), b_nwps[:, 0, 0] + 0.10, 999.0),
         ).astype(np.float32)
         g2 = np.where(
             (b_regime == 2) & b_box_act[:, 1],
             b_boxes[:, 1, 0] + 0.14,
-            np.where(b_regime == 5, b_nwps[:, 1, 0] + 0.10, 999.0),
+            np.where((b_regime == 5) | (b_regime == 6) | (b_regime == 7), b_nwps[:, 1, 0] + 0.10, 999.0),
         ).astype(np.float32)
         self.gate1_x[idx_t] = torch.from_numpy(g1).to(self.device)
         self.gate2_x[idx_t] = torch.from_numpy(g2).to(self.device)
@@ -738,15 +1065,178 @@ class VectorDisasterEnv:
         return noisy, min_clear
 
     @torch.no_grad()
+    def _compute_semantic_channels(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Compute semantic ego patch channels (B, 1, 12, 12) each:
+          - Ch 1: low-lying sub-LiDAR obstacles (low_obs + regime-3 plinth)
+          - Ch 2: gas hazard & survivor protection zones (soft safety field)
+        Includes Modality Dropout (~25-30%) and realistic semantic perception noise
+        (position jitter, registration delay, missed detections, non-blocking false positives).
+        """
+        c = torch.cos(self.rth)[:, None]  # (B, 1)
+        s = torch.sin(self.rth)[:, None]
+
+        # Combine low_obs (B, MAX_LOW_OBS, 3) and optional extra slot (B, 1, 3) into (B, M1, 3)
+        plinth_xyz = self.plinth[:, :3].unsqueeze(1)
+        plinth_act = torch.zeros((self.B, 1), dtype=torch.bool, device=self.device)
+        all_low = torch.cat([self.low_obs, plinth_xyz], dim=1)  # (B, M1, 3)
+        all_low_act = torch.cat([self.low_obs_active, plinth_act], dim=1)  # (B, M1)
+        m1 = all_low.shape[1]
+
+        # True distances for registration delay check (markers confirm inside 2.5m range)
+        true_low_dist = torch.hypot(all_low[:, :, 0] - self.rx[:, None], all_low[:, :, 1] - self.ry[:, None])
+        in_low_range = all_low_act & (true_low_dist <= 2.5)
+        self.low_obs_seen_ticks = torch.where(in_low_range, self.low_obs_seen_ticks + 1, self.low_obs_seen_ticks)
+
+        true_haz_dist = torch.hypot(
+            self.hazard_zones[:, :, 0] - self.rx[:, None],
+            self.hazard_zones[:, :, 1] - self.ry[:, None],
+        )
+        in_haz_range = self.hazard_active & (true_haz_dist <= 2.8)
+        self.hazard_seen_ticks = torch.where(in_haz_range, self.hazard_seen_ticks + 1, self.hazard_seen_ticks)
+
+        low_wx = all_low[:, :, 0]
+        low_wy = all_low[:, :, 1]
+        haz_wx = self.hazard_zones[:, :, 0]
+        haz_wy = self.hazard_zones[:, :, 1]
+
+        low_vis = all_low_act & (self.low_obs_seen_ticks > self.low_obs_reg_delay)
+        haz_vis = self.hazard_active & (self.hazard_seen_ticks > self.hazard_reg_delay)
+
+        if self.enable_semantic_noise:
+            if self.semantic_pos_jitter_std > 0.0:
+                step_j_low = torch.clamp(
+                    torch.randn((self.B, m1, 2), dtype=torch.float32, device=self.device, generator=self.sem_torch_gen)
+                    * (self.semantic_pos_jitter_std * 0.55),
+                    -0.10,
+                    0.10,
+                )
+                step_j_haz = torch.clamp(
+                    torch.randn(
+                        (self.B, self.MAX_HAZARDS, 2),
+                        dtype=torch.float32,
+                        device=self.device,
+                        generator=self.sem_torch_gen,
+                    )
+                    * (self.semantic_pos_jitter_std * 0.55),
+                    -0.10,
+                    0.10,
+                )
+                low_wx = low_wx + self.low_obs_bias[:, :, 0] + step_j_low[:, :, 0]
+                low_wy = low_wy + self.low_obs_bias[:, :, 1] + step_j_low[:, :, 1]
+                haz_wx = haz_wx + self.hazard_bias[:, :, 0] + step_j_haz[:, :, 0]
+                haz_wy = haz_wy + self.hazard_bias[:, :, 1] + step_j_haz[:, :, 1]
+
+            if self.semantic_miss_prob > 0.0:
+                fast_rot_boost = torch.where(self.actual_vw[:, 1:2].abs() > 0.50, 0.12, 0.0)
+                eff_miss_low = torch.clamp(self.semantic_miss_prob + fast_rot_boost, 0.0, 0.75)
+                u_low = torch.rand((self.B, m1), dtype=torch.float32, device=self.device, generator=self.sem_torch_gen)
+                u_haz = torch.rand(
+                    (self.B, self.MAX_HAZARDS), dtype=torch.float32, device=self.device, generator=self.sem_torch_gen
+                )
+                low_vis = low_vis & (u_low >= eff_miss_low)
+                haz_vis = haz_vis & (u_haz >= eff_miss_low)
+
+        # Project Ch 1 low obstacles into 12x12 ego frame
+        dx_low = low_wx - self.rx[:, None]
+        dy_low = low_wy - self.ry[:, None]
+        ego_low_x = c * dx_low + s * dy_low
+        ego_low_y = -s * dx_low + c * dy_low
+        low_r = all_low[:, :, 2]
+
+        dist_low_grid = torch.hypot(
+            self.ego_grid_x - ego_low_x[:, :, None, None],
+            self.ego_grid_y - ego_low_y[:, :, None, None],
+        )  # (B, M1, 12, 12)
+        core_low = low_r[:, :, None, None] + 0.04
+        val_low = torch.clamp(1.0 - torch.clamp(dist_low_grid - core_low, min=0.0) / 0.16, 0.0, 1.0)
+        val_low = torch.where(low_vis[:, :, None, None], val_low, 0.0)
+        ch1 = val_low.max(dim=1).values  # (B, 12, 12)
+
+        # Project Ch 2 gas hazard & survivor protection zones as soft safety field into 12x12 ego frame
+        dx_haz = haz_wx - self.rx[:, None]
+        dy_haz = haz_wy - self.ry[:, None]
+        ego_haz_x = c * dx_haz + s * dy_haz
+        ego_haz_y = -s * dx_haz + c * dy_haz
+        haz_r = torch.clamp(self.hazard_zones[:, :, 2], min=0.15)
+
+        dist_haz_grid = torch.hypot(
+            self.ego_grid_x - ego_haz_x[:, :, None, None],
+            self.ego_grid_y - ego_haz_y[:, :, None, None],
+        )  # (B, MAX_HAZARDS, 12, 12)
+        r_inner = 0.45 * haz_r[:, :, None, None]
+        r_span = torch.clamp(0.75 * haz_r[:, :, None, None], min=0.12)
+        val_haz = torch.clamp(1.0 - torch.clamp(dist_haz_grid - r_inner, min=0.0) / r_span, 0.0, 1.0)
+        val_haz = torch.where(haz_vis[:, :, None, None], val_haz, 0.0)
+        ch2 = val_haz.max(dim=1).values  # (B, 12, 12)
+
+        # Occasional non-blocking false positive semantic markers on periphery
+        if self.enable_semantic_noise and self.semantic_fp_prob > 0.0:
+            fp_roll = torch.rand((self.B, 5), dtype=torch.float32, device=self.device, generator=self.sem_torch_gen)
+            has_fp = fp_roll[:, 0] < self.semantic_fp_prob
+            if bool(has_fp.any()):
+                tx_w = torch.where(
+                    self.nav_stage == 0,
+                    self.nav_wp[:, 0, 0],
+                    torch.where(self.nav_stage == 1, self.nav_wp[:, 1, 0], self.goal_x),
+                )
+                ty_w = torch.where(
+                    self.nav_stage == 0,
+                    self.nav_wp[:, 0, 1],
+                    torch.where(self.nav_stage == 1, self.nav_wp[:, 1, 1], self.goal_y),
+                )
+                tdx = tx_w - self.rx
+                tdy = ty_w - self.ry
+                t_ego_x = torch.cos(self.rth) * tdx + torch.sin(self.rth) * tdy
+                t_ego_y = -torch.sin(self.rth) * tdx + torch.cos(self.rth) * tdy
+                t_ang = torch.atan2(t_ego_y, t_ego_x)
+
+                # Offset angle >= 100 deg away from target direction at radius 0.60..0.82m so path is never blocked
+                fp_side = torch.where(fp_roll[:, 1] < 0.5, 1.0, -1.0)
+                fp_ang = t_ang + fp_side * (1.85 + 0.75 * fp_roll[:, 2])
+                fp_dist = 0.60 + 0.22 * fp_roll[:, 3]
+                fp_x = (fp_dist * torch.cos(fp_ang))[:, None, None]
+                fp_y = (fp_dist * torch.sin(fp_ang))[:, None, None]
+
+                gx_2d = self.ego_grid_x.squeeze(0)  # (1, 12, 12)
+                gy_2d = self.ego_grid_y.squeeze(0)
+                d_fp = torch.hypot(gx_2d - fp_x, gy_2d - fp_y)  # (B, 12, 12)
+                fp_blob = torch.clamp(1.0 - d_fp / 0.18, 0.0, 1.0) * 0.60
+                fp_to_ch1 = has_fp & (fp_roll[:, 4] < 0.5)
+                fp_to_ch2 = has_fp & (fp_roll[:, 4] >= 0.5)
+                ch1 = torch.where(fp_to_ch1[:, None, None], torch.maximum(ch1, fp_blob), ch1)
+                ch2 = torch.where(fp_to_ch2[:, None, None], torch.maximum(ch2, fp_blob), ch2)
+
+        # Modality Dropout (~25-30% of episodes/steps zero out Ch 1 & Ch 2 cleanly)
+        if self.modality_dropout_prob >= 1.0:
+            self.modality_dropped.fill_(True)
+        elif self.modality_dropout_prob <= 0.0:
+            self.modality_dropped.fill_(False)
+        else:
+            p_ep = 0.5 * self.modality_dropout_prob
+            p_step = (self.modality_dropout_prob - p_ep) / max(1e-6, 1.0 - p_ep)
+            u_drop = torch.rand(self.B, dtype=torch.float32, device=self.device, generator=self.sem_torch_gen)
+            self.modality_dropped = self.ep_modality_dropped | (u_drop < p_step)
+
+        if bool(self.modality_dropped.any()):
+            keep = (~self.modality_dropped)[:, None, None]
+            ch1 = torch.where(keep, ch1, 0.0)
+            ch2 = torch.where(keep, ch2, 0.0)
+
+        ch1 = torch.clamp(torch.nan_to_num(ch1, nan=0.0, posinf=1.0, neginf=0.0), 0.0, 1.0).unsqueeze(1)
+        ch2 = torch.clamp(torch.nan_to_num(ch2, nan=0.0, posinf=1.0, neginf=0.0), 0.0, 1.0).unsqueeze(1)
+        return ch1, ch2
+
+    @torch.no_grad()
     def _compute_obs_step(self) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Compute current tick feature (B, STEP_FEAT_DIM) & ego local costmap patch (B, 1, 12, 12)."""
+        """Compute current tick feature (B, STEP_FEAT_DIM) & ego local costmap patch (B, C, 12, 12)."""
         noisy_72, _ = self._cast_lidar()
 
         # Roll by 1 ray (NUM_RAYS // NUM_LIDAR_BINS // 2 = 1) so Bin 0 centers on straight-ahead!
         rolled = torch.roll(noisy_72, shifts=1, dims=1)
         bins_24 = rolled.view(self.B, NUM_LIDAR_BINS, NUM_RAYS // NUM_LIDAR_BINS).min(dim=2).values / MAX_RANGE_M
 
-        # Build 12x12 robot-centric local occupancy patch (1=close obstacle hit, 0=clear)
+        # Build 12x12 robot-centric local occupancy patch Ch 0 (1=close obstacle hit, 0=clear)
         px = noisy_72 * self.ray_cos_local[None, :]  # (B, 72) in robot frame (+x forward)
         py = noisy_72 * self.ray_sin_local[None, :]  # (+y left)
         cell_res = PATCH_SPAN_M / PATCH_SIZE
@@ -755,11 +1245,22 @@ class VectorDisasterEnv:
         ix = torch.clamp(((px + half) / cell_res).long(), 0, PATCH_SIZE - 1)
         iy = torch.clamp(((py + half) / cell_res).long(), 0, PATCH_SIZE - 1)
 
-        patch = torch.zeros((self.B, PATCH_SIZE * PATCH_SIZE), dtype=torch.float32, device=self.device)
+        ch0_flat = torch.zeros((self.B, PATCH_SIZE * PATCH_SIZE), dtype=torch.float32, device=self.device)
         flat_idx = ix * PATCH_SIZE + iy
         vals = torch.where(valid_hit, 1.0, 0.0)
-        patch.scatter_add_(1, flat_idx, vals)
-        patch = torch.clamp(patch, 0.0, 1.0).view(self.B, 1, PATCH_SIZE, PATCH_SIZE)
+        ch0_flat.scatter_add_(1, flat_idx, vals)
+        ch0 = torch.clamp(ch0_flat, 0.0, 1.0).view(self.B, 1, PATCH_SIZE, PATCH_SIZE)
+
+        if self.patch_channels == 1:
+            patch = ch0
+            self.modality_dropped.fill_(False)
+        elif not self.use_semantic_channels:
+            zeros_sem = torch.zeros((self.B, 2, PATCH_SIZE, PATCH_SIZE), dtype=torch.float32, device=self.device)
+            patch = torch.cat([ch0, zeros_sem], dim=1)
+            self.modality_dropped.fill_(True)
+        else:
+            ch1, ch2 = self._compute_semantic_channels()
+            patch = torch.cat([ch0, ch1, ch2], dim=1)
 
         # Target polar in ESTIMATED (odom-drifted) robot frame!
         # This forces Track B to notice when odom drifts away from physical LiDAR geometry.
@@ -797,6 +1298,8 @@ class VectorDisasterEnv:
             ],
             dim=-1,
         )
+        feat = torch.nan_to_num(feat, nan=0.0, posinf=1.0, neginf=-1.0)
+        patch = torch.nan_to_num(patch, nan=0.0, posinf=1.0, neginf=0.0)
         return feat, patch
 
     # ------------------------------------------------------------------
@@ -805,13 +1308,14 @@ class VectorDisasterEnv:
     @torch.no_grad()
     def step(self, action: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, Dict]:
         """
-        Step all B environments on GPU with exact differential-drive + plinth/slip/odom-drift physics.
+        Step all B environments on GPU with exact differential-drive + plinth/low-obs/hazard/odom-drift physics.
         action: Tensor(B, 2) -> (v in [-0.10, 0.20], w in [-0.65, 0.65])
         """
         self.steps += 1
 
-        raw_v = torch.clamp(action[:, 0], TB3_MIN_V, TB3_MAX_V)
-        raw_w = torch.clamp(action[:, 1], -TB3_MAX_W, TB3_MAX_W)
+        clean_act = torch.nan_to_num(action, nan=0.0, posinf=TB3_MAX_V, neginf=TB3_MIN_V)
+        raw_v = torch.clamp(clean_act[:, 0], TB3_MIN_V, TB3_MAX_V)
+        raw_w = torch.clamp(clean_act[:, 1], -TB3_MAX_W, TB3_MAX_W)
         cmd = torch.stack([raw_v, raw_w], dim=-1)
 
         # Push into lag FIFO & pop delayed command according to per-env act_lag
@@ -845,12 +1349,45 @@ class VectorDisasterEnv:
         hit_plinth_now = p_act & (d_p < self.plinth[:, 2] + TB3_RADIUS + 0.02)
         self.hit_plinth |= hit_plinth_now
 
-        # Push robot cleanly out onto plinth rim so it stalls physically until it reverses/steers around!
+        # Push robot cleanly out onto plinth rim with tangential deflection so it slides around on contact
         push_r = self.plinth[:, 2] + TB3_RADIUS + 0.022
         ux_p = dx_p / torch.clamp(d_p, min=1e-4)
         uy_p = dy_p / torch.clamp(d_p, min=1e-4)
-        self.rx = torch.where(hit_plinth_now, self.plinth[:, 0] + ux_p * push_r, cand_x)
-        self.ry = torch.where(hit_plinth_now, self.plinth[:, 1] + uy_p * push_r, cand_y)
+        side_p = torch.where(dy_p >= 0.0, 1.0, -1.0)
+        cand_x = torch.where(hit_plinth_now, self.plinth[:, 0] + ux_p * push_r + 0.025, cand_x)
+        cand_y = torch.where(hit_plinth_now, self.plinth[:, 1] + uy_p * push_r + side_p * 0.045, cand_y)
+
+        # Ch 1 Sub-LiDAR low-obstacle field physical contact & impedance check
+        has_any_low = bool(self.low_obs_active.any())
+        if has_any_low:
+            dx_lo = cand_x[:, None] - self.low_obs[:, :, 0]  # (B, MAX_LOW_OBS)
+            dy_lo = cand_y[:, None] - self.low_obs[:, :, 1]
+            d_lo = torch.hypot(dx_lo, dy_lo)
+            surf_lo = torch.where(self.low_obs_active, d_lo - self.low_obs[:, :, 2], 10.0)
+            min_idx = surf_lo.argmin(dim=1)
+            min_surf_lo = surf_lo[batch_arange, min_idx]
+            min_low_clear = min_surf_lo - TB3_RADIUS
+            hit_low_now = min_surf_lo < (TB3_RADIUS + 0.02)
+
+            near_cx = self.low_obs[batch_arange, min_idx, 0]
+            near_cy = self.low_obs[batch_arange, min_idx, 1]
+            near_r = self.low_obs[batch_arange, min_idx, 2]
+            near_d = torch.clamp(d_lo[batch_arange, min_idx], min=1e-4)
+            push_lo_r = near_r + TB3_RADIUS + 0.022
+            ux_lo = (cand_x - near_cx) / near_d
+            uy_lo = (cand_y - near_cy) / near_d
+            side_lo = torch.where((cand_y - near_cy) >= 0.0, 1.0, -1.0)
+            cand_x = torch.where(hit_low_now, near_cx + ux_lo * push_lo_r + 0.025, cand_x)
+            cand_y = torch.where(hit_low_now, near_cy + uy_lo * push_lo_r + side_lo * 0.045, cand_y)
+            new_low_hit = hit_low_now & (~self.hit_low_obs)
+            self.hit_low_obs |= hit_low_now
+        else:
+            hit_low_now = torch.zeros(self.B, dtype=torch.bool, device=self.device)
+            new_low_hit = torch.zeros(self.B, dtype=torch.bool, device=self.device)
+            min_low_clear = torch.full((self.B,), 10.0, dtype=torch.float32, device=self.device)
+
+        self.rx = cand_x
+        self.ry = cand_y
         self.rth = cand_th
 
         actual_ds = torch.hypot(self.rx - prev_rx, self.ry - prev_ry)
@@ -861,11 +1398,17 @@ class VectorDisasterEnv:
         w_meas = dth_meas / self.dt
         self.actual_vw = torch.stack([v_meas, w_meas], dim=-1)
 
-        # Update ODOM-drifted pose estimate (Track B drifts over distance; Track A near-exact)
+        # Update ODOM-drifted pose estimate with onboard 2D ICP scan-matching drift bounding
         self.odom_th = self.odom_th + (w_eff * self.dt) + self.odom_yaw_bias * (v_eff.abs() * self.dt)
         self.odom_th = torch.atan2(torch.sin(self.odom_th), torch.cos(self.odom_th))
         self.odom_x = self.odom_x + (v_eff * self.odom_scale) * torch.cos(self.odom_th) * self.dt
         self.odom_y = self.odom_y + (v_eff * self.odom_scale) * torch.sin(self.odom_th) * self.dt
+        self.odom_x = 0.70 * self.odom_x + 0.30 * self.rx
+        self.odom_y = 0.70 * self.odom_y + 0.30 * self.ry
+        self.odom_th = torch.atan2(
+            0.70 * torch.sin(self.odom_th) + 0.30 * torch.sin(self.rth),
+            0.70 * torch.cos(self.odom_th) + 0.30 * torch.cos(self.rth),
+        )
 
         # Advance moving dynamic obstacles inside arena bounds with wall bounce
         dyn_mask = self.cyl_active & ((self.cyls[:, :, 3].abs() + self.cyls[:, :, 4].abs()) > 1e-4)
@@ -932,10 +1475,60 @@ class VectorDisasterEnv:
         plinth_bonus = torch.where(cleared_plinth, 6.0, 0.0)
         self.plinth_escape_bonus_given |= cleared_plinth
 
+        # Ch 1 Low-obstacle field contact/collision penalty & proactive contact-free clearance bonus
+        low_contact_pen = (
+            torch.where(new_low_hit, -2.5, 0.0)
+            + torch.where(hit_low_now, -0.60, 0.0)
+            + torch.where((~hit_low_now) & (min_low_clear < 0.08), (min_low_clear - 0.08) * 4.0, 0.0)
+        )
+        low_clear_pass = (
+            (self.regime == 6)
+            & (~self.hit_low_obs)
+            & (~self.low_clear_bonus_given)
+            & (self.rx > self.nav_wp[:, 1, 0] + 0.15)
+        )
+        low_clear_bonus = torch.where(low_clear_pass, 4.5, 0.0)
+        self.low_clear_bonus_given |= low_clear_pass
+
+        # Ch 2 Gas hazard & survivor protection zone entry penalty & safe clearance reward
+        has_any_haz = bool(self.hazard_active.any())
+        if has_any_haz:
+            dx_hz = self.rx[:, None] - self.hazard_zones[:, :, 0]
+            dy_hz = self.ry[:, None] - self.hazard_zones[:, :, 1]
+            d_hz = torch.hypot(dx_hz, dy_hz)
+            hz_r = torch.clamp(self.hazard_zones[:, :, 2], min=0.15)
+            bound_hz = torch.where(self.hazard_active, d_hz - (hz_r + TB3_RADIUS), 10.0)
+            min_hazard_clear = bound_hz.min(dim=1).values
+            in_hazard_now = min_hazard_clear < 0.0
+            self.entered_hazard |= in_hazard_now
+
+            pen_depth = torch.clamp(-min_hazard_clear / 0.30, 0.0, 1.0)
+            hazard_entry_pen = torch.where(in_hazard_now, -0.75 - 1.75 * pen_depth, 0.0)
+
+            near_safe_bypass = (
+                (~in_hazard_now)
+                & (min_hazard_clear >= 0.05)
+                & (min_hazard_clear < 0.45)
+                & (actual_ds > 0.006)
+            )
+            hazard_pass_bonus = (
+                (self.regime == 7)
+                & (~self.entered_hazard)
+                & (~self.hazard_clear_bonus_given)
+                & (self.rx > self.nav_wp[:, 1, 0] + 0.18)
+            )
+            self.hazard_clear_bonus_given |= hazard_pass_bonus
+            hazard_clear_rew = torch.where(near_safe_bypass, 0.18, 0.0) + torch.where(hazard_pass_bonus, 4.5, 0.0)
+        else:
+            in_hazard_now = torch.zeros(self.B, dtype=torch.bool, device=self.device)
+            min_hazard_clear = torch.full((self.B,), 10.0, dtype=torch.float32, device=self.device)
+            hazard_entry_pen = torch.zeros(self.B, dtype=torch.float32, device=self.device)
+            hazard_clear_rew = torch.zeros(self.B, dtype=torch.float32, device=self.device)
+
         # Safety clearance & smoothness shaping (tactile penalty when blindly pushing into plinth!)
         danger_pen = torch.where(min_clear < 0.20, (min_clear - 0.20) * 5.0, 0.0)
         plinth_push_pen = torch.where(hit_plinth_now & (v_eff > 0.01), -0.25, 0.0)
-        stall_pen = torch.where((actual_ds < 0.003) & (~hit_plinth_now), -0.08, 0.0)
+        stall_pen = torch.where((actual_ds < 0.003) & (~hit_plinth_now) & (~hit_low_now), -0.08, 0.0)
         smooth_pen = -0.020 * torch.abs(raw_w - self.last_cmd[:, 1]) - 0.008 * torch.abs(raw_w)
 
         # Strong terminal positive reward + speed bonus + stall timeout discouragement
@@ -946,7 +1539,24 @@ class VectorDisasterEnv:
             + torch.where(timeout & (~reached) & (~collision), -10.0, 0.0)
         )
 
-        rewards = progress + record_gain + bypass_bonus + gate_bonus + unpin_bonus + plinth_bonus + danger_pen + plinth_push_pen + stall_pen + smooth_pen + terminal_r
+        rewards = (
+            progress
+            + record_gain
+            + bypass_bonus
+            + gate_bonus
+            + unpin_bonus
+            + plinth_bonus
+            + low_contact_pen
+            + low_clear_bonus
+            + hazard_entry_pen
+            + hazard_clear_rew
+            + danger_pen
+            + plinth_push_pen
+            + stall_pen
+            + smooth_pen
+            + terminal_r
+        )
+        rewards = torch.nan_to_num(rewards, nan=0.0, posinf=0.0, neginf=-25.0)
 
         self.last_cmd = cmd
         feat, patch = self._compute_obs_step()
@@ -962,6 +1572,16 @@ class VectorDisasterEnv:
             "timeout": timeout.clone(),
             "regimes": self.regime.clone(),
             "min_clear": min_clear.clone(),
+            "low_obs_contact": hit_low_now.clone(),
+            "ever_hit_low_obs": self.hit_low_obs.clone(),
+            "min_low_obs_clear": min_low_clear.clone(),
+            "low_contact_penalty": low_contact_pen.clone(),
+            "hazard_zone_entered": in_hazard_now.clone(),
+            "ever_entered_hazard": self.entered_hazard.clone(),
+            "min_hazard_clear": min_hazard_clear.clone(),
+            "hazard_entry_penalty": hazard_entry_pen.clone(),
+            "hazard_clearance_reward": hazard_clear_rew.clone(),
+            "modality_dropped": self.modality_dropped.clone(),
         }
 
         if len(done_ids) > 0 and self.mode == "train":

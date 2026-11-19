@@ -15,11 +15,22 @@
 | **Phase 2. TD3 DRL 하이브리드 복귀** | `2026-11-12` | `sim.py` 시뮬레이터, 99KB TD3 ONNX 엣지 추론, 50회 몬테카를로 100% 검증, 터널 20회 벤치마크 | `29a6695`~`07d151c` |
 | **Phase 3. 붕괴 건물 & GPU 가속 고도화** | `2026-11-13` | `BACKTRACKING_HYBRID`(Pure Pursuit+TD3), 붕괴 건물 15회 벤치마크, WSLg D3D12·Whisper CUDA·YOLO 15FPS | `7e04510`~`73bb888` |
 | **Phase 4. 로컬 2D A\* · V100 서버 완주 & Dual-Track RL** | `2026-11-14` | `RollingLocalGrid + 2D A*` **5대 환경 `49/50 (98.0%)`**, V100 **8,847만 스텝 Dual-Track RL & Gazebo Sim-to-Sim `47/50 (94.0%)`**, 3D `.mp4`/`.png` 증거, 트러블슈팅 `#23~#36` 완결 | `f1966bf`~`e455a74` |
-| **Phase 4.5 (2-A). Clearance-Gated RL & 30 FPS `/map` 증거·문서 고도화** | `2026-11-15` | `compute_rl_blend_weight` 협소 구간 적응형 블렌딩(**Gazebo S2S `48/50 = 96.0%`**), `slam_toolbox` `/map` + VirtualGL 30 FPS 재녹화 & README GIF, 알고리즘 장단점·하드웨어 사양·선행특허/참고논문 27선 정비 (`24 passed`) | `0560e21`~`HEAD` |
+| **Phase 4.5 (2-A). Clearance-Gated RL & 30 FPS `/map` 증거·문서 고도화** | `2026-11-15` | `compute_rl_blend_weight` 협소 구간 적응형 블렌딩(**Gazebo S2S `48/50 = 96.0%`**), `slam_toolbox` `/map` + VirtualGL 30 FPS 재녹화 & README GIF, 알고리즘 장단점·하드웨어 사양·선행특허/참고논문 27선 정비 (`24 passed`) | `0560e21`~`2b5dfce` |
+| **Phase 4.8 (2-B). 15대 시나리오 적응형 인지 & 안전 포락선** | `2026-11-15` | 동적 장애물 잔상 Ray-Carving(`0.25`) & Layer-0 1D 각도 군집 필터, 비홀로노믹 곡률 클램프·`DYNAMIC_HOLD`로 **15대 150회 `149/150 (99.33%)`** 복귀 완주 | `phase2b` |
+| **Phase 5 (3). 단안 RGB-2D LiDAR 시맨틱 SLAM & 3채널 Context-RL** | `2026-11-19` ~ `11-20` | 단안-LiDAR 투영 퓨전(수식 3 Y 오타 정정·270° CCW·전경 클러스터링), Cartographer 4종 영구 마커 오버레이, V100 3채널 Context-RL(120 Holdout 99.2%, 추론 0.086ms), Gazebo A/B 회피(저상충돌 0% vs Blind 충돌, 가스 3배 우회), 15종 150회 비퇴행 **`144/150 (96.00%)`** 완주 | `HEAD` |
 
 ---
 
 ## 📅 일자별 상세 누적 패치노트 (최신순)
+
+### 2026-11-20 — Phase 3 2D LiDAR-단안 RGB 투영 시맨틱 SLAM E2E 및 3채널 Context-RL (144/150 = 96.0%) 검증 완주
+
+| 커밋 | 구분 | 변경 내용 및 주요 파일 |
+| :--- | :---: | :--- |
+| `HEAD` | `feat/docs` | **단안 RGB-2D LiDAR 투영 퓨전 시맨틱 SLAM 코어 및 ROS 2 관제 노드 구축** — 선행 논문(이은원·김진현, *로봇학회 논문지*, 2025)을 기반으로 수식 3 투영 좌표계 오타($X \cdot f_y \rightarrow Y \cdot f_y$)를 바로잡고, 버거 카메라 90° 장착 왜곡을 해소하는 270° CCW 역변환과 배경 벽면 오인을 방지하는 +0.25m 전경 클러스터링 필터를 포함한 `semantic_mapper_core.py`를 순수 Python/NumPy로 신규 구현했다. 또한 Cartographer `/map` TF와 동기화하여 실시간 마커 및 4종 아티팩트(`raw_map.png`, `raw_map.yaml`, `semantic_objects.json`, `semantic_map_overlay.png`)를 영구 저장하는 `semantic_map_node.py`를 통합했다 (`src/disaster_recovery/`, 단위 테스트 17/17 PASS). |
+| `HEAD` | `feat/rl` | **Tesla V100 Dual-Track 3채널 Context-RL 재학습 & 초경량 ONNX 증류** — 2D LiDAR LDS-01(Ch0)에 YOLO 저상 장애물(Ch1)과 가스/조난자 위험 구역(Ch2)을 결합한 3채널 미니 코스트맵($12\times 12\times 3$, 976차원) 환경(`rl_procedural_env.py`)을 구축하고, Phase 2-B 체크포인트로부터 Teacher Warm-Start 미세조정을 수행했다. 통신 단절 시 1채널 폴백을 보장하는 Modality Dropout (28%, `modality_dropout_prob = 0.28`) 하에서 120개 Unseen Holdout 평가 99.2%를 달성하고 경량 ONNX(`sim`/`real_tb3_policy_student_semantic_v3.onnx`, 289.2 KB, CPU 추론 0.086ms)로 증류했다 (`scripts/host/train_phase2_v100.py`, 단위 테스트 8/8 PASS). |
+| `HEAD` | `feat/controller` | **온보드 복귀 제어기 3채널 ONNX 배선 & 시맨틱 캐시 페일세이프** — `recovery_controller.py` 및 `rl_context_policy.py`에 `use_semantic_rl_policy` 파라미터와 `SemanticObjectCache`를 추가하여, 정상 시에는 시맨틱 정보를 즉각 반영하고 통신 단절 시에는 마지막 캐시 유지 및 제로-시맨틱 안전 폴백(Ch1/Ch2=0)으로 기존 99.33% 복귀 능력을 무손실 보존하도록 연결했다 (`src/disaster_recovery/`, 단위 테스트 4/4 PASS). |
+| `HEAD` | `eval/docs` | **Gazebo E2E 시맨틱 회피 A/B 실증 & 15대 시나리오 150회 비퇴행 벤치마크 (`144/150 = 96.00%`)** — Gazebo A/B 결정론적 시험(`semantic_avoidance_ab.json`)에서 Blind 주행(저상 장애물 0.2485m 충돌, 가스 구역 0.0869m 침범, 타임아웃 FAIL) 대비 Proposed RL v3가 저상 장애물 충돌 0회(`0.3799m` 안전 마진 PASS) 및 가스 구역 3배 우회(`0.2577m` 이격)로 복귀를 완주함을 입증했다. 또한 기존 15대 재난 시나리오 150회 몬테카를로 벤치마크에서 **`144/150 (96.00%)`** 를 달성(Baseline 57.14% 대비 +38.86%p)하고 1080p 30 FPS 영상 3종 및 검증 스냅샷 6종을 영구 기록했다 (`benchmark_results/phase3_semantic_v3/`, `docs/images/evidence/`). |
 
 ### 2026-11-19 — 논문 기반 2D 재난 시맨틱 맵핑 및 Phase 3 RL 재학습 고도화 계획 수립
 

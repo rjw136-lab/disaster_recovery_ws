@@ -17,9 +17,9 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    rviz_config = os.path.join(
-        get_package_share_directory('disaster_recovery'), 'config', 'disaster_station.rviz'
-    )
+    pkg_share = get_package_share_directory('disaster_recovery')
+    rviz_config = os.path.join(pkg_share, 'config', 'disaster_station.rviz')
+    semantic_map_params = os.path.join(pkg_share, 'config', 'semantic_map_params.yaml')
 
     return LaunchDescription([
         DeclareLaunchArgument(
@@ -97,6 +97,16 @@ def generate_launch_description():
             default_value='false',
             description='Also launch RViz2 with config/disaster_station.rviz'
         ),
+        DeclareLaunchArgument(
+            'enable_semantic_map',
+            default_value='true',
+            description='Launch real-time 2D disaster semantic mapping node (semantic_map_node)'
+        ),
+        DeclareLaunchArgument(
+            'use_sim_time',
+            default_value='false',
+            description='Use simulation (Gazebo) clock if true'
+        ),
         Node(
             package='disaster_recovery',
             executable='host_ai_pipeline',
@@ -117,7 +127,20 @@ def generate_launch_description():
                 'whisper_model_size': LaunchConfiguration('whisper_model_size'),
                 'whisper_device': LaunchConfiguration('whisper_device'),
                 'whisper_compute_type': LaunchConfiguration('whisper_compute_type'),
+                'use_sim_time': LaunchConfiguration('use_sim_time'),
             }],
+            emulate_tty=True
+        ),
+        Node(
+            package='disaster_recovery',
+            executable='semantic_map_node',
+            name='semantic_map_node',
+            output='screen',
+            parameters=[
+                semantic_map_params,
+                {'use_sim_time': LaunchConfiguration('use_sim_time')},
+            ],
+            condition=IfCondition(LaunchConfiguration('enable_semantic_map')),
             emulate_tty=True
         ),
         Node(
@@ -125,6 +148,7 @@ def generate_launch_description():
             executable='rviz2',
             name='disaster_station_rviz',
             arguments=['-d', rviz_config],
+            parameters=[{'use_sim_time': LaunchConfiguration('use_sim_time')}],
             output='screen',
             condition=IfCondition(LaunchConfiguration('use_rviz'))
         )

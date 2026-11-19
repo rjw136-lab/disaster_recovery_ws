@@ -1,0 +1,71 @@
+semantic_map_node:
+  ros__parameters:
+    # Algorithm 1: Temporary -> Permanent Marker Validation & Deduplication
+    cluster_radius_m: 0.45
+    merge_radius_m: 0.60
+    min_hits: 5
+    min_span_sec: 1.0
+    temp_ttl_sec: 10.0
+
+    # Pluggable Depth Estimation ('lidar_fusion' | 'rgbd_depth')
+    depth_source: "lidar_fusion"
+    enable_ground_fallback: true
+    min_lidar_range_m: 0.12
+    max_lidar_range_m: 3.5
+    foreground_cluster_margin_m: 0.25
+    bbox_horizontal_inner_ratio: 0.70
+
+    # Sensor Synchronization & Motion Gating
+    scan_buffer_size: 20
+    max_scan_sync_dt_sec: 0.15
+    max_angular_vel_rad_s: 0.5
+
+    # TF & Map Configuration
+    map_frame: "map"
+    odom_frame: "odom"
+    base_frame: "base_link"
+    scan_frame: "base_scan"
+    camera_optical_frame: "camera_rgb_optical_frame"
+    use_odom_fallback: true
+    map_qos_durability: "volatile"
+
+    # Multimodal Disaster Hazard Events & Onboard RL Cache Radii
+    gas_threshold: 0.40
+    event_dedup_radius_m: 0.60
+    ch1_obstacle_radius_m: 0.22
+    ch2_hazard_radius_m: 0.55
+
+    # Fallback Camera Intrinsics (used until /camera/camera_info arrives)
+    camera_width: 640
+    camera_height: 480
+    camera_hfov_rad: 1.085595
+    camera_fx: 530.1254
+    camera_fy: 529.8971
+    camera_cx: 318.4521
+    camera_cy: 239.1124
+
+    # Output & Persistence (relative or configurable path, no hardcoded user home)
+    output_dir: "semantic_maps"
+    save_on_shutdown: true
+    marker_publish_rate_hz: 2.0
+
+    # Class Color Palette (BGR [B, G, R], 0-255, matching semantic_mapper_core.DEFAULT_CLASS_PALETTE)
+    class_palette:
+      person: [0, 0, 255]
+      GAS_HAZARD: [0, 165, 255]
+      AUDIO_DISTRESS: [255, 0, 255]
+      chair: [255, 140, 0]
+      couch: [200, 100, 50]
+      potted_plant: [0, 180, 0]
+      "potted plant": [0, 180, 0]
+      bed: [180, 105, 255]
+      dining_table: [0, 200, 200]
+      "dining table": [0, 200, 200]
+      table: [0, 200, 200]
+      toilet: [255, 200, 0]
+      tv: [200, 50, 200]
+      bottle: [100, 220, 100]
+      backpack: [50, 150, 255]
+      suitcase: [120, 120, 255]
+      bench: [180, 105, 255]
+      default: [100, 200, 0]

@@ -6,6 +6,8 @@ recovery_controller:
     recovery_strategy: "proposed_rl"
     enable_phase2b_envelope: true
     context_rl_onnx_path: "real_tb3_policy_student.onnx"
+    use_semantic_rl_policy: false     # Phase 3 3-channel Semantic RL policy switch (false=1ch Track B default)
+    semantic_rl_onnx_path: ""         # Auto-resolve real_tb3_policy_student_semantic_v3.onnx when use_semantic_rl_policy=true
     smoke_lidar_noise_prob: 0.0       # Never inject synthetic smoke noise on real LDS-01 scans
 
     # Safety Watchdog

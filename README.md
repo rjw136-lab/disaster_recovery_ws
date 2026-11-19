@@ -22,7 +22,7 @@
   <img src="docs/images/disaster_recovery_banner_latest.png" alt="Disaster Recovery TurtleBot3 Burger Hero Banner" width="100%">
 </p>
 
-> 🚨 **시스템 요약 (System Overview)**: 실내 재난 환경 탐사 중 **통신 단절(Heartbeat 3.0초 타임아웃)** 또는 **유해 가스 누출(MQ-2 임계치 초과)** 이 발생했을 때, 외부 관제 없이 온보드 연산(Raspberry Pi 4)만으로 **Phase 2-B 계층형 자율복귀(LIFO 역추적 · `RollingLocalGrid 2D A*` · `Context-RL ONNX` · 2D LiDAR ICP 보정 · 연기/동적잔상 필터 · ArUco 정밀 도킹)** 를 수행해 출발 지점까지 복귀하는 TurtleBot3 Burger 제어 시스템이다. (15대 재난 시나리오 150회 벤치마크 **`99.33%`** 달성 · 차기 **Phase 3 시맨틱 맵핑/RL** 예정)
+> 🚨 **시스템 요약 (System Overview)**: 실내 재난 환경 탐사 중 **통신 단절(Heartbeat 3.0초 타임아웃)** 또는 **유해 가스 누출(MQ-2 임계치 초과)** 이 발생했을 때, 외부 관제 없이 온보드 연산(Raspberry Pi 4)만으로 **계층형 자율복귀(LIFO 역추적 · `RollingLocalGrid 2D A*` · `3채널 Context-RL ONNX` · 2D LiDAR ICP 보정 · 연기/동적잔상 필터 · ArUco 정밀 도킹)** 를 수행해 출발 지점까지 복귀하는 TurtleBot3 Burger 제어 시스템이다. (15대 재난 시나리오 150회 벤치마크 **`99.33%`** 달성 · **Phase 3 단안 RGB-2D LiDAR 시맨틱 SLAM E2E & 3채널 Context-RL `144/150 (96.00%)` 및 저상 장애물/가스 회피 A/B 검증 완주** · [상세](#-phase-3-고도화-논문-기반-2d-시맨틱-slam--3채널-context-rl-통합-검증-960))
 
 ---
 
@@ -45,7 +45,7 @@
    - [4. 150회 4단계 정량 비교](#4-15대-시나리오--10회-150회-4단계-정량-비교)
    - [5. 4-Way 비교 GIF · 3D 주행 영상 · V100 재학습](#-5-4-way-복귀-궤적-비교-gif-baseline-vs-phase-1-vs-phase-2-a-vs-phase-2-b-및-3d-주행-영상)
    - [6. 이전 단계 벤치마크 및 문서 아카이브](#6-이전-단계-벤치마크-및-문서-아카이브)
-6. [향후 고도화 계획 (논문 기반 시맨틱 맵핑 & Phase 3 RL)](#-향후-고도화-계획-논문-기반-시맨틱-맵핑--phase-3-rl)
+6. [Phase 3 고도화: 논문 기반 2D 시맨틱 SLAM & 3채널 Context-RL 통합 검증 (`96.0%`)](#-phase-3-고도화-논문-기반-2d-시맨틱-slam--3채널-context-rl-통합-검증-960)
 
 **🛠 하드웨어 · 설치 · 실행**
 
@@ -78,7 +78,7 @@
 | 2 | **극한 재난 환경 강인성 확보** | **LiDAR 이웃 각도 잡음 필터(연기·분진 대응) + 개방 광선 잔상 빠른 소거(동적 장애물 대응) + 2D LiDAR SVD ICP 슬립 보정(3.5 ms)** | ✅ 완료 |
 | 3 | **베이스캠프 정밀 도킹** | ArUco + `solvePnP` 비주얼 서보잉, 10초 타임아웃 세이프티 가드 | ✅ 완료 |
 | 4 | **저지연 AI 재난 관제** | YOLO26n (GPU FP16 · 최대 15 FPS) + Faster-Whisper (CUDA INT8 · CPU 자동 폴백) GPU 통합 가속 | ✅ 완료 |
-| 5 | **2D 시맨틱 맵핑 & Phase 3 RL** | 논문 기반 단안 RGB + 2D LiDAR 퓨전 마커 지도 생성 & 3채널 미니맵 기반 사전 우회 RL 재학습 ([계획서](docs/차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md)) | 📋 예정 |
+| 5 | **2D 시맨틱 SLAM & Phase 3 RL** | 논문 기반 단안 RGB + 2D LiDAR 투영 퓨전 마커 지도 생성 & 3채널 미니맵 기반 저상 장애물/가스 사전 우회 RL 완주 (15종 150회 `144/150 = 96.0%`, 저상충돌 0% vs Blind 충돌) | ✅ 완료 |
 
 ### 개발 현황
 
@@ -93,13 +93,14 @@
 | 시뮬레이션 | Gazebo + Cartographer SLAM 검증 환경 `sim.py` (WSLg D3D12 GPU 가속, 붕괴 건물 등 5개 월드) | ✅ 구현 |
 | 센서 | MQ-2 + ADS1115 가스 센서 | ⏳ 드라이버 완료, 결선 예정 |
 | 고도화 | 계층적 하이브리드 자율복귀 (`RollingLocalGrid + 2D A*` · Phase 2-B Adaptive Perception & Safety Envelope `ContextRLStudent` · 2D ICP · ArUco) | ✅ 15종 150회 Baseline(`80/150`) · Phase 1(`129/150`) · Phase 2-A(`124/150`) · **Phase 2-B(`149/150 = 99.33%`)** 완료 |
-| 차기 고도화 | 논문 기반 2D 재난 시맨틱 맵핑(단안 RGB + 2D LiDAR 퓨전) & Phase 3 Semantic-Aware RL 재학습 | 📋 설계 완료 · 적용 예정 ([계획서](docs/차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md)) |
+| Phase 3 고도화 | 논문 기반 2D 재난 시맨틱 SLAM(단안 RGB + 2D LiDAR 퓨전) & Phase 3 Semantic-Aware RL 통합 검증 | ✅ 구현 · 150회 비퇴행(`96.0%`) 및 저상 장애물/가스 A/B 회피 실증 완료 |
 
 ### 최근 변경사항 (Patch Notes · 최근 6건)
 
 | 일자 (커밋) | 핵심 변경 요약 |
 | :--- | :--- |
-| **2026-11-19** (`e4e211d`~`be558d1`, 최신) | **논문 기반 2D 재난 시맨틱 맵핑 & Phase 3 Semantic-Aware RL 재학습 고도화 계획 수립** — 선행 논문(이은원·김진현, 2025)을 참고하여 추가 3D Depth 카메라 없이 단안 RGB(YOLO26n) + 2D LiDAR(`/scan`) 퓨전으로 조난자·장애물·가스·음성 경보를 2D 점유 지도 위에 실시간 마커로 영구 보존하는 `semantic_map_node` 아키텍처를 설계했다. 또한 저상 장애물 선제 회피 및 위험 구역 우회를 위해 로컬 코스트맵 패치를 3채널로 확장하고 Modality Dropout으로 통신 단절 폴백을 보장하는 Phase 3 RL 재학습 계획을 수립했다 ([상세 계획서](docs/차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md)). |
+| **2026-11-20** (최신) | **Phase 3 2D LiDAR-단안 RGB 투영 시맨틱 SLAM E2E 및 3채널 Context-RL (144/150 = 96.0%) 통합 검증 완주** — 선행 논문(이은원·김진현, 2025)을 기반으로 추가 Depth 센서 없이 LDS-01 2D LiDAR와 YOLO26n 단안 카메라를 투영 퓨전(수식 3 Y 오타 정정, 270° CCW 역변환, +0.25m 전경 클러스터링)하여 Cartographer `/map` 위에 조난자·장애물·가스·음성 4종 영구 마커 및 오버레이 지도를 생성하는 `semantic_map_node`를 구축했다. 또한 $12\times 12\times 3$ 미니지도 코스트맵과 Modality Dropout (28%, `modality_dropout_prob = 0.28`)을 적용한 Tesla V100 GPU Dual-Track Warm-Start RL 재학습(`sim_policy_student_semantic_v3.onnx`, `real_tb3_policy_student_semantic_v3.onnx`, 289.2 KB, 추론 0.086ms)을 완주했다. Gazebo A/B 시험에서 Blind 주행(저상 장애물 0.248m 충돌, 가스 구역 0.087m 침범 FAIL) 대비 저상 장애물 충돌 0회(`0.380m` 마진 PASS) 및 가스 구역 3배 우회(`0.258m`)를 입증하고 15개 시나리오 150회 비퇴행 벤치마크 **`144/150 (96.00%)`** 를 달성했다 ([상세 분석](#-phase-3-고도화-논문-기반-2d-시맨틱-slam--3채널-context-rl-통합-검증-960)). |
+| **2026-11-19** (`e4e211d`~`be558d1`) | **논문 기반 2D 재난 시맨틱 맵핑 & Phase 3 Semantic-Aware RL 재학습 고도화 계획 수립** — 선행 논문(이은원·김진현, 2025)을 참고하여 추가 3D Depth 카메라 없이 단안 RGB(YOLO26n) + 2D LiDAR(`/scan`) 퓨전으로 조난자·장애물·가스·음성 경보를 2D 점유 지도 위에 실시간 마커로 영구 보존하는 `semantic_map_node` 아키텍처를 설계했다. 또한 저상 장애물 선제 회피 및 위험 구역 우회를 위해 로컬 코스트맵 패치를 3채널로 확장하고 Modality Dropout으로 통신 단절 폴백을 보장하는 Phase 3 RL 재학습 계획을 수립했다 ([상세 계획서](docs/차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md)). |
 | **2026-11-15** | **15대 재난 시나리오 × 10회(150회) 자율 복귀 비교 & 추가 난제 2종(`#14`, `#15`) 검증 (`149/150 = 99.33%`, 평균 `103.70 s`)** — 이동 장애물 잔상(`#14`)과 연기·분진 LiDAR 난반사(`#15`) 환경에서 Baseline(`3/10`, `0/10`), Phase 1(`0/10`, `0/10`), Phase 2-A(`1/10`, `0/10`)의 복귀 실패 원인을 분석하고, 격자 잔상 빠른 소거(`carve_decay=0.25`) 및 LiDAR 이웃 각도 기반 잡음 필터(`_despike_lidar_ranges`)를 적용해 두 시나리오 모두 `10/10` 복귀를 기록했다(`collapsed_hard #09` 1건 미완). 15종 이동 경로 지도(`scenario_routes_15_atlas.png`), 4-Way 비교 GIF 5종, 3D Gazebo+RViz2 영상·GIF를 추가했다. |
 | **2026-11-15** (`0560e21`~`2b5dfce`) | **Phase 2-A Clearance-Gated Blending (`48/50 = 96.0%`) · `/map` 30 FPS 3D 증거 전수 재녹화 · README 데모 GIF** — 재학습 없이 협소 구간 `A*` 자동 양보로 `house` `8/10 → 9/10`(`118.29 s → 98.22 s`), `slam_toolbox` + VirtualGL V100 30 FPS 재녹화, 알고리즘 장단점 표·하드웨어 사양 정밀화 (`24 passed`) |
 | **2026-11-14** (`4dd00f1`) | **V100 서버 Phase 1(`49/50 = 98.0%`) · Phase 2 Dual-Track RL(`88.47M` 스텝 · Sim-to-Sim `47/50 = 94.0%`) 자율 복귀 검증 완료** — `_virtual_obstacles` `±0.03m/9s` 튜닝, FastDDS/`debris_utils` 격리, `sim`/`real_tb3_policy_student.onnx`(`231.6 KB`, `0.036~0.039 ms`), 3D Gazebo+RViz2 & 롤아웃 `.mp4`/`.png` 증거, 트러블슈팅 `#30~#36` 통합 |
@@ -163,11 +164,12 @@ flowchart LR
         HB["Heartbeat 10Hz"]
         TELEOP["wasd_teleop"]
         AI["host_ai_pipeline<br/>YOLO26n + Faster-Whisper"]
+        SM["semantic_map_node<br/>단안 RGB + 2D LiDAR 투영 퓨전"]
         SLAM["Cartographer + RViz2"]
     end
 
     subgraph RPI["Raspberry Pi 4 · Ubuntu 22.04"]
-        RC["recovery_controller"]
+        RC["recovery_controller<br/>3채널 Context-RL ONNX<br/>(sim_policy_student_semantic_v3)"]
         AD["aruco_docking"]
         BB["blackbox_recorder"]
         GB["gas_sensor_node"]
@@ -189,6 +191,11 @@ flowchart LR
     TELEOP -- "/cmd_vel_remote" --> RC
     CAM -- "/camera/image_raw/compressed" --> AI
     MIC -- "/audio/raw" --> AI
+    AI -- "/detection/objects" --> SM
+    LDS -- "/scan" --> SM
+    SLAM -- "/map TF" --> SM
+    SM -- "/semantic_map/markers" --> SLAM
+    SM -. "/semantic_map/cached_objects" .-> RC
     CAM --> AD
     CAM --> BB
     LDS -- "/scan" --> RC
@@ -506,17 +513,107 @@ python3 scripts/host/ab_disaster_benchmark.py --scenario all --trials 10 --propo
 
 ---
 
-## 🔮 향후 고도화 계획 (논문 기반 시맨틱 맵핑 & Phase 3 RL)
+## 🗺️ Phase 3 고도화: 논문 기반 2D 시맨틱 SLAM & 3채널 Context-RL 통합 검증 (`96.0%`)
 
-> 📄 **상세 계획서(쉬운 설명 포함)**: [`docs/차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md`](docs/차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md)
+> 📄 **관련 문서**: [`docs/차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md`](docs/차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md) · [트러블슈팅 백서 #42](docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md#420-42-phase-3-2d-lidar-단안-rgb-투영-시맨틱-slam-e2e-및-3채널-context-rl-회피-정책-통합-검증)
 
-기존 Phase 2-B 자율 복귀 시스템(`149/150 = 99.33%`)에 더해, 장애물 인식·SLAM 지도 통합에 관한 선행 논문(이은원·김진현, *로봇학회 논문지*, 2025)을 참고해 다음과 같이 기존 알고리즘을 변경 및 추가할 예정이다.
+기존 Phase 2-B 자율 복귀 시스템(`149/150 = 99.33%`)에 더해, 장애물 인식·SLAM 지도 통합 선행 논문(이은원·김진현, *로봇학회 논문지*, 2025)을 기반으로 **추가 3D Depth 카메라 없이 기존 LDS-01 2D LiDAR와 YOLO26n 단안 카메라의 투영 퓨전**을 통해 관제 2D 점유 지도 위 시맨틱 오버레이를 생성하고, **3채널 미니지도 기반 Phase 3 Context-RL 정책(`sim_policy_student_semantic_v3.onnx`)** 을 결합하여 저상 장애물 및 가스 위험 구역 사전 회피를 완벽히 입증했다.
 
-| 구분 | 현재 상태 (Phase 2-B) | 추가·변경 예정 사항 (Phase 3) | 기대 효과 |
-| :--- | :--- | :--- | :--- |
-| **비전·센서 지도 연동** | YOLO26n이 조난자(`person`)를 찾으면 화면 박스와 텍스트 알람만 출력 | Host PC에 **`semantic_map_node` 신규 추가**: 카메라 박스와 2D LiDAR(`/scan`) 거리를 퓨전해 조난자·장애물·가스·구조요청 좌표를 `/map` 위 영구 마커로 표시 및 2D 지도 이미지 저장 | 관제자가 조난자·위험 지점의 정확한 위치를 2D 지도에서 즉시 파악 가능 (추가 Depth 카메라 불필요) |
-| **강화학습(RL) 입력 및 재학습** | 12×12 미니 지도 1장(2D LiDAR 점유 정보만 입력) 기반 회피 | 미니 지도를 **3장(LiDAR + 라이다 아래 낮은 장애물 + 가스/조난자 보호 구역)** 으로 확장하고, 기존 Phase 2-B 모델을 이어받아(Warm-Start) Phase 3 재학습 진행 (`*_semantic_v3.onnx`) | 낮은 장애물에 부딪히기 전에 미리 우회하고, 가스 누출·조난자 주변을 안전하게 비켜 가는 주행 학습 |
-| **통신 단절 안전성** | RPi 4 단독 온보드 폐루프로 자율 복귀 | 시맨틱 마커 생성은 Host PC에만 두고 RPi 4는 마커 캐시만 유지. **시맨틱 입력이 0으로 끊겨도(Modality Dropout 훈련)** 기존 Phase 2-B 수준으로 폴백 | 통신 단절 시 기존 99.33% 자율 복귀 안정성을 그대로 유지하면서 추가 기능만 안전하게 결합 |
+<p align="center">
+  <img src="docs/images/evidence/phase3_gazebo_semantic_map_overlay.png" alt="Phase 3 Gazebo Semantic SLAM Overlay" width="70%">
+  <br>
+  <em>▲ Phase 3 Gazebo Semantic SLAM 오버레이 (`raw_map.png` 점유 격자 위 조난자·저상장애물·가스·음성 4종 영구 마커)</em>
+</p>
+
+### 1. 단안 RGB-2D LiDAR 투영 퓨전 & 시맨틱 SLAM 아키텍처
+
+- **선행 논문 수식 3 오타 정정 & 270° CCW 역변환**:
+  선행 논문 수식 (3)의 $X \cdot f_y$ 오타를 $Y \cdot f_y$ ($v = (Y \cdot f_y)/Z + c_y$)로 바로잡고, 버거 카메라의 90° 시계방향 회전 장착에 맞추어 $270^\circ$ CCW 역변환(`unrotate_point`, `unrotate_bbox_xyxy`) 행렬을 정합했다 ([`semantic_mapper_core.py`](src/disaster_recovery/disaster_recovery/semantic_mapper_core.py)).
+- **원거리 배경 벽면 오인 차단 (+0.25m 전경 클러스터링)**:
+  2D LaserScan 투영 시 바운딩 박스 후방의 배경 벽 포인트가 매칭되어 깊이가 수 미터로 왜곡되는 현상을 차단하기 위해, 바운딩 박스 가로 중앙 70% 영역 내 포인트 중 최소 깊이 기준 $Z \le \min(Z) + 0.25\,\text{m}$ 전경 클러스터 중앙값을 $P_{\text{camera}}$로 채택했다.
+- **4종 시맨틱 아티팩트 영구 보존 (`semantic_map_node.py`)**:
+  `/semantic_map/save_map` 서비스 호출 시 Cartographer 원본 점유 지도(`raw_map.png`, `raw_map.yaml`)와 검출된 객체 좌표(`semantic_objects.json`), 그리고 4종 마커(조난자, 저상 장애물, 가스 누출 구역, 음성 경보)가 합성된 시맨틱 오버레이(`semantic_map_overlay.png`)를 원자적으로 영구 보존한다.
+
+---
+
+### 2. Phase 3 3채널 Context-RL V100 대규모 재학습 (`976차원`)
+
+Phase 2-B의 단일 채널 2D LiDAR 코스트맵을 **3채널 ($12\times 12\times 3 = 432$셀 + 544차원 스칼라 = 976차원 Flat Input)** 로 확장하여 저상 장애물과 가스/음성 위험 구역을 시계열 인지하도록 설계했다.
+
+| 채널 | 규격 | 내용 | 인지 목적 |
+| :---: | :---: | :--- | :--- |
+| **Ch 0** | $12\times 12$ ($0.15\,\text{m}$ 해상도) | 2D LiDAR LDS-01 점유 격자 ($1.8\times 1.8\,\text{m}$ 로봇 중심) | 수평 평면 물리적 벽면 및 고상 장애물 회피 |
+| **Ch 1** | $12\times 12$ ($0.15\,\text{m}$ 해상도) | YOLO26n 단안 투영 저상 장애물(`low obstacle`) | LDS-01 사각지대(바닥 12cm 이하 파이프·벽돌 등) 사전 회피 |
+| **Ch 2** | $12\times 12$ ($0.15\,\text{m}$ 해상도) | 유해 가스 누출 위험 반경 및 조난자 보호 구역 | 복귀 중 유해 가스 플룸 및 조난자 영역 안전 우회 |
+
+- **Modality Dropout (28%, `modality_dropout_prob = 0.28`) & Teacher Warm-Start**:
+  통신 단절 시 Host PC로부터 시맨틱 정보가 끊어지더라도 로봇이 안전하게 복귀하도록 훈련 중 28% 확률로 Ch1/Ch2를 제로 마스킹하여 (Modality Dropout, 25~30% 설계 대역) 1채널 폴백 복귀율 **`99.2%`** 를 보장했다.
+- **V100 증류 ONNX 경량성**:
+  `sim_policy_student_semantic_v3.onnx` (`289.2 KB`, 단일 스레드 CPU 추론 지연 **`0.086 ms`**), `real_tb3_policy_student_semantic_v3.onnx` (`289.2 KB`, **`0.087 ms`**).
+
+---
+
+### 3. Gazebo 시맨틱 회피 결정론적 A/B 실증 (Blind vs Semantic-Aware)
+
+동일한 저상 장애물 및 가스 누출 구역이 배치된 복귀 경로 상에서 제어기 파라미터 `use_semantic_rl_policy`를 전환하며 1:1 결정론적 주행을 실증했다 ([`semantic_avoidance_ab.json`](benchmark_results/phase3_semantic_v3/semantic_avoidance_ab.json)).
+
+| 평가 지표 | Blind 제어 (`use_semantic_rl_policy:=false`) | Proposed RL v3 (`use_semantic_rl_policy:=true`) | 개선 효과 |
+| :--- | :---: | :---: | :---: |
+| **복귀 성공 여부** | **FAIL** (타임아웃 70.04s, 최종오차 0.5455m) | **PASS** (복귀시간 **47.82s**, 최종오차 **0.2401m**) | **복귀 성공 전환** |
+| **저상 장애물 충돌 여부** | **충돌 발생 (`True`)** | **충돌 없음 (`False`)** | **0% 충돌 (완벽 회피)** |
+| **저상 장애물 최소 이격 거리** | $0.2485\,\text{m}$ (물리적 접촉) | **$0.3799\,\text{m}$ (충분한 안전 마진 확보)** | **+13.14 cm 마진 확보** |
+| **가스 위험 구역 침범 여부** | **침범 발생 (`True`)** | **침범 없음 (`False`)** | **위험 구역 보호 성공** |
+| **가스 중심점 최소 이격 거리** | $0.0869\,\text{m}$ (가스 중심 관통) | **$0.2577\,\text{m}$ (위험 반경 외곽 우회)** | **약 3배 안전 이격 (2.97×)** |
+
+<p align="center">
+  <img src="docs/images/evidence/phase3_semantic_avoidance_blind.png" alt="Blind Avoidance Fail" width="48%">
+  <img src="docs/images/evidence/phase3_semantic_avoidance_aware.png" alt="Semantic Aware Avoidance Pass" width="48%">
+  <br>
+  <em>▲ 좌: Blind 정책 (저상 장애물 0.248m 충돌 & 가스 침범 FAIL) / 우: Proposed RL v3 (저상 장애물 0.380m 우회 & 가스 3배 안전 이격 PASS)</em>
+</p>
+
+---
+
+### 4. 15대 재난 시나리오 150회 비퇴행 벤치마크 (`144/150 = 96.00%`)
+
+기존 15개 시나리오 전수에 대해 `sim_policy_student_semantic_v3.onnx`를 적용한 150회 전수 몬테카를로 벤치마크 결과, 극한 험지·연기·동적 환경 전반에서 **`144/150 (96.00%)`** 의 비퇴행 복귀 성공률을 확인했다.
+
+| 시나리오 ID & 환경 | Baseline (단순 LIFO) | Proposed RL v3 (Phase 3 최종) | 복귀 소요 시간 (Proposed) | 최종 오차 (Proposed) | 비고 |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| **`collapsed`** (붕괴 건물 기본) | 5/10 (50.0%) | **10/10 (100.0%)** | 102.84 s | 8.29 cm | 전 회차 완주 |
+| **`collapsed_hard`** (붕괴 건물 난도) | 4/10 (40.0%) | **10/10 (100.0%)** | 137.91 s | 8.47 cm | 전 회차 완주 |
+| **`collapsed_heavy`** (고밀도 다중 낙석) | 2/10 (20.0%) | **9/10 (90.0%)** | 112.33 s | 8.32 cm | 90% 달성 |
+| **`collapsed_heavy_hard`** (고밀도 극단 낙석) | 0/10 (0.0%) | **10/10 (100.0%)** | 137.18 s | 8.50 cm | 전 회차 완주 |
+| **`dynamic_crossfire_alley`** (동적 교차로) | 3/10 (30.0%) | **7/10 (70.0%)** | 103.84 s | 8.22 cm | 고속 횡단 돌파 |
+| **`dynamic_gauntlet`** (동적 건틀릿) | 10/10 (100.0%) | **10/10 (100.0%)** | 128.21 s | 8.27 cm | 전 회차 완주 |
+| **`house`** (실내 가옥 다실 문틀) | 9/10 (90.0%) | **9/10 (90.0%)** | 113.77 s | 8.67 cm | 협소 문틀 통과 |
+| **`house_hard`** (실내 가옥 협소 복도) | 6/10 (60.0%) | **9/10 (90.0%)** | 136.63 s | 8.61 cm | 90% 달성 |
+| **`maze`** (미로 격벽) | 9/10 (90.0%) | **10/10 (100.0%)** | 21.25 s | 8.10 cm | 위상 지름길 복귀 |
+| **`maze_hard`** (미로 격벽 협소로) | 9/10 (90.0%) | **10/10 (100.0%)** | 24.41 s | 8.28 cm | 전 회차 완주 |
+| **`slip_chicane`** (바퀴 슬립 시케인) | 1/10 (10.0%) | **10/10 (100.0%)** | 134.29 s | 8.29 cm | ICP 슬립 보정 완주 |
+| **`smoke_lidar_corruption`** (연기 난반사) | 0/10 (0.0%) | **10/10 (100.0%)** | 76.38 s | 7.95 cm | Layer-0 각도 필터 |
+| **`tunnel`** (지하 터널 차량 잔해) | 9/10 (90.0%) | **10/10 (100.0%)** | 82.59 s | 8.06 cm | 전 회차 완주 |
+| **`tunnel_hard`** (지하 터널 암흑 험지) | 9/10 (90.0%) | **10/10 (100.0%)** | 107.76 s | 8.12 cm | 전 회차 완주 |
+| **`u_pocket_trap`** (U자 포켓 막다른 길) | 4/10 (40.0%) | **10/10 (100.0%)** | 97.68 s | 7.99 cm | A* 탈출 완주 |
+| **종합 합계 (Total)** | **80/140 (57.14%*) / 80/150 (53.33%)** | **144/150 (96.00%)** | **100.22 s** | **8.27 cm** | **15종 중 11종 100% 완주** |
+
+> *참고: Baseline 합계는 `#15 smoke_lidar_corruption`(0/10) 포함 시 `80/150 (53.33%)`, 미포함 14개 환경 기준 `80/140 (57.14%)`이다.
+
+---
+
+### 5. 3D 영상 및 검증 아티팩트 목록
+
+- **검증 비디오 (1920×1080 H.264, `/hdd/evidence/phase3_semantic/`)**:
+  - `phase3_semantic_slam_e2e.mp4`: Gazebo 실시간 Cartographer `/map` + `/semantic_map/markers` + YOLO 검출 실시간 시맨틱 SLAM 파이프라인 시연 (23.65s, 473 frames).
+  - `phase3_semantic_avoidance_ab.mp4`: Blind(저상 충돌/가스 침범 FAIL) vs Semantic-Aware(완벽 회피 PASS) 1:1 비교 영상 (200.75s, 4015 frames).
+  - `phase3_nonreg_dynamic_gauntlet_t01.mp4`: 대표 난제 `dynamic_gauntlet` 시나리오 3D Gazebo 복귀 주행 영상 (46.00s, 920 frames).
+- **시각화 스냅샷 에셋 ([`docs/images/evidence/`](docs/images/evidence/))**:
+  - `phase3_gazebo_semantic_map_overlay.png`: 4종 시맨틱 객체 오버레이 지도.
+  - `phase3_semantic_slam_live.png`: Gazebo RViz2 3D 실시간 관제 화면.
+  - `phase3_semantic_avoidance_blind.png`: Blind 충돌 현장 스냅샷.
+  - `phase3_semantic_avoidance_aware.png`: Semantic-Aware 안전 회피 스냅샷.
+  - `phase3_nonreg_dynamic_gauntlet_t01_encounter.png`: 동적 장애물 조우 스냅샷.
+  - `phase3_nonreg_dynamic_gauntlet_t01_outcome.png`: 동적 장애물 통과 복귀 완주 스냅샷.
 
 ---
 
@@ -715,7 +812,7 @@ source install/setup.bash
 
 ```bash
 source /opt/ros/humble/setup.bash && source install/setup.bash
-python3 -m pytest -p no:anyio src/disaster_recovery/test -q   # ADS1115/MQ-2(8) + 하이브리드·Dual-ONNX·Clearance-Gate(7) + 로컬 격자 A*(9) 총 24개
+python3 -m pytest -p no:anyio src/disaster_recovery/test -q   # ADS1115(8) + 하이브리드(7) + 로컬A*(9) + 시맨틱매퍼(17) + 시맨틱RL(8) + 제어기(4) + 통합(2) = 총 55개 전수 PASS
 ```
 
 ---
@@ -839,6 +936,10 @@ python3 scripts/host/start.py --sim        # start.py 경유 실행
 | `/recovery/status` | `std_msgs/String` | recovery_controller → (모니터링) |
 | `/disaster/victim_alert` | `std_msgs/String` | host_ai_pipeline → (관제) |
 | `/disaster/audio_alert` | `std_msgs/String` | host_ai_pipeline → (관제) |
+| `/detection/objects` | `std_msgs/String` | host_ai_pipeline → semantic_map_node (YOLO 감지 객체 JSON + stamp) |
+| `/semantic_map/markers` | `visualization_msgs/MarkerArray` | semantic_map_node → RViz2 (조난자·장애물·가스·음성 4종 영구 마커) |
+| `/semantic_map/cached_objects` | `std_msgs/String` | semantic_map_node → recovery_controller (RPi 4 온보드 캐시 동기화) |
+| `/semantic_map/save_map` | `std_srvs/srv/Trigger` | 관제/사용자 → semantic_map_node (raw_map, yaml, json, overlay 4종 아티팩트 저장 서비스) |
 
 ---
 
