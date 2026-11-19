@@ -22,7 +22,7 @@
   <img src="docs/images/disaster_recovery_banner_latest.png" alt="Disaster Recovery TurtleBot3 Burger Hero Banner" width="100%">
 </p>
 
-> 🚨 **시스템 요약 (System Overview)**: 실내 재난 환경 탐사 중 **통신 단절(Heartbeat 3.0초 타임아웃)** 또는 **유해 가스 누출(MQ-2 임계치 초과)** 이 발생했을 때, 외부 관제 없이 온보드 연산(Raspberry Pi 4)만으로 지나온 경로를 역추적(LIFO Breadcrumb Backtracking)하고 2D LiDAR ICP 보정 · 로컬 우회 · ArUco 정밀 도킹으로 출발 지점까지 자율 복귀하는 TurtleBot3 Burger 제어 시스템입니다.
+> 🚨 **시스템 요약 (System Overview)**: 실내 재난 환경 탐사 중 **통신 단절(Heartbeat 3.0초 타임아웃)** 또는 **유해 가스 누출(MQ-2 임계치 초과)** 이 발생했을 때, 외부 관제 없이 온보드 연산(Raspberry Pi 4)만으로 **Phase 2-B 계층형 자율복귀(LIFO 역추적 · `RollingLocalGrid 2D A*` · `Context-RL ONNX` · 2D LiDAR ICP 보정 · 연기/동적잔상 필터 · ArUco 정밀 도킹)** 를 수행해 출발 지점까지 복귀하는 TurtleBot3 Burger 제어 시스템이다. (15대 재난 시나리오 150회 벤치마크 **`99.33%`** 달성 · 차기 **Phase 3 시맨틱 맵핑/RL** 예정)
 
 ---
 
@@ -59,14 +59,15 @@
 
 ### 개발 목적
 
-지진, 건물 붕괴, 유해가스 누출 등으로 통신 인프라가 파괴된 실내 재난 환경에서 다음 4가지 목표를 달성하는 것을 목적으로 한다.
+지진, 건물 붕괴, 연기·분진, 유해가스 누출 등으로 통신 인프라가 파괴된 실내 재난 환경에서 다음 목표를 달성하는 것을 목적으로 한다.
 
-| # | 목표 | 핵심 기술 |
-| :-: | :--- | :--- |
-| 1 | **통신 단절 시 온보드 자율 복귀** | Heartbeat 워치독 + LIFO Breadcrumb 역추적 (RPi 4 단독 연산) |
-| 2 | **바퀴 슬립 누적 오차 보정** | 2D LiDAR 키프레임 스캔 매칭 (SVD 기반 ICP, 3.5 ms 수렴) |
-| 3 | **베이스캠프 정밀 도킹** | ArUco + `solvePnP` 비주얼 서보잉, 10초 타임아웃 세이프티 가드 |
-| 4 | **저지연 AI 재난 관제** | YOLO26n (GPU FP16 · 최대 15 FPS) + Faster-Whisper (CUDA INT8 · CPU 자동 폴백) GPU 통합 가속 |
+| # | 목표 | 핵심 기술 (최신 패치 반영) | 상태 |
+| :-: | :--- | :--- | :-: |
+| 1 | **통신 단절 시 온보드 자율 복귀** | Heartbeat 워치독 + LIFO 역추적 + **Phase 2-B 계층형 제어(`RollingLocalGrid 2D A*` · `Context-RL ONNX` · Clearance-Gate)** (RPi 4 단독 연산, 15종 150회 `99.33%`) | ✅ 완료 |
+| 2 | **극한 재난 환경 강인성 확보** | **LiDAR 이웃 각도 잡음 필터(연기·분진 대응) + 개방 광선 잔상 빠른 소거(동적 장애물 대응) + 2D LiDAR SVD ICP 슬립 보정(3.5 ms)** | ✅ 완료 |
+| 3 | **베이스캠프 정밀 도킹** | ArUco + `solvePnP` 비주얼 서보잉, 10초 타임아웃 세이프티 가드 | ✅ 완료 |
+| 4 | **저지연 AI 재난 관제** | YOLO26n (GPU FP16 · 최대 15 FPS) + Faster-Whisper (CUDA INT8 · CPU 자동 폴백) GPU 통합 가속 | ✅ 완료 |
+| 5 | **2D 시맨틱 맵핑 & Phase 3 RL** | 논문 기반 단안 RGB + 2D LiDAR 퓨전 마커 지도 생성 & 3채널 미니맵 기반 사전 우회 RL 재학습 ([계획서](docs/차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md)) | 📋 예정 |
 
 ### 개발 현황
 
