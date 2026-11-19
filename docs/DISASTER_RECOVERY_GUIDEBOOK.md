@@ -13,7 +13,7 @@
   - [2.2 비홀로노믹 구속 로봇의 제자리 회전 후 직진 (Rotate-then-Translate) 분리 제어](#22-비홀로노믹-구속-로봇의-제자리-회전-후-직진-rotate-then-translate-분리-제어)
   - [2.3 포섭 구조(Subsumption Architecture) 기반의 무정지 온보드 생존성](#23-포섭-구조subsumption-architecture-기반의-무정지-온보드-생존성)
   - [2.4 ArUco 마커 기반 원근 n-포인트(Perspective-n-Point) 정밀 도킹](#24-aruco-마커-기반-원근-n-포인트perspective-n-point-정밀-도킹)
-  - [2.5 점유 격자 기반 국소 A* 탐색 및 Context-Adaptive RL 융합 (Phase 1 ~ Phase 2-B)](#25-점유-격자-기반-국소-a-탐색-및-context-adaptive-rl-융합-phase-1--phase-2-b)
+  - [2.5 점유 격자 기반 국소 A* 탐색 및 Context-Adaptive RL 융합 (Phase 1 ~ Phase 2-B)](#25-점유-격자-기반-국소-a-탐색-및-context-adaptive-rl-융합-phase-1-phase-2-b)
 - [3. 시스템 아키텍처 및 데이터 흐름](#3-시스템-아키텍처-및-데이터-흐름)
   - [3.1 하드웨어 및 네트워크 구성 다이어그램](#31-하드웨어-및-네트워크-구성-다이어그램)
 - [4. 온보드 유한 상태 머신 (FSM) 전이도](#4-온보드-유한-상태-머신-fsm-전이도)
