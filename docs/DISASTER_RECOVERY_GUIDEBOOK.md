@@ -1,12 +1,14 @@
 # [종합 가이드북] 통신 단절 적응형 실내 재난 탐사 및 자율 복귀 터틀봇3 버거 시스템 구축 엔지니어링 리포트
 
+> **최신 업데이트 (2026-11-19):** Phase 1(`RollingLocalGrid + 2D A*`), Phase 2-A(`Clearance-Gated RL`), **Phase 2-B(`v3_dynfix` · 15대 재난 시나리오 150회 `99.33%`)** 검증 결과와 차기 **Phase 3(논문 기반 2D 시맨틱 맵핑 & 3채널 RL 재학습) 예정 계획**을 통합 반영하였다.
+
 ---
 
 ## 1. 프로젝트 개요 및 핵심 설계 철학
 
 본 프로젝트는 2륜 차동 구동 로봇(TurtleBot3 Burger)을 활용하여 실내 재난 환경을 원격 탐색하다가, 통신 두절(Heartbeat 3.0초 타임아웃) 또는 위험 가스 누출(MQ-2 임계치 초과) 발생 시 외부 관제 PC의 개입 없이 로봇 자체 연산만으로 지나온 경로를 역추종(Backtracking)하여 시작 위치 반경 15cm 이내로 안전 복귀하는 시스템을 구현하는 것을 목표로 한다.
 
-Host PC(Windows 11 WSL2)와 로봇 본체(Raspberry Pi 4 + OpenCR 1.0) 간의 역할을 엄격히 분리하여, 네트워크가 완전 단절되더라도 로봇의 생존 및 복귀 제어 루프가 온보드 임베디드 컴퓨터에서 독립적으로 자율 작동하도록 구축한다.
+Host PC(Windows 11 WSL2)와 로봇 본체(Raspberry Pi 4 + OpenCR 1.0) 간의 역할을 엄격히 분리하여, 네트워크가 완전 단절되더라도 로봇의 생존 및 복귀 제어 루프(**Phase 2-B 4계층 하이브리드 자율복귀: Layer-0 연기/동적잔상 필터 · `RollingLocalGrid 2D A*` · `ContextRLStudent` ONNX · 2D SVD ICP · ArUco 정밀 도킹**)가 온보드 임베디드 컴퓨터에서 독립적으로 자율 작동하도록 구축한다.
 
 ---
 
@@ -32,6 +34,11 @@ Host PC(Windows 11 WSL2)와 로봇 본체(Raspberry Pi 4 + OpenCR 1.0) 간의 �
 - **근거**: Garrido-Jurado et al. (2014), "Automatic generation and detection of highly reliable fiducial markers under occlusion", *Pattern Recognition*, 47(6), 2280-2292 및 Collins & Bartoli (2014), "Infinitesimal Plane-Based Pose Estimation", *International Journal of Computer Vision*에 따르면, 기하학적 형상이 기지인 평면 4변 마커의 코너점을 단일 카메라로 투영 해석하는 `solvePnP` (IPPE Square)는 서브센티미터(Sub-centimeter) 단위의 3차원 상대 위치 $`(X_c, Y_c, Z_c)`$ 추정이 가능하다.
 - **결론**: 로봇이 출발 원점 50cm 거리에 진입하면 베이스캠프 벽면의 $`10 \times 10\,\text{cm}`$ 마커(ID 0)를 인식하여 횡방향 오차 $`X_c \approx 0`$, 정지 거리 $`Z_c = 0.20\,\text{m}`$를 달성함으로써 누적 엔코더 오차를 완전히 무효화하고 15cm 이내 정밀 복귀를 완성한다.
 
+### 2.5 점유 격자 기반 국소 A\* 탐색 및 Context-Adaptive RL 융합 (Phase 1 ~ Phase 2-B)
+- **주장**: 단순 반사형(Reactive) 회피만으로는 U자 막다른 함정·고밀도 낙석·동적 교차 장애물을 빠져나갈 수 없으므로, 단기 메트릭 점유 격자(`RollingLocalGrid` + `2D A*`)로 대우회·위상 지름길 경로를 산출하고, 협소 구간에서는 `A*`가 주도하며 열린 구간에서는 시공간 문맥 기반 경량 ONNX 정책(`ContextRLStudentPolicy`)이 부드러운 고속 회피를 담당하는 계층형 융합이 필수적이다.
+- **근거**: Elfes (1989)의 점유 격자(Occupancy Grid) 및 Hart et al. (1968)의 `A*` 탐색을 바탕으로 `8 m × 8 m`(`0.04 m` 해상도) 롤링 격자에서 국소 경로를 계획하고, Schulman et al. (2017)의 PPO·Jiang et al. (2021)의 PLR 커리큘럼·Ross et al. (2011)의 DAgger 증류를 통해 `16스텝(1.6초)` 시계열 문맥과 `12×12` 자차 중심 코스트맵(`688차원`)을 입력받는 `< 0.04 ms` 초경량 ONNX 학생 정책을 구축하였다.
+- **결론**: `Phase 2-B`에서는 여기에 Layer-0 연기/분진 스파이크 필터(`_despike_lidar_ranges`), Open-Ray Carving(`carve_decay=0.25`), `DYNAMIC_HOLD`, 비대칭 측면 게이팅을 결합해 15개 재난 시나리오 150회 벤치마크에서 **`149/150 (99.33%)`** 을 달성하였다.
+
 ---
 
 ## 3. 시스템 아키텍처 및 데이터 흐름
@@ -45,10 +52,11 @@ flowchart TD
         NIC2["USB 무선 Wi-Fi 동글<br/>(192.168.0.100)"]
         WSL["WSL2 Ubuntu 22.04 LTS<br/>(networkingMode=mirrored)"]
         GPU["NVIDIA GTX 1050 Ti<br/>(CUDA 12.x)"]
-        AI1["YOLO26n Vision AI<br/>(Person 탐지, 270도 회전 보정)"]
+        AI1["YOLO26n Vision AI<br/>(Person 탐지, 15 FPS 캡, 270도 보정)"]
         AI2["Faster-Whisper STT<br/>(구조 요청 발화 분석)"]
         HB["Heartbeat Generator<br/>(10Hz /heartbeat)"]
-        SLAM["Cartographer SLAM<br/>및 RViz2 관제"]
+        SLAM["Cartographer / slam_toolbox<br/>및 RViz2 관제"]
+        SEM["[Phase 3 예정] semantic_map_node<br/>(단안 RGB + /scan 퓨전 2D 마커 맵)"]
     end
 
     subgraph Network ["로컬 사설 Wi-Fi (192.168.0.x, DOMAIN_ID=0)"]
@@ -57,12 +65,12 @@ flowchart TD
 
     subgraph Robot_RPi ["TurtleBot3 Burger - RPi 4 (Ubuntu 22.04)"]
         WIFI_RPI["RPi 4 내장 Wi-Fi<br/>(192.168.0.105)"]
-        LDS["LDS-01 2D LiDAR<br/>(/scan 발행)"]
-        CAM["RPi Camera V2<br/>(v4l2_camera 스트리밍)"]
+        LDS["LDS-01 2D LiDAR<br/>(/scan 발행 + Layer-0 스파이크 필터)"]
+        CAM["RPi Camera V2<br/>(camera_ros / v4l2 스트리밍)"]
         MIC["AB13X USB 마이크<br/>(48kHz -> /audio/raw)"]
         WLOG["Odometry Logger<br/>(LIFO 스택: d>=0.3m, th>=25deg)"]
         WDOG["Watchdog Manager<br/>(Heartbeat 3.0s 및 Gas 감시)"]
-        BTRK["Autonomous Backtracker<br/>(Rotate-then-Translate)"]
+        BTRK["Phase 2-B 복귀 제어기<br/>(RollingGrid A* + ContextRL ONNX + 2D ICP)"]
         ARUCO["ArUco PnP Docking<br/>(15cm 이내 정밀 안착)"]
         BBOX["Blackbox Recorder<br/>(통신 단절 시 압축 기록)"]
         GAS["gas_sensor_node<br/>(ADS1115 I2C -> /gas/level)"]
@@ -86,6 +94,8 @@ flowchart TD
     GPU --- AI2
     WSL --- HB
     WSL --- SLAM
+    AI1 -.-> SEM
+    SLAM -.-> SEM
 
     WIFI_RPI --- WLOG
     WIFI_RPI --- WDOG
@@ -116,12 +126,15 @@ flowchart TD
     INIT -->|"센서 및 첫 Heartbeat 수신"| NORMAL["NORMAL_TELEOP<br/>(/cmd_vel_remote 중계 · 0.3m/25도 스택 푸시)"]
     NORMAL -->|"Heartbeat 타임아웃(3.0s) 또는 가스 초과(0.40)"| ESTOP["EMERGENCY_STOP<br/>(즉시 정지 · 원격 차단 · 블랙박스 · 스택 팝)"]
     ESTOP -->|"목표 경유지 헤딩 계산 완료"| ROT["BACKTRACKING_ROTATE<br/>(선속도 0 · 제자리 각속도 P-제어)"]
-    ROT -->|"헤딩 오차 0.08 rad 이내 정렬"| TRANS["BACKTRACKING_TRANSLATE<br/>(목표 경유지 반경 0.08m까지 직진)"]
-    TRANS -->|"헤딩 0.2 rad 발산 또는 다음 경유지 팝"| ROT
-    ROT -->|"LDS-01 전방 20도 내 0.12~0.25m 장애물"| HOLD["OBSTACLE_HOLD<br/>(일시 정지 및 장애물 대기)"]
-    TRANS -->|"LDS-01 전방 20도 내 0.12~0.25m 장애물"| HOLD
+    ROT -->|"헤딩 오차 허용 범위 정렬"| HYB["BACKTRACKING_HYBRID<br/>(Regulated Pure Pursuit + 2D A* + Phase 2-B ContextRL ONNX)"]
+    HYB -->|"큰 헤딩 발산 또는 다음 경유지 팝"| ROT
+    HYB -->|"동적 장애물 급접근"| DHOLD["DYNAMIC_HOLD<br/>(1.2s 일시 정지 대기)"]
+    DHOLD -->|"장애물 통과 또는 0.20m 근접"| HYB
+    HYB -->|"정체 감시(Watchdog) 발동"| ESC["ESCAPE<br/>(안전 후진·회전 탈출 + 4.5s RL 쿨다운)"]
+    ESC --> HYB
+    ROT -->|"LDS-01 전방 20도 내 0.12~0.25m (비활성 시)"| HOLD["OBSTACLE_HOLD<br/>(일시 정지 및 장애물 대기)"]
     HOLD -->|"장애물 제거 및 경로 확보"| ROT
-    TRANS -->|"베이스캠프 0.50m 접근 또는 스택 소진"| HAND["HANDOVER_TO_ARUCO<br/>(/aruco/dock_trigger 발행)"]
+    HYB -->|"베이스캠프 0.50m 접근 (use_aruco=true)"| HAND["HANDOVER_TO_ARUCO<br/>(/aruco/dock_trigger 발행)"]
     HAND -->|"시각 서보 제어권 이양"| DOCK["ARUCO_DOCKING<br/>(solvePnP 3D 추정 · X/Z 비례 제어)"]
     DOCK -->|"거리 2cm 및 각도 3도 10회 연속 달성"| DONE["MISSION_COMPLETE<br/>(반경 15cm 이내 복귀 완료 · 모터 고정)"]
     DONE --> END(((●)))
@@ -132,12 +145,15 @@ flowchart TD
 | 상태 (State) | 세부 실행 동작 (Action Detail) | 비고 |
 | :--- | :--- | :--- |
 | **`INIT`** | 시스템 부팅, 하드웨어 점검, `/odom` 및 최초 `/heartbeat` 대기 | 초기화 단계 |
-| **`NORMAL_TELEOP`** | `/cmd_vel_remote` 원격 조종 통과 중계<br/>이동 $`\Delta d \ge 0.3\,\text{m}`$ 또는 회전 $`\lvert \Delta \theta \rvert \ge 25^\circ`$마다 `Waypoint` 스택 푸시 | 정상 탐색 및 궤적 로깅 |
-| **`EMERGENCY_STOP`** | 선속도 0, 각속도 0 즉시 인가 (`HALT_MOTORS`)<br/>원격 명령 중계 영구 차단 및 로컬 블랙박스 녹화 개시 (`LOCK_REMOTE`)<br/>LIFO 스택 최상단 경유지 추출 (`POP_WP`) | 비상 페일세이프 작동 |
+| **`NORMAL_TELEOP`** | `/cmd_vel_remote` 원격 조종 통과 중계<br/>이동 $`\Delta d \ge 0.3\,\text{m}`$ 또는 회전 $`\lvert \Delta \theta \rvert \ge 25^\circ`$마다 `Waypoint` 스택 푸시 및 선행 격자 관측 | 정상 탐색 및 궤적 로깅 |
+| **`EMERGENCY_STOP`** | 선속도 0, 각속도 0 즉시 인가 (`HALT_MOTORS`)<br/>원격 명령 중계 차단 및 로컬 블랙박스 녹화 개시 (`LOCK_REMOTE`)<br/>LIFO 스택 최상단 경유지 추출 (`POP_WP`) | 비상 페일세이프 작동 |
 | **`BACKTRACKING_ROTATE`** | 선속도 0 유지, 목표 경유지 헤딩 방향으로 제자리 회전 각속도 $`P`$-제어 인가 (`PURE_ROTATION`) | 제자리 회전 정렬 |
-| **`BACKTRACKING_TRANSLATE`** | 목표 경유지 반경 0.08m까지 직진 주행 및 미세 조향 추종 (`FORWARD_DRIVE`) | 경유지 직진 추종 |
-| **`LOCAL_TD3_AVOIDANCE`** | 복귀 경로 상 신규 잔해 감지 시 28차원 상태 입력 기반 초경량 TD3 Actor(ONNX Runtime)로 연속 곡선 우회 기동 수행 후 2D ICP로 바퀴 슬립 즉시 소거 | 동적 잔해 능동 우회 (Layer 2 & 3) |
-| **`OBSTACLE_HOLD`** | `enable_td3_avoidance=false` 또는 우회 타임아웃 시 전방 $`\pm 20^\circ`$, $`0.12 \sim 0.25\,\text{m}`$ 장애물 앞에서 $`v=0, \omega=0`$ 정지 대기 | 전방 충돌 방지 세이프티 |
+| **`BACKTRACKING_HYBRID`** | **Phase 2-B 기본 복귀 상태**: `RollingLocalGrid(0.04m) + 2D A*`·위상 지름길 추종, `Clearance-Gate` 조건에 따라 `ContextRLStudent` ONNX(`688차원`) 블렌딩 및 곡률 보존 클램프, 경유지 45 cm 이내 2D SVD ICP 슬립 보정 수행 | 계층형 하이브리드 복귀 |
+| **`DYNAMIC_HOLD`** *(Phase 2-B)* | 직진 중 동적 장애물 급접근($`df/dt < -0.25\,\text{m/s}`$, $`0.20 \le d_{\text{front}} \le 0.55\,\text{m}`$) 감지 시 구석 후진 몰림을 피하기 위해 1.2초 정지 대기 (`observe()` 연속 갱신) | 교차 이동 장애물 대응 |
+| **`ESCAPE`** *(Phase 1~2-B)* | 정체 감시(Watchdog) 발동 시 안전 후진·회전 탈출 및 4.5s RL 쿨다운(`repeat >= 1` 시 7.0s Lockout Anchor 부여) | 막다른 골목·저상 턱 탈출 |
+| **`BACKTRACKING_TRANSLATE`** | `enable_hybrid_tracking=false` 레거시 직진 추종 모드 (`FORWARD_DRIVE`) | 레거시 호환 모드 |
+| **`LOCAL_TD3_AVOIDANCE`** | Phase 1.5 레거시(`recovery_strategy=td3`) 복귀 시 28차원 Residual TD3 ONNX 우회 기동 수행 | 레거시 호환 모드 |
+| **`OBSTACLE_HOLD`** | 회피 기능 비활성화 시 전방 $`\pm 20^\circ`$, $`0.12 \sim 0.25\,\text{m}`$ 장애물 앞에서 $`v=0, \omega=0`$ 정지 대기 | 전방 충돌 방지 세이프티 |
 | **`HANDOVER_TO_ARUCO`** | 출발 원점 반경 0.50m 진입 시 `/aruco/dock_trigger` 발행 및 시각 서보 노드로 제어권 이양 (`ACTIVATE_DOCKING`) | 종말 도킹 핸드오버 |
 | **`ARUCO_DOCKING`** | ArUco 코너 검출 및 `solvePnP` 기반 3D 상대 위치 추정 (`SOLVE_PNP`)<br/>$`X`$ 편차 및 $`Z`$ 거리 비례($`P`$) 제어로 정밀 접근 (`SERVO_CONTROL`) | 비주얼 서보잉 도킹 |
 | **`MISSION_COMPLETE`** | 베이스캠프 반경 15cm 이내 최종 안착 확인, 모터 완전 정지 및 임무 완료 | 복귀 임무 완수 |
@@ -150,21 +166,24 @@ flowchart TD
 
 - [package.xml](../src/disaster_recovery/package.xml): ROS 2 Humble 의존성 및 패키지 메타데이터 정의
 - [setup.py](../src/disaster_recovery/setup.py): 콘솔 스크립트 엔트리포인트 및 런치/파라미터 설치 설정
-- [recovery_controller.py](../src/disaster_recovery/disaster_recovery/recovery_controller.py): 온보드 오도메트리 로거, 워치독 감시, TD3 국소 우회 연동, 2D ICP 스캔 매칭, LIFO 백트래킹 제어기
-- [td3_policy.py](../src/disaster_recovery/disaster_recovery/td3_policy.py): 28차원 상태 벡터 추출기, TD3 Actor-Critic 신경망 및 ONNX Runtime 초저지연 추론 엔진
+- [recovery_controller.py](../src/disaster_recovery/disaster_recovery/recovery_controller.py): 온보드 오도메트리 로거, 워치독 감시, Layer-0 `_despike_lidar_ranges`, Phase 2-B Clearance-Gated RL + 2D `A*` 블렌딩, `DYNAMIC_HOLD`, 2D ICP 스캔 매칭, LIFO 백트래킹 제어기
+- [local_grid_planner.py](../src/disaster_recovery/disaster_recovery/local_grid_planner.py): `RollingLocalGrid(0.04m)` + `2D A*` + 비파괴 위상 지름길 + Open-Ray Carving(`carve_decay=0.25`) + `ESCAPE` + `_virtual_obstacles`
+- [rl_context_policy.py](../src/disaster_recovery/disaster_recovery/rl_context_policy.py): `16스텝` 시계열 문맥 + `12×12` Ego 코스트맵(`688차원`) 기반 `ContextRLStudentPolicy` ONNX 추론 엔진 (`sim_policy_student.onnx`, `real_tb3_policy_student.onnx`)
+- [td3_policy.py](../src/disaster_recovery/disaster_recovery/td3_policy.py): 28차원 상태 벡터 추출기, Residual TD3 Actor-Critic 신경망 및 ONNX Runtime 추론 엔진 (레거시 Baseline 비교용)
 - [aruco_docking.py](../src/disaster_recovery/disaster_recovery/aruco_docking.py): OpenCV solvePnP 기반 ArUco 마커 3D 포즈 추정 및 15cm 정밀 도킹 제어기
-- [host_ai_pipeline.py](../src/disaster_recovery/disaster_recovery/host_ai_pipeline.py): Host PC WSL2 GPU 가속 YOLO26n 비전(압축 영상·270° 회전·Zero-Lag 워커·연속 프레임 디바운스) 및 Faster-Whisper 오디오 AI 파이프라인
+- [host_ai_pipeline.py](../src/disaster_recovery/disaster_recovery/host_ai_pipeline.py): Host PC WSL2 GPU 가속 YOLO26n 비전(압축 영상·270° 회전·Zero-Lag 워커·15 FPS 캡) 및 Faster-Whisper 오디오 AI 파이프라인
 - [gas_sensor_node.py](../src/disaster_recovery/disaster_recovery/gas_sensor_node.py): ADS1115(I2C)로 MQ-2 전압을 읽어 EMA·기준선 보정 후 `/gas/level` 발행
 - [ads1115_mq2.py](../src/disaster_recovery/disaster_recovery/ads1115_mq2.py): ADS1115 드라이버 및 MQ-2 계산 함수 (ROS 비의존, 단위 테스트 대상)
 - [blackbox_recorder.py](../src/disaster_recovery/disaster_recovery/blackbox_recorder.py): 통신 단절 트리거 시 로컬 MicroSD 영상 및 센서 CSV 무손실 기록 노드
 - [audio_capture_node.py](../src/disaster_recovery/disaster_recovery/audio_capture_node.py): RPi 4 AB13X USB 마이크 `arecord` 기반 48kHz PCM 캡처 → `/audio/raw` 발행 노드
 - [test_ads1115_mq2.py](../src/disaster_recovery/test/test_ads1115_mq2.py): ADS1115/MQ-2 계산 단위 테스트 (8개)
-- [test_hybrid_recovery.py](../src/disaster_recovery/test/test_hybrid_recovery.py): 2D SVD ICP, TD3 28차원 상태 벡터화, ONNX 추론 지연 및 폐루프 회피 통합 테스트 (4개)
-- [recovery_params.yaml](../src/disaster_recovery/config/recovery_params.yaml): 시스템 운영 임계치 및 PID 게인 파라미터 정의
-- [camera_info_sample.yaml](../src/disaster_recovery/config/camera_info_sample.yaml): RPi 카메라 모듈 V2 캘리브레이션 예시값 (직접 캘리브레이션 값으로 교체 필요)
-- [robot_onboard.launch.py](../src/disaster_recovery/launch/robot_onboard.launch.py): RPi 4 온보드 전체 생존 노드 일괄 기동 런치
-- [disaster_station.rviz](../src/disaster_recovery/config/disaster_station.rviz): RViz2 관제 레이아웃 (RobotModel + `/scan` + `/map` + `/detection/image`)
-- [host_station.launch.py](../src/disaster_recovery/launch/host_station.launch.py): Host PC 관제 AI 및 워치독 런치 (launch argument로 모델·토픽·회전·임계값 지정, `use_rviz:=true`)
+- [test_hybrid_recovery.py](../src/disaster_recovery/test/test_hybrid_recovery.py): 2D SVD ICP, TD3, Dual-ONNX 지연, Clearance-Gate 블렌딩 단위 테스트 (7개)
+- [test_local_grid_planner.py](../src/disaster_recovery/test/test_local_grid_planner.py): `RollingLocalGrid`, `A*`, 위상 지름길, 가상 접촉 장벽 단위 테스트 (9개 · 총 `24 passed`)
+- [recovery_params.yaml](../src/disaster_recovery/config/recovery_params.yaml) · [recovery_params_real.yaml](../src/disaster_recovery/config/recovery_params_real.yaml): 시뮬레이션 및 실물 TurtleBot3 Burger(Track B) 운영 파라미터 정의
+- [robot_onboard.launch.py](../src/disaster_recovery/launch/robot_onboard.launch.py) · [robot_onboard_real.launch.py](../src/disaster_recovery/launch/robot_onboard_real.launch.py): RPi 4 온보드 생존 노드 일괄 기동 런치
+- [disaster_cartographer.rviz](../src/disaster_recovery/config/disaster_cartographer.rviz) · [disaster_station.rviz](../src/disaster_recovery/config/disaster_station.rviz): RViz2 SLAM(`RobotModel` + `/map` Volatile) 및 AI 관제 레이아웃
+- [host_station.launch.py](../src/disaster_recovery/launch/host_station.launch.py) · [disaster_world.launch.py](../src/disaster_recovery/launch/disaster_world.launch.py): Host PC AI·워치독 런치 및 다중 재난 Gazebo 월드 런치
+- [sim.py](../scripts/host/sim.py) · [ab_disaster_benchmark.py](../scripts/host/ab_disaster_benchmark.py) · [train_phase2_v100.py](../scripts/host/train_phase2_v100.py) · [rl_procedural_env.py](../scripts/host/rl_procedural_env.py): Gazebo 통합 시뮬레이터, 15종 A/B 벤치마크 하네스, V100 Dual-Track RL 학습기
 
 ---
 
@@ -200,6 +219,7 @@ v = \text{clamp}(K_{p,v} \cdot d_{\text{target}}, 0.03\,\text{m/s}, v_{\max}), \
 ```
 
 - 라이다 비상 정지: 전방 $`\pm 20^\circ`$ 내 유효 거리 $`0.12\,\text{m} \le d_{\text{lidar}} \le 0.25\,\text{m}`$ 검출 시 즉시 $`v=0, \omega=0`$.
+- **Phase 2-B Layer-0 & Clearance-Gate 보완:** `_despike_lidar_ranges`($`\pm 3^\circ`$ 7-광선 창 내 유사 거리 이웃 `< 3`개인 `2.20 m` 이내 고립 스파이크 제거)로 연기 난반사를 차단하고, `compute_rl_blend_weight`로 협소 구간에서는 순수 `2D A*`로 양보하며, 곡률 보존 선속도 클램프($`v \le v_{\text{cmd}}`$)로 언더스티어를 방지한다.
 
 ### 6.4 ArUco solvePnP 정밀 도킹 수식
 - 마커 코너 3D 좌표: $`[-s/2, s/2, 0], [s/2, s/2, 0], [s/2, -s/2, 0], [-s/2, -s/2, 0]`$ ($`s = 0.10\,\text{m}`$)
@@ -214,6 +234,17 @@ v = \text{clamp}(K_{p,v} \cdot d_{\text{target}}, 0.03\,\text{m/s}, v_{\max}), \
 
 ---
 
-## 7. 결론 및 종합 평가
+## 7. 차세대 고도화 로드맵 (Phase 3 예정)
 
-본 시스템은 Host PC와 TurtleBot3 Burger 온보드 컴퓨터 간의 철저한 계층적 역할 분담 및 포섭 구조 설계를 통해, 외부 네트워크 단절이라는 가혹한 재난 환경에서도 로봇이 단독으로 생존하고 지나온 경로를 안전하게 거슬러 복귀할 수 있는 높은 수준의 신뢰성과 공학적 완성도를 확보하였다.
+> 📄 **상세 계획 및 기법 비교:** [`차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md`](./차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md) · [`알고리즘_및_강화학습_기법_단계별_변천사.md`](./알고리즘_및_강화학습_기법_단계별_변천사.md)
+
+1. **논문 기반 2D 재난 시맨틱 맵핑 (`semantic_map_node` 신설 예정):**
+   - 선행 논문(이은원·김진현, *로봇학회 논문지*, 2025)을 단안 RGB + LDS-01 2D LiDAR 환경에 맞게 변형하여, 추가 Depth 카메라 없이 조난자·저상 장애물·가스 누출·음성 구조 요청 좌표를 `/map` 위 영구 마커(`MarkerArray`)로 통합하고 2D 시맨틱 지도 이미지로 저장한다.
+2. **3채널 Semantic-Aware RL 재학습 (`688 → 976차원`, `*_semantic_v3.onnx`):**
+   - 기존 `12×12` 로컬 코스트맵을 **Ch 0(LiDAR 점유) + Ch 1(라이다 사각지대 저상 장애물) + Ch 2(가스·조난자 보호 구역)** 3채널로 확장하고, Phase 2-B Teacher 가중치를 계승하는 **Warm-Start** 및 **Modality Dropout(25~30%)** 훈련을 통해 통신 단절 시 기존 99.33% 폴백 안정성을 유지하면서 사전 회피 능력을 추가할 예정이다.
+
+---
+
+## 8. 결론 및 종합 평가
+
+본 시스템은 Host PC와 TurtleBot3 Burger 온보드 컴퓨터 간의 철저한 계층적 역할 분담 및 포섭 구조 설계를 통해, 외부 네트워크 단절이라는 가혹한 재난 환경에서도 로봇이 단독으로 생존하고 지나온 경로를 안전하게 거슬러 복귀할 수 있는 높은 수준의 신뢰성(15개 시나리오 150회 **`99.33%`**)과 공학적 완성도를 확보하였다. 향후 Phase 3 시맨틱 맵핑 및 RL 고도화를 통해 비전·가스·음성·라이다를 아우르는 차세대 재난 대응 플랫폼으로 확장할 예정이다.
