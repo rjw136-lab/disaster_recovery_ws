@@ -1,6 +1,6 @@
 # [종합 가이드북] 통신 단절 적응형 실내 재난 탐사 및 자율 복귀 터틀봇3 버거 시스템 구축 엔지니어링 리포트
 
-> **최신 업데이트 (2026-11-19):** Phase 1(`RollingLocalGrid + 2D A*`), Phase 2-A(`Clearance-Gated RL`), **Phase 2-B(`v3_dynfix` · 15대 재난 시나리오 150회 `99.33%`)** 검증 결과와 차기 **Phase 3(논문 기반 2D 시맨틱 맵핑 & 3채널 RL 재학습) 예정 계획**을 통합 반영하였다.
+> **최신 업데이트 (2026-11-20):** Phase 1(`RollingLocalGrid + 2D A*`), Phase 2-A(`Clearance-Gated RL`), **Phase 2-B(`v3_dynfix` · 15대 재난 시나리오 150회 `99.33%`)** 및 **Phase 3(논문 기반 2D 시맨틱 SLAM & 3채널 Context-RL, 150회 비퇴행 `96.00%`)** 구현·시뮬레이션 검증 결과를 통합 반영하였다.
 
 ---
 
@@ -24,7 +24,7 @@
   - [6.2 오도메트리 이산화 스택 기준](#62-오도메트리-이산화-스택-기준)
   - [6.3 Rotate-then-Translate 제어기 수식](#63-rotate-then-translate-제어기-수식)
   - [6.4 ArUco solvePnP 정밀 도킹 수식](#64-aruco-solvepnp-정밀-도킹-수식)
-- [7. 차세대 고도화 로드맵 (Phase 3 예정)](#7-차세대-고도화-로드맵-phase-3-예정)
+- [7. Phase 3 구현·검증 현황 및 잔여 과제](#7-phase-3-구현검증-현황-및-잔여-과제)
 - [8. 결론 및 종합 평가](#8-결론-및-종합-평가)
 
 <!-- TOC:END -->
@@ -83,7 +83,7 @@ flowchart TD
         AI2["Faster-Whisper STT<br/>(구조 요청 발화 분석)"]
         HB["Heartbeat Generator<br/>(10Hz /heartbeat)"]
         SLAM["Cartographer / slam_toolbox<br/>및 RViz2 관제"]
-        SEM["[Phase 3 예정] semantic_map_node<br/>(단안 RGB + /scan 퓨전 2D 마커 맵)"]
+        SEM["semantic_map_node (Phase 3)<br/>(단안 RGB + /scan 퓨전 2D 마커 맵)"]
     end
 
     subgraph Network ["로컬 사설 Wi-Fi (192.168.0.x, DOMAIN_ID=0)"]
@@ -195,18 +195,17 @@ flowchart TD
 - [setup.py](../src/disaster_recovery/setup.py): 콘솔 스크립트 엔트리포인트 및 런치/파라미터 설치 설정
 - [recovery_controller.py](../src/disaster_recovery/disaster_recovery/recovery_controller.py): 온보드 오도메트리 로거, 워치독 감시, Layer-0 `_despike_lidar_ranges`, Phase 2-B Clearance-Gated RL + 2D `A*` 블렌딩, `DYNAMIC_HOLD`, 2D ICP 스캔 매칭, LIFO 백트래킹 제어기
 - [local_grid_planner.py](../src/disaster_recovery/disaster_recovery/local_grid_planner.py): `RollingLocalGrid(0.04m)` + `2D A*` + 비파괴 위상 지름길 + Open-Ray Carving(`carve_decay=0.25`) + `ESCAPE` + `_virtual_obstacles`
-- [rl_context_policy.py](../src/disaster_recovery/disaster_recovery/rl_context_policy.py): `16스텝` 시계열 문맥 + `12×12` Ego 코스트맵(`688차원`) 기반 `ContextRLStudentPolicy` ONNX 추론 엔진 (`sim_policy_student.onnx`, `real_tb3_policy_student.onnx`)
+- [rl_context_policy.py](../src/disaster_recovery/disaster_recovery/rl_context_policy.py): `16스텝` 시계열 문맥 + `1ch(688차원)` / `3ch(976차원)` `12×12` Ego 코스트맵 기반 `ContextRLStudentPolicy` ONNX 추론 엔진 (`sim`/`real_tb3_policy_student[_semantic_v3].onnx`)
+- [semantic_mapper_core.py](../src/disaster_recovery/disaster_recovery/semantic_mapper_core.py) · [semantic_map_node.py](../src/disaster_recovery/disaster_recovery/semantic_map_node.py): 단안 RGB + LDS-01 2D LiDAR 투영 퓨전(Eq.3 보정 · 270° CCW · `+0.25 m` 전경 클러스터링) 및 Alg. 1/2 시맨틱 마커·오버레이 저장 노드
 - [td3_policy.py](../src/disaster_recovery/disaster_recovery/td3_policy.py): 28차원 상태 벡터 추출기, Residual TD3 Actor-Critic 신경망 및 ONNX Runtime 추론 엔진 (레거시 Baseline 비교용)
 - [aruco_docking.py](../src/disaster_recovery/disaster_recovery/aruco_docking.py): OpenCV solvePnP 기반 ArUco 마커 3D 포즈 추정 및 15cm 정밀 도킹 제어기
-- [host_ai_pipeline.py](../src/disaster_recovery/disaster_recovery/host_ai_pipeline.py): Host PC WSL2 GPU 가속 YOLO26n 비전(압축 영상·270° 회전·Zero-Lag 워커·15 FPS 캡) 및 Faster-Whisper 오디오 AI 파이프라인
+- [host_ai_pipeline.py](../src/disaster_recovery/disaster_recovery/host_ai_pipeline.py): Host PC WSL2 GPU 가속 YOLO26n 비전(압축 영상·270° 회전·Zero-Lag 워커·15 FPS 캡·`/detection/objects` 발행) 및 Faster-Whisper 오디오 AI 파이프라인
 - [gas_sensor_node.py](../src/disaster_recovery/disaster_recovery/gas_sensor_node.py): ADS1115(I2C)로 MQ-2 전압을 읽어 EMA·기준선 보정 후 `/gas/level` 발행
 - [ads1115_mq2.py](../src/disaster_recovery/disaster_recovery/ads1115_mq2.py): ADS1115 드라이버 및 MQ-2 계산 함수 (ROS 비의존, 단위 테스트 대상)
 - [blackbox_recorder.py](../src/disaster_recovery/disaster_recovery/blackbox_recorder.py): 통신 단절 트리거 시 로컬 MicroSD 영상 및 센서 CSV 무손실 기록 노드
 - [audio_capture_node.py](../src/disaster_recovery/disaster_recovery/audio_capture_node.py): RPi 4 AB13X USB 마이크 `arecord` 기반 48kHz PCM 캡처 → `/audio/raw` 발행 노드
-- [test_ads1115_mq2.py](../src/disaster_recovery/test/test_ads1115_mq2.py): ADS1115/MQ-2 계산 단위 테스트 (8개)
-- [test_hybrid_recovery.py](../src/disaster_recovery/test/test_hybrid_recovery.py): 2D SVD ICP, TD3, Dual-ONNX 지연, Clearance-Gate 블렌딩 단위 테스트 (7개)
-- [test_local_grid_planner.py](../src/disaster_recovery/test/test_local_grid_planner.py): `RollingLocalGrid`, `A*`, 위상 지름길, 가상 접촉 장벽 단위 테스트 (9개 · 총 `24 passed`)
-- [recovery_params.yaml](../src/disaster_recovery/config/recovery_params.yaml) · [recovery_params_real.yaml](../src/disaster_recovery/config/recovery_params_real.yaml): 시뮬레이션 및 실물 TurtleBot3 Burger(Track B) 운영 파라미터 정의
+- [test_ads1115_mq2.py](../src/disaster_recovery/test/test_ads1115_mq2.py) · [test_hybrid_recovery.py](../src/disaster_recovery/test/test_hybrid_recovery.py) · [test_local_grid_planner.py](../src/disaster_recovery/test/test_local_grid_planner.py) · [test_semantic_controller.py](../src/disaster_recovery/test/test_semantic_controller.py) · [test_semantic_mapper.py](../src/disaster_recovery/test/test_semantic_mapper.py) · [test_semantic_rl_env.py](../src/disaster_recovery/test/test_semantic_rl_env.py): 전체 단위 테스트 (8 + 9 + 9 + 4 + 17 + 8 = **총 `55 passed`**)
+- [recovery_params.yaml](../src/disaster_recovery/config/recovery_params.yaml) · [recovery_params_real.yaml](../src/disaster_recovery/config/recovery_params_real.yaml) · [semantic_map_params.yaml](../src/disaster_recovery/config/semantic_map_params.yaml): 시뮬레이션, 실물 TurtleBot3 Burger(Track B), 시맨틱 매핑 운영 파라미터 정의
 - [robot_onboard.launch.py](../src/disaster_recovery/launch/robot_onboard.launch.py) · [robot_onboard_real.launch.py](../src/disaster_recovery/launch/robot_onboard_real.launch.py): RPi 4 온보드 생존 노드 일괄 기동 런치
 - [disaster_cartographer.rviz](../src/disaster_recovery/config/disaster_cartographer.rviz) · [disaster_station.rviz](../src/disaster_recovery/config/disaster_station.rviz): RViz2 SLAM(`RobotModel` + `/map` Volatile) 및 AI 관제 레이아웃
 - [host_station.launch.py](../src/disaster_recovery/launch/host_station.launch.py) · [disaster_world.launch.py](../src/disaster_recovery/launch/disaster_world.launch.py): Host PC AI·워치독 런치 및 다중 재난 Gazebo 월드 런치
@@ -261,17 +260,18 @@ v = \text{clamp}(K_{p,v} \cdot d_{\text{target}}, 0.03\,\text{m/s}, v_{\max}), \
 
 ---
 
-## 7. 차세대 고도화 로드맵 (Phase 3 예정)
+## 7. Phase 3 구현·검증 현황 및 잔여 과제
 
-> 📄 **상세 계획 및 기법 비교:** [`차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md`](./차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md) · [`알고리즘_및_강화학습_기법_단계별_변천사.md`](./알고리즘_및_강화학습_기법_단계별_변천사.md)
+> 📄 **상세 보고서 및 기법 비교:** [`차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md`](./차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md) · [`알고리즘_및_강화학습_기법_단계별_변천사.md`](./알고리즘_및_강화학습_기법_단계별_변천사.md)
 
-1. **논문 기반 2D 재난 시맨틱 맵핑 (`semantic_map_node` 신설 예정):**
-   - 선행 논문(이은원·김진현, *로봇학회 논문지*, 2025)을 단안 RGB + LDS-01 2D LiDAR 환경에 맞게 변형하여, 추가 Depth 카메라 없이 조난자·저상 장애물·가스 누출·음성 구조 요청 좌표를 `/map` 위 영구 마커(`MarkerArray`)로 통합하고 2D 시맨틱 지도 이미지로 저장한다.
-2. **3채널 Semantic-Aware RL 재학습 (`688 → 976차원`, `*_semantic_v3.onnx`):**
-   - 기존 `12×12` 로컬 코스트맵을 **Ch 0(LiDAR 점유) + Ch 1(라이다 사각지대 저상 장애물) + Ch 2(가스·조난자 보호 구역)** 3채널로 확장하고, Phase 2-B Teacher 가중치를 계승하는 **Warm-Start** 및 **Modality Dropout(25~30%)** 훈련을 통해 통신 단절 시 기존 99.33% 폴백 안정성을 유지하면서 사전 회피 능력을 추가할 예정이다.
+1. **논문 기반 2D 재난 시맨틱 맵핑 (`semantic_mapper_core.py`, `semantic_map_node.py` 구현 완료):**
+   - 선행 논문(이은원·김진현, *로봇학회 논문지*, 2025)을 단안 RGB + LDS-01 2D LiDAR 환경에 맞게 변형(수식 3 Y 오타 정정 · 270° CCW 역변환 · `+0.25 m` 전경 클러스터링)하여, 추가 Depth 카메라 없이 조난자·저상 장애물·가스 누출·음성 구조 요청 좌표를 `/map` 위 영구 마커(`MarkerArray`)로 통합하고 4종 아티팩트로 저장한다.
+2. **3채널 Semantic-Aware RL 재학습 (`688 → 976차원`, `*_semantic_v3.onnx` 검증 완료):**
+   - `12×12` 로컬 코스트맵을 **Ch 0(LiDAR 점유) + Ch 1(라이다 사각지대 저상 장애물, `z < 0.171 m`) + Ch 2(가스 반경 `0.55 m` · 조난자 보호 구역)** 3채널로 확장하고, Warm-Start 및 Modality Dropout(`28%`) 훈련으로 120개 Unseen Holdout `99.2%`, 15종 150회 비퇴행 `144/150 (96.00%)`, Gazebo A/B 저상 장애물 충돌 0회(`0.3799 m` 마진)·가스 중심 이격 `2.97×` 확대(`0.2577 m`)를 확인했다.
+3. **잔여 과제:** 가스 위험 반경(`0.55 m`) 외곽 완전 이탈을 위한 Ch2 페널티 튜닝(`gas_hazard_free_rate = 46.7%`), 실물 RPi 4 Track B 필드 주행·추론 지연 실측, MQ-2+ADS1115 PCB 납땜 결선.
 
 ---
 
 ## 8. 결론 및 종합 평가
 
-본 시스템은 Host PC와 TurtleBot3 Burger 온보드 컴퓨터 간의 철저한 계층적 역할 분담 및 포섭 구조 설계를 통해, 외부 네트워크 단절이라는 가혹한 재난 환경에서도 로봇이 단독으로 생존하고 지나온 경로를 안전하게 거슬러 복귀할 수 있는 높은 수준의 신뢰성(15개 시나리오 150회 **`99.33%`**)과 공학적 완성도를 확보하였다. 향후 Phase 3 시맨틱 맵핑 및 RL 고도화를 통해 비전·가스·음성·라이다를 아우르는 차세대 재난 대응 플랫폼으로 확장할 예정이다.
+본 시스템은 Host PC와 TurtleBot3 Burger 온보드 컴퓨터 간의 철저한 계층적 역할 분담 및 포섭 구조 설계를 통해, 외부 네트워크 단절이라는 가혹한 재난 환경에서도 로봇이 단독으로 생존하고 지나온 경로를 안전하게 거슬러 복귀할 수 있는 높은 신뢰성(Phase 2-B 150회 **`99.33%`**, Phase 3 3채널 시맨틱 RL 150회 비퇴행 **`96.00%`**)과 공학적 완성도를 확보하였다. 향후 실물 TurtleBot3 필드 실증과 MQ-2 하드웨어 결선, 가스 회피 가중치 튜닝을 마무리해 현장 투입 완성도를 높일 예정이다.

@@ -30,8 +30,8 @@
 1. **카메라 AI의 결과가 지도에 남지 않는다**
    - 기존 `host_ai_pipeline.py`는 조난자(`person`)를 찾으면 화면에 네모 박스를 띄우고 경고 문자열만 보냈다.
    - 관제자가 **"그래서 조난자나 위험물이 지도상 정확히 어느 방, 몇 m 지점에 있는지"** 지도(`/map`) 위에서 한눈에 볼 수 없었다.
-2. **라이다 높이(약 12 cm) 아래 장애물은 부딪혀 봐야 안다**
-   - TurtleBot3 Burger의 2D 라이다(LDS-01)는 바닥에서 약 12 cm 높이만 수평으로 훑는다.
+2. **라이다 높이(약 17 cm, `z = 0.171 m`) 아래 장애물은 부딪혀 봐야 안다**
+   - TurtleBot3 Burger의 2D 라이다(LDS-01)는 바닥에서 약 17 cm(`0.171 m`) 높이만 수평으로 훑는다.
    - 그보다 낮은 잔해나 바닥 파이프·벽돌은 라이다에 안 찍히기 때문에, 기존에는 **일단 부딪혀서 멈춘 뒤("어? 안 나가네?") 뒤로 빠져나오는 방식**으로 대처해야 했다.
 3. **가스 위험 구역이나 조난자 주변을 미리 돌아가지 못한다**
    - 물리적인 벽이 아닌 "가스 누출 지점"이나 "조난자 바로 앞"은 라이다로 막혀 보이지 않으므로, 강화학습 제어기가 알아서 조심스럽게 비켜 갈 근거가 없었다.
@@ -101,20 +101,20 @@ Phase 3에서는 같은 해상도의 미니 지도를 **3장(3채널: 432셀 + 5
 | 미니 지도 | 담기는 정보 | 로봇이 학습한 실제 회피 행동 |
 | :---: | :--- | :--- |
 | **Ch 0** *(기존)* | **2D 라이다 벽·기둥 점유** | 벽, 붕괴 기둥, 이동 낙석 충돌 방지 |
-| **Ch 1** *(신규)* | **라이다에 안 보이는 낮은 장애물** | 부딪히기 전에 미리 $0.38\,\text{m}$ 안전 마진을 두고 부드럽게 우회 |
-| **Ch 2** *(신규)* | **가스 위험 구역 · 조난자 보호 구역** | 유해 가스 누출 중심점 및 조난자 전방을 약 3배 거리($0.258\,\text{m}$)로 크게 우회 |
+| **Ch 1** *(신규)* | **라이다에 안 보이는 낮은 장애물** | 부딪히기 전에 미리 `0.380 m` 안전 마진을 두고 회피 (`low_obstacle_collision: False`) |
+| **Ch 2** *(신규)* | **가스 위험 구역(`0.55 m`) · 조난자 보호 구역** | 유해 가스 중심점 이격을 Blind 대비 `2.97×`(`0.087 m → 0.258 m`) 확대 *(단, `0.55 m` 외곽 완전 이탈은 후속 튜닝 과제)* |
 
 ### 4.2 적용된 핵심 안전장치 3가지 & 검증 성과
 
 1. **통신이 끊겼을 때도 100% 작동해야 한다 (`modality_dropout_prob = 0.28`, 28% Dropout)**
    - 재난 현장에서 통신이 끊기면 Host PC가 새 마커를 보내줄 수 없다.
    - 통신이 끊기기 직전까지 받은 마커는 온보드 제어기 메모리([`recovery_controller.py`](../src/disaster_recovery/disaster_recovery/recovery_controller.py), `SemanticObjectCache`)에 저장해 두고 계속 쓰되, **학습 중 28% 확률로 Ch 1·2를 강제로 0으로 마스킹**하여 훈련했다.
-   - 그 결과, 시맨틱 입력이 완전히 두절된 극한 조건에서도 **Fallback 성공률 `99.2%`**를 기록하여 기존 Phase 2-B 성능을 온전히 유지했다.
+   - 그 결과, 시맨틱 입력이 완전히 두절된 조건에서도 120개 Unseen Holdout 기준 **Dropout Fallback 성공률 `99.2%`**를 기록했다.
 2. **가짜 정보(오탐)·위치 오차 노이즈 주입 훈련**
    - 시뮬레이터 훈련 단계에서 마커 위치에 $\pm 0.15\,\text{m}$ 가우시안 노이즈, 등록 지연, 미탐지, 가짜 마커를 무작위 주입하여 위치 오차에 흔들리지 않는 견고한 궤적을 학습시켰다.
 3. **Teacher Warm-Start 전이 학습 & ONNX 분리 증류**
    - Phase 2-B 최적 체크포인트로부터 Teacher 모델 가중치를 초기화하고 Ch 1·2 연결 가중치만 점진적으로 적응시키는 Warm-Start 기법을 적용했다.
-   - 기존 모델 파일은 그대로 보존하고 **`sim_policy_student_semantic_v3.onnx`** 및 **`real_tb3_policy_student_semantic_v3.onnx`** (`289.2 KB`, 단일 스레드 CPU 추론 지연 `0.086~0.087 ms`)로 안전하게 분리 증류했다.
+   - 기존 모델 파일은 그대로 보존하고 **`sim_policy_student_semantic_v3.onnx`** 및 **`real_tb3_policy_student_semantic_v3.onnx`** (`289.2 KB`, x86 단일 스레드 CPU 추론 평균 `0.086~0.087 ms`)로 안전하게 분리 증류했다.
 
 ---
 
@@ -124,16 +124,18 @@ Phase 3에서는 같은 해상도의 미니 지도를 **3장(3채널: 432셀 + 5
 | :---: | :--- | :--- | :---: |
 | **1단계**<br>시맨틱 SLAM 코어 & 노드 | • 카메라 박스 + 라이다 거리 결합 로직 작성<br>• 논문 Alg. 1/2 마커 승격 및 2D 오버레이 지도 저장 구현<br>• Gazebo RViz2 마커 표출 | • `semantic_mapper_core.py` & `semantic_map_node.py` 구현<br>• `test_semantic_mapper.py` **17/17 PASS**<br>• `/semantic_map/save_map`으로 4종 아티팩트(`raw_map.png/yaml`, `semantic_objects.json`, `semantic_map_overlay.png`) 저장 확인 | ✅ 완료 |
 | **2단계**<br>RL 3채널 환경 확장 | • `rl_procedural_env.py` 3채널 코스트맵 확장<br>• 저상 장애물 밭, 가스·조난자 복도 시나리오 추가<br>• Modality Dropout(28%) 및 시맨틱 노이즈 주입 | • 976차원 관측 공간 구성 완료<br>• `test_semantic_rl_env.py` **8/8 PASS**<br>• 256 병렬 환경 무오류·무결측(zero-NaN) 검증 완료 | ✅ 완료 |
-| **3단계**<br>V100 대규모 재학습 & ONNX | • Phase 2-B Teacher 기반 Warm-Start 재학습<br>• RPi 4용 초경량 3채널 ONNX 모델 증류 | • 120개 Unseen Holdout 시드 전수 평가: **Unseen SR `99.2%`**<br>• Base-6 SR `98.9%`, Dropout Fallback SR `99.2%`<br>• Semantic-2 SR `100.0%`, Low-Obstacle Contact-Free `100.0%`<br>• 모델 크기 `289.2 KB`, CPU 추론 지연 **`0.086 ms`** | ✅ 완료 |
-| **4단계**<br>제어기 통합 & Gazebo 검증 | • `recovery_controller.py`에 `SemanticObjectCache` 및 `use_semantic_rl_policy` 연동<br>• Gazebo A/B 결정론적 회피 시험<br>• 15대 재난 시나리오 150회 비퇴행 벤치마크 | • `test_semantic_controller.py` **4/4 PASS** (전체 테스트 55/55 PASS)<br>• Gazebo A/B: Blind 충돌(0.248m 충돌, FAIL) 대비 **0% 충돌(`0.380 m` 마진 확보) & 가스 3배 우회(`0.258 m`) PASS**<br>• 15대 150회 벤치마크: **`144/150 (96.00%)`** 완주 | ✅ 완료 |
+| **3단계**<br>V100 대규모 재학습 & ONNX | • Phase 2-B Teacher 기반 Warm-Start 재학습<br>• RPi 4용 초경량 3채널 ONNX 모델 증류 | • 120개 Unseen Holdout 시드 전수 평가: **Unseen SR `99.2%`**<br>• Base-6 SR `98.9%`, Dropout Fallback SR `99.2%`<br>• Semantic-2 SR `100.0%`, Low-Obstacle Contact-Free `100.0%`, Gas Hazard-Free `46.7%`<br>• 모델 크기 `289.2 KB`, x86 단일 스레드 CPU 추론 **`0.086~0.087 ms`** | ✅ 완료 |
+| **4단계**<br>제어기 통합 & Gazebo 검증 | • `recovery_controller.py`에 `SemanticObjectCache` 및 `use_semantic_rl_policy` 연동<br>• Gazebo A/B 결정론적 회피 시험<br>• 15대 재난 시나리오 150회 비퇴행 벤치마크 | • `test_semantic_controller.py` **4/4 PASS** (전체 테스트 55/55 PASS)<br>• Gazebo A/B: Blind(`0.2485 m` 충돌, 가스 중심 `0.0869 m`, FAIL) 대비 **저상 충돌 0회(`0.3799 m` 마진) & 가스 중심 이격 `2.97×`(`0.2577 m`, `gas_zone_violated: True`) PASS**<br>• 15대 150회 벤치마크: **`144/150 (96.00%)`** (성공 평균 `100.67 s`, 전체 평균 `107.06 s`) | ✅ 완료 |
 
-### 5.1 향후 잔여 과제: 실물 TurtleBot3 캘리브레이션 및 필드 실증
+### 5.1 향후 잔여 과제: 실물 TurtleBot3 캘리브레이션, 가스 회피 튜닝 및 필드 실증
 
-시뮬레이션(Gazebo) 및 V100 GPU 가상 학습은 전수 완료되었으며, 저장소에 남은 최종 잔여 단계는 다음과 같다:
+시뮬레이션(Gazebo) 및 V100 GPU 가상 학습은 완료되었으며, 남은 최종 잔여 과제는 다음과 같다:
 
-1. **실물 휠 오도메트리 전용 모델 필드 주행**:
-   - 실물 로봇의 휠 미끄러짐과 바닥 마찰 특성이 사전 학습된 Track B 모델([`real_tb3_policy_student_semantic_v3.onnx`](../src/disaster_recovery/config/real_tb3_policy_student_semantic_v3.onnx))을 Raspberry Pi 4 온보드에 탑재하고 실내 장애물 환경에서 자율 복귀 주행을 실증한다.
-2. **실물 MQ-2 가스 센서 + ADS1115 PCB 하드웨어 결선**:
+1. **실물 휠 오도메트리 전용 모델 필드 주행 및 RPi 4 추론 지연 실측**:
+   - 실물 로봇의 휠 미끄러짐과 바닥 마찰 특성이 사전 학습된 Track B 모델([`real_tb3_policy_student_semantic_v3.onnx`](../src/disaster_recovery/config/real_tb3_policy_student_semantic_v3.onnx))을 Raspberry Pi 4 온보드에 탑재해 추론 지연 실측 및 실내 장애물 자율 복귀 주행을 검증한다.
+2. **가스 위험 구역 외곽 완전 이탈 튜닝**:
+   - 현재 Holdout `gas_hazard_free_rate = 46.7%`, Gazebo A/B `gas_zone_violated: True`로 확인된 가스 반경(`0.55 m`) 경계 진입을 줄이기 위해 Ch2 페널티 가중치 및 위험 반경 보상을 보완한다.
+3. **실물 MQ-2 가스 센서 + ADS1115 PCB 하드웨어 결선**:
    - 설계 완료된 $10\,\text{k}\Omega : 20\,\text{k}\Omega$ 분압 회로를 만능기판(PCB)에 납땜하고, 실제 가스 누출 시 온보드 `/gas/level` 경보 및 비상 복귀 진입을 최종 점검한다.
 
 ---
@@ -142,10 +144,10 @@ Phase 3에서는 같은 해상도의 미니 지도를 **3장(3채널: 432셀 + 5
 
 1. **카메라 회전 방향 정합 (270° CCW 역변환)**:
    - 실물 TurtleBot3 카메라는 케이블 간섭을 피하기 위해 90° 시계방향으로 누워 장착되어 있다.
-   - 단안-라이다 투영 퓨전 시 `unrotate_point` 및 `unrotate_bbox_xyxy`를 적용하여 270° 반시계방향 역변환을 완벽히 수행함으로써 좌표 좌우 반전 오차를 원천 차단했다.
+   - 단안-라이다 투영 퓨전 시 `unrotate_point` 및 `unrotate_bbox_xyxy`를 적용하여 270° 반시계방향 역변환을 수행함으로써 좌표 좌우 반전 오차를 차단했다.
 2. **원거리 배경 벽면 오인 차단 (+0.25m 전경 클러스터링)**:
    - 2D LiDAR 수평 광선이 열린 공간을 지나 후방 벽면에 부딪힐 때, 박스 중심 영역에 벽면 광선이 투영되어 물체 거리가 수 미터로 튀는 현상을 방지했다.
    - 최소 깊이 기준 $+0.25\,\text{m}$ 이내의 전경 포인트 중앙값만 유효 깊이로 수용하도록 필터링했다.
 3. **온보드 연산 부하 분리 및 통신 단절 내구성**:
    - 시맨틱 맵핑 및 YOLO AI 연산은 전적으로 Host PC에서 처리된다.
-   - Raspberry Pi 4 온보드는 가벼운 3채널 ONNX 모델(`0.086 ms`)과 좌표 캐시만 소비하므로, 통신이 단절되더라도 로봇의 생존 자율 복귀 루프는 단 1 ms의 지연 없이 완벽하게 독립 동작한다.
+   - Raspberry Pi 4 온보드는 경량 3채널 ONNX 모델(`289.2 KB`, x86 CPU 기준 `0.086~0.087 ms`)과 로컬 좌표 캐시만 소비하므로, 통신이 단절되더라도 로봇의 자율 복귀 루프는 외부 의존 없이 독립 동작한다.
