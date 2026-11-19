@@ -112,23 +112,23 @@
 
 > 처음 보는 경우 **① 설계 → ② 알고리즘·결과 → ③ 차세대 계획** 순서로 읽는 것을 권장한다.
 
-| 분류 | 문서 | 설명 |
-| :---: | :--- | :--- |
-| **① 설계** | [DISASTER_RECOVERY_GUIDEBOOK](docs/DISASTER_RECOVERY_GUIDEBOOK.md) | 종합 설계 문서 (전체 구조 및 동작 원리) |
-| **① 설계** | [Integration_Report](docs/Disaster_Recovery_TurtleBot3_Integration_Report.md) | 통합 구축 보고서 ([docx](docs/Disaster_Recovery_TurtleBot3_Integration_Report.docx) 동일본) |
-| **② 알고리즘** | [알고리즘_및_강화학습_기법_단계별_변천사](docs/알고리즘_및_강화학습_기법_단계별_변천사.md) | Baseline → Phase 1 → 2-A → 2-B → Phase 3 알고리즘·RL 기법 총정리 |
-| **② 알고리즘** | [재난환경_자율복귀_알고리즘_원리_해설_및_보고서](docs/재난환경_자율복귀_알고리즘_원리_해설_및_보고서.md) | 원리 해설 및 5대·15대 A/B 150회 `99.33%` 벤치마크 보고서 |
-| **② 알고리즘** | [2D_라이다_스캔매칭_및_자율복귀_보고서](docs/2D_라이다_스캔매칭_및_자율복귀_보고서.md) | 2D 라이다 ICP 스캔 매칭 및 Layer-0 필터 설계 보고서 |
-| **③ 차세대** | [차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획](docs/차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md) | 논문 기반 2D 시맨틱 맵핑 & Phase 3 강화학습 재학습 계획서 (적용 예정) |
-| **④ 운용** | [WSL_NETWORK_SETUP](docs/WSL_NETWORK_SETUP.md) | 미러드 네트워킹, ROS 2, CUDA 설정 |
-| **④ 운용** | [CIRCUIT_AND_CALIBRATION](docs/CIRCUIT_AND_CALIBRATION.md) | MQ-2 분압 회로 및 카메라 캘리브레이션 |
-| **④ 운용** | [TURTLEBOT3_ARUCO_GUIDE](docs/TURTLEBOT3_ARUCO_GUIDE.md) | ArUco 마커 생성 및 도킹 가이드 |
-| **④ 운용** | [FIELD_TEST_CHECKLIST](docs/FIELD_TEST_CHECKLIST.md) | 실행 순서 및 검증 체크리스트 |
-| **⑤ 이력** | [CHANGELOG](CHANGELOG.md) | 초기 업로드(`2026-11-05`)부터 최신까지 전체 누적 패치노트 |
-| **⑤ 이력** | [트러블슈팅_총정리](docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md) | 트러블슈팅 백서 (`#01` ~ `#41` 전수 통합) |
-| **⑤ 이력** | [서버이관_체크포인트](docs/2026-11-14_중간상황_및_서버이관_체크포인트.md) | 중간 상황 및 서버 이관 체크포인트 (`2026-11-14`) |
-| **⑤ 이력** | [붕괴건물_15회_벤치마크_분석보고서](docs/붕괴건물_15회_자율복귀_벤치마크_분석보고서.md) | 초기 제어기 15회 실패 원인 진단 기록 (아카이브 · `2026-11-13`) |
-| **⑥ 특허** | [PATENT_ANALYSIS_AND_PRIOR_ART](docs/PATENT_ANALYSIS_AND_PRIOR_ART.md) | 선행 특허·진보성 분석 보고서 (v3.0) |
+| 분류 | 문서 | 내용 |
+| :--- | :--- | :--- |
+| **① 설계** | [종합 설계 가이드북](docs/DISASTER_RECOVERY_GUIDEBOOK.md) | 전체 구조 · 동작 원리 · 상태 머신 |
+| | [통합 구축 보고서](docs/Disaster_Recovery_TurtleBot3_Integration_Report.md) ([docx](docs/Disaster_Recovery_TurtleBot3_Integration_Report.docx)) | YOLO26n · 오디오 · ArUco 연동 구축 내역 |
+| **② 알고리즘·결과** | [단계별 알고리즘·RL 변천사](docs/알고리즘_및_강화학습_기법_단계별_변천사.md) | Baseline → Phase 3 기법 총정리 |
+| | [자율복귀 원리 해설·벤치마크](docs/재난환경_자율복귀_알고리즘_원리_해설_및_보고서.md) | 15종 150회 A/B 결과 (`99.33%`) |
+| | [2D 라이다 스캔매칭 보고서](docs/2D_라이다_스캔매칭_및_자율복귀_보고서.md) | ICP 오차 보정 · Layer-0 필터 |
+| **③ 차세대** | [시맨틱 SLAM·RL 재학습 계획](docs/차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md) | 논문 기반 Phase 3 계획 (적용 예정) |
+| **④ 설치·운용** | [WSL 네트워크 설정](docs/WSL_NETWORK_SETUP.md) | 미러드 네트워킹 · ROS 2 · CUDA |
+| | [회로·카메라 캘리브레이션](docs/CIRCUIT_AND_CALIBRATION.md) | MQ-2 분압 회로 · 카메라 보정 |
+| | [ArUco 도킹 가이드](docs/TURTLEBOT3_ARUCO_GUIDE.md) | 마커 생성 · 도킹 절차 |
+| | [필드 테스트 체크리스트](docs/FIELD_TEST_CHECKLIST.md) | 실행 순서 · 검증 항목 |
+| **⑤ 이력·아카이브** | [변경 이력 (CHANGELOG)](CHANGELOG.md) | 2026-11-05 ~ 최신 누적 패치노트 |
+| | [트러블슈팅 총정리](docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md) | `#01` ~ `#41` 시도 내역 통합 |
+| | [서버 이관 체크포인트](docs/2026-11-14_중간상황_및_서버이관_체크포인트.md) | 2026-11-14 중간 점검 기록 |
+| | [붕괴건물 15회 분석 (초기)](docs/붕괴건물_15회_자율복귀_벤치마크_분석보고서.md) | 2026-11-13 초기 실패 원인 진단 |
+| **⑥ 지식재산권** | [선행 특허 분석](docs/PATENT_ANALYSIS_AND_PRIOR_ART.md) | 선행 특허 · 진보성 분석 (v3.0) |
 
 ---
 
