@@ -134,7 +134,7 @@ PANELS: List[Tuple[str, str, int, str, Tuple[float, float, float, float]]] = [
 
 
 def _load_stage_trials(sc: str) -> Dict[str, dict]:
-    """Load the 4 benchmark stage JSON records (baseline, p1, p2a, p2b) for scenario sc."""
+    """Load the 5 benchmark stage JSON records (baseline, p1, p2a, p2b, p3) for scenario sc."""
     basic5 = {"collapsed", "collapsed_heavy", "tunnel", "house", "maze"}
     new2 = {"dynamic_crossfire_alley", "smoke_lidar_corruption"}
     if sc in basic5:
@@ -146,25 +146,22 @@ def _load_stage_trials(sc: str) -> Dict[str, dict]:
     else:
         p_b_p1 = os.path.join(HDD_ROOT, "bench_hard8_10trials", "phase1", f"ab_{sc}_10trials.json")
         p_p2a = os.path.join(HDD_ROOT, "bench_hard8_10trials", "phase2a", f"ab_{sc}_10trials.json")
-    p_p2b = os.path.join(HDD_ROOT, "bench_phase2b_v3_dynfix", f"ab_{sc}_10trials.json")
+    p_p2b = os.path.join(BM_ROOT, "phase2b_strict", f"ab_{sc}_10trials.json")
+    p_p3 = os.path.join(BM_ROOT, "phase3_semantic_v3", f"ab_{sc}_10trials.json")
 
     j_bp1 = json.load(open(p_b_p1, "r", encoding="utf-8"))
     j_p2a = json.load(open(p_p2a, "r", encoding="utf-8"))
     j_p2b = json.load(open(p_p2b, "r", encoding="utf-8"))
+    j_p3 = json.load(open(p_p3, "r", encoding="utf-8"))
     p2b_trials = j_p2b["proposed"]["trials"]
-
-    if sc == "dynamic_gauntlet":
-        sc_trace_path = os.path.join(WS_ROOT, "docs", "data", "dynamic_gauntlet_shortcut_traces.json")
-        if os.path.isfile(sc_trace_path):
-            sc_data = json.load(open(sc_trace_path, "r", encoding="utf-8"))
-            sc_by_trial = {int(r["trial"]): r for r in sc_data.get("trials", [])}
-            p2b_trials = [sc_by_trial.get(int(r.get("trial", -1)), r) for r in p2b_trials]
+    p3_trials = j_p3["proposed"]["trials"]
 
     return {
         "bas": j_bp1["baseline"]["trials"],
         "p1": j_bp1["proposed"]["trials"],
         "p2a": j_p2a["proposed"]["trials"],
         "p2b": p2b_trials,
+        "p3": p3_trials,
     }
 
 
@@ -222,12 +219,14 @@ def main() -> int:
             "phase1": _select_trial(stages["p1"], t_idx, sc, "phase1"),
             "phase2a": _select_trial(stages["p2a"], t_idx, sc, "phase2a"),
             "phase2b": _select_trial(stages["p2b"], t_idx, sc, "phase2b"),
+            "phase3": _select_trial(stages["p3"], t_idx, sc, "phase3"),
         }
         _validate_stage_identity(sc, t_idx, selected)
         r_bas = selected["baseline"]
         r_p1 = selected["phase1"]
         r_p2a = selected["phase2a"]
         r_p2b = selected["phase2b"]
+        r_p3 = selected["phase3"]
 
         gauntlet_trials = {}
         if sc == "dynamic_gauntlet":
@@ -237,6 +236,7 @@ def main() -> int:
                     "phase1": _select_trial(stages["p1"], trial_num, sc, "phase1"),
                     "phase2a": _select_trial(stages["p2a"], trial_num, sc, "phase2a"),
                     "phase2b": _select_trial(stages["p2b"], trial_num, sc, "phase2b"),
+                    "phase3": _select_trial(stages["p3"], trial_num, sc, "phase3"),
                 }
                 _validate_stage_identity(sc, trial_num, records)
                 gauntlet_trials[trial_num] = records
@@ -326,7 +326,8 @@ def main() -> int:
                 "baseline": "#dc2626",
                 "phase1": "#2563eb",
                 "phase2a": "#ea580c",
-                "phase2b": "#16a34a",
+                "phase2b": "#0891b2",
+                "phase3": "#16a34a",
             }
             trial_styles = {
                 1: {"outbound": ":", "return": "-", "debris": "o", "turnoff": "X"},
@@ -394,10 +395,11 @@ def main() -> int:
                 )
 
             for rec, col, ls, lw, zo in (
-                (r_bas, "#dc2626", ":", 1.35, 5),
-                (r_p1, "#2563eb", "-.", 1.50, 6),
-                (r_p2a, "#ea580c", "--", 1.50, 7),
-                (r_p2b, "#16a34a", "-", 2.35, 8),
+                (r_bas, "#dc2626", ":", 1.30, 5),
+                (r_p1, "#2563eb", "-.", 1.45, 6),
+                (r_p2a, "#ea580c", "--", 1.45, 7),
+                (r_p2b, "#0891b2", "-", 1.90, 8),
+                (r_p3, "#16a34a", "-", 2.35, 9),
             ):
                 r_pts = np.array(rec.get("return_path", []), dtype=float)
                 if len(r_pts) >= 2:
@@ -428,6 +430,7 @@ def main() -> int:
                         ("P1", "phase1"),
                         ("P2A", "phase2a"),
                         ("P2B", "phase2b"),
+                        ("P3", "phase3"),
                     )
                 )
                 status_lines.append(f"T{trial_num} [{status}]")
@@ -444,7 +447,8 @@ def main() -> int:
                 f"[{geometry_tag}BAS:{'O' if r_bas['success'] else 'X'} | "
                 f"P1:{'O' if r_p1['success'] else 'X'} | "
                 f"P2A:{'O' if r_p2a['success'] else 'X'} | "
-                f"P2B:{'O' if r_p2b['success'] else 'X'}]"
+                f"P2B:{'O' if r_p2b['success'] else 'X'} | "
+                f"P3:{'O' if r_p3['success'] else 'X'}]"
             )
             panel_title = title_base
 
@@ -461,7 +465,8 @@ def main() -> int:
         mlines.Line2D([], [], color="#dc2626", ls=":", lw=1.6, label="Baseline"),
         mlines.Line2D([], [], color="#2563eb", ls="-.", lw=1.6, label="Phase 1"),
         mlines.Line2D([], [], color="#ea580c", ls="--", lw=1.6, label="Phase 2-A"),
-        mlines.Line2D([], [], color="#16a34a", ls="-", lw=2.5, label="Phase 2-B"),
+        mlines.Line2D([], [], color="#0891b2", ls="-", lw=2.0, label="Phase 2-B"),
+        mlines.Line2D([], [], color="#16a34a", ls="-", lw=2.5, label="Phase 3"),
         mlines.Line2D([], [], color="#64748b", ls=":", lw=1.5, label="T1 Outbound"),
         mlines.Line2D([], [], color="#64748b", ls="-", lw=1.5, label="T1 Return"),
         mlines.Line2D([], [], color="#64748b", ls="-.", lw=1.5, label="T2 Outbound"),
@@ -483,7 +488,7 @@ def main() -> int:
         edgecolor="#cbd5e1",
     )
     fig.suptitle(
-        "15 Disaster Scenarios: 2D Architectural Walls, Outbound Routes, Debris & 4-Stage Return Trajectories",
+        "15 Disaster Scenarios: 2D Architectural Walls, Outbound Routes, Debris & 5-Stage Return Trajectories",
         fontsize=14.5,
         fontweight="bold",
         y=0.988,

@@ -39,7 +39,7 @@
 **성능 검증 & 고도화**
 
 5. [5단계 알고리즘 동일 맵 종합 비교 (Baseline → Phase 3)](#5단계-알고리즘-동일-맵-종합-비교-baseline--phase-3)
-   - [1. 5개 알고리즘 차이점 · 장점 · 단점 비교표](#1-5개-알고리즘-차이점--장점--단점-비교표) · [2. Semantic Rescue 5-Way [GIF] & RViz2 좌표 [PNG]](#2-semantic-rescue-5-way-gif--rviz2-좌표-png) · [3. 극한 3대 시나리오 5-Way [GIF] & 15종 아카이브](#3-극한-3대-시나리오-5-way-gif--15종-아카이브)
+   - [1. 5개 알고리즘 차이점 · 장점 · 단점 비교표](#1-5개-알고리즘-차이점--장점--단점-비교표) · [2. Semantic Rescue 5-Way [GIF] & RViz2 좌표 [PNG]](#2-semantic-rescue-5-way-gif--rviz2-좌표-png) · [3. 극한 3대 시나리오 5-Way [GIF] & 15종 맵 아틀라스 ([PNG])](#3-극한-3대-시나리오-5-way-gif--15종-맵-아틀라스-png)
 6. [Phase 3: 2D 시맨틱 SLAM · 3채널 Context-RL · 통신 단절 아키텍처](#phase-3-2d-시맨틱-slam--3채널-context-rl--통신-단절-아키텍처)
    - [1. 단안 RGB-2D LiDAR 투영 퓨전 & 3패널 E2E [GIF]](#1-단안-rgb-2d-lidar-투영-퓨전--3패널-e2e-gif)
    - [2. 통신 연결 ↔ 단절 시 시맨틱(조난자) 인지 원리 및 한계](#2-통신-연결--단절-시-시맨틱조난자-인지-원리-및-한계)
@@ -302,7 +302,7 @@ flowchart TD
   <img src="docs/images/evidence/comp5_semantic_rviz_coords.png" width="84%" alt="[PNG] RViz2 and YOLO26n Stamped Semantic Map Coordinates">
 </p>
 
-### 3. 극한 3대 시나리오 5-Way `[GIF]` & 15종 아카이브
+### 3. 극한 3대 시나리오 5-Way `[GIF]` & 15종 맵 아틀라스 (`[PNG]`)
 
 동일 시드(Seed) 조건에서 **연막 LiDAR 오염(`#15`)**, **교차 이동 기둥(`#14`)**, **U자 함정(`#11`)** 에 대해 5개 알고리즘이 각각 어떻게 대처하는지 풀-와이드 `[GIF]`로 비교한다.
 
@@ -321,20 +321,18 @@ flowchart TD
   <img src="docs/images/evidence/comp5_u_pocket_trap.gif" width="100%" alt="[GIF] 5-Way u_pocket_trap">
 </p>
 
-<details>
-<summary><strong>[GIF] · [PNG] 15대 시나리오 맵 · 3D 주행 · Phase 2-B 학습곡선 아카이브 펼쳐보기</strong></summary>
+#### `[PNG]` 15대 시나리오 3D Gazebo 맵 & 5-Stage 2D 궤적 아틀라스 (Atlas)
 
-#### `[GIF]` 3D Gazebo Dual-View (Phase 2-B)
-
-| `[GIF]` `#14 dynamic_crossfire_alley` 3D Dual-View | `[GIF]` `#15 smoke_lidar_corruption` 3D Dual-View |
+| `[PNG]` 15대 재난 시나리오 3D Gazebo 월드 (9개 고유 맵) | `[PNG]` 15대 시나리오 2D 구조 단면 · 5-Stage(`BAS~P3`) 궤적 아틀라스 |
 | :---: | :---: |
-| <img src="docs/images/evidence/p2b_dynamic_crossfire_alley.gif" width="100%" alt="[GIF] 3D dynamic_crossfire_alley"> | <img src="docs/images/evidence/p2b_smoke_lidar_corruption.gif" width="100%" alt="[GIF] 3D smoke_lidar_corruption"> |
+| <img src="docs/images/scenario_worlds_15_3d.png" width="100%" alt="[PNG] 15 Disaster Scenarios 3D"> | <img src="docs/images/scenario_routes_15_atlas.png" width="100%" alt="[PNG] 15 Disaster Scenarios 2D Routes Atlas"> |
 
-#### `[PNG]` 15대 시나리오 구조 지도 & Phase 2-B 학습 곡선
+<details>
+<summary><strong>[GIF] · [PNG] Phase 2-B 3D Dual-View 영상 및 초기 학습 곡선 아카이브 펼쳐보기</strong></summary>
 
-| `[PNG]` 15대 재난 시나리오 3D Gazebo 월드 | `[PNG]` 15대 시나리오 구조 단면 & 궤적 지도 | `[PNG]` Phase 2-B V100 학습 곡선 (`44.24M` steps/track) |
+| `[GIF]` `#14 dynamic_crossfire_alley` 3D Dual-View | `[GIF]` `#15 smoke_lidar_corruption` 3D Dual-View | `[PNG]` Phase 2-B V100 학습 곡선 (`44.24M` steps/track) |
 | :---: | :---: | :---: |
-| <img src="docs/images/scenario_worlds_15_3d.png" width="100%" alt="[PNG] 15 Disaster Scenarios 3D"> | <img src="docs/images/scenario_routes_15_atlas.png" width="100%" alt="[PNG] 15 Disaster Scenarios 2D Routes Atlas"> | <img src="docs/images/evidence/phase2b_learning_curves_sim.png" width="100%" alt="[PNG] Phase 2-B Learning Curves"> |
+| <img src="docs/images/evidence/p2b_dynamic_crossfire_alley.gif" width="100%" alt="[GIF] 3D dynamic_crossfire_alley"> | <img src="docs/images/evidence/p2b_smoke_lidar_corruption.gif" width="100%" alt="[GIF] 3D smoke_lidar_corruption"> | <img src="docs/images/evidence/phase2b_learning_curves_sim.png" width="100%" alt="[PNG] Phase 2-B Learning Curves"> |
 
 - 아카이브 문서: [초기 15회 분석](docs/붕괴건물_15회_자율복귀_벤치마크_분석보고서.md) · [원리 해설](docs/재난환경_자율복귀_알고리즘_원리_해설_및_보고서.md) · [Phase 2-B 요약](docs/phase2b_comparison_summary.txt) · [`benchmark_results/`](benchmark_results/)
 
@@ -480,6 +478,10 @@ Phase 2-B 1채널 격자를 **3채널 ($12\times 12\times 3 = 432$셀 + 544차�
 | **합계** | **150 Trials** | **`57/150 (38.0%)`** | **`146/150 (97.3%)` / `104/150 (69.3%)`** | **`143/150 (95.3%)` / `93/150 (62.0%)`** | **`88.49 s` · `8.13 cm`** *(전체 `107.87 s`)* |
 
 > *주: 초기 12개 시나리오 JSON은 더 엄격한 2-step 접촉 기준으로 저장되어 파일 자체의 `collision_free` 합계는 `87/150 (58.0%)`이며, 위 표는 `Phase 2-B Strict`와 공정하게 1:1 비교하기 위해 동일한 `lidar_collision_steps < 4` 기준으로 통일 집계한 수치(`93/150 = 62.0%`)다.*
+
+- **왜 `house` · `house_hard` · `maze_hard` 에서 Phase 2-B(`69.3%`)가 Phase 3(`62.0%`)보다 무충돌률이 높은가?**
+  1. **3-Ch 광역 회피 재학습에 따른 30cm 극협소 문틀 스침 증가**: Phase 2-B(`sim_policy_student.onnx`)는 1채널 LiDAR 전용 `39.8M` 스텝 학습으로 문틀 중앙 정렬에 최적화된 반면, Phase 3(`semantic_v3`)는 저상·가스 구역을 크게 우회하도록 Fusion/Actor 헤드가 재조정되었다(`mean_steps 193.4 → 157.4`). 이로 인해 개방형 다중 붕괴(`collapsed 9/10 vs 7/10`, `collapsed_heavy 8/10 vs 7/10`, `u_pocket_trap 10/10 vs 9/10`)에서는 Phase 3가 오히려 더 높지만, **`house`에서는 도착(`8/10`) 후에도 문틀 모서리 스침(`lidar_collision_steps = 6~196`)으로 `7건`이 엄격 무충돌 감점**되었다.
+  2. **`house_hard`·`maze_hard` 실행 시점 간 낙석 배치 차이 (`same_debris = 0/10`)**: `phase3_semantic_v3`의 `house_hard` 등 5개 시나리오는 벤치마크 spec 강제 리셋 패치 적용 전에 기록되어 `phase2b_strict`와 `turnoff_pose`·`debris_positions` 자체가 달랐다(`collapsed`·`house`·`tunnel`·`maze` 등 10개 시나리오는 `same_debris = 10/10`). 반면 **시맨틱 채널이 직접 작용하는 저상 장애물·가스 환경(`ab10`)** 에서는 Phase 3가 **무충돌 `30% → 90%`, 가스 회피 `60% → 100%`** 로 압도적이다.
 
 #### `[GIF]` Non-Regression `dynamic_gauntlet #01` (`49.7s`, 오차 `8.0cm`)
 
