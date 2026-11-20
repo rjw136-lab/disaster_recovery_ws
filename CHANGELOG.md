@@ -17,11 +17,17 @@
 | **Phase 4. 로컬 2D A\* · V100 서버 완주 & Dual-Track RL** | `2026-11-14` | `RollingLocalGrid + 2D A*` **5대 환경 `49/50 (98.0%)`**, V100 **8,847만 스텝 Dual-Track RL & Gazebo Sim-to-Sim `47/50 (94.0%)`**, 3D `.mp4`/`.png` 증거, 트러블슈팅 `#23~#36` 완결 | `f1966bf`~`e455a74` |
 | **Phase 4.5 (2-A). Clearance-Gated RL & 30 FPS `/map` 증거·문서 고도화** | `2026-11-15` | `compute_rl_blend_weight` 협소 구간 적응형 블렌딩(**Gazebo S2S `48/50 = 96.0%`**), `slam_toolbox` `/map` + VirtualGL 30 FPS 재녹화 & README GIF, 알고리즘 장단점·하드웨어 사양·선행특허/참고논문 27선 정비 (`24 passed`) | `0560e21`~`2b5dfce` |
 | **Phase 4.8 (2-B). 15대 시나리오 적응형 인지 & 안전 포락선** | `2026-11-15` | 동적 장애물 잔상 Ray-Carving(`0.25`) & Layer-0 1D 각도 군집 필터, 비홀로노믹 곡률 클램프·`DYNAMIC_HOLD`로 **15대 150회 `149/150 (99.33%)`** 복귀 완주 | `phase2b` |
-| **Phase 5 (3). 단안 RGB-2D LiDAR 시맨틱 SLAM & 3채널 Context-RL** | `2026-11-19` ~ `11-20` | 단안-LiDAR 투영 퓨전(수식 3 Y 오타 정정·270° CCW·전경 클러스터링), Cartographer 4종 영구 마커 오버레이, V100 3채널 Context-RL(120 Holdout 99.2%, x86 CPU 추론 `0.086~0.087 ms`), Gazebo A/B 회피(저상충돌 0% vs Blind 충돌, 가스 중심 이격 2.97× 확대), 15종 150회 비퇴행 **`144/150 (96.00%)`** 완주 | `3849fce` |
+| **Phase 5 (3). 단안 RGB-2D LiDAR 시맨틱 SLAM & 3채널 Context-RL** | `2026-11-19` ~ `11-20` | 단안-LiDAR 투영 퓨전(수식 3 Y 오타 정정·270° CCW·전경 클러스터링), Cartographer 4종 영구 마커 오버레이, **Option 2(`frozen_residual`: Frozen Phase 2-B 백본 + Zero-Gated Residual 어댑터, `max_abs_diff = 0.0`, `414.7 KB`, `0.13 ms`)**, Gazebo 시맨틱 10-Trial A/B 엄격 무위험 **`80.0%` (`8/10`, 저상충돌 `0회`) vs Blind `0.0%`**, 15종 150회 엄격 무충돌 **`119/150 (79.3%)`** (Phase 2-B `69.3%` 대비 `+10.0%p`) | `3849fce`~`HEAD` |
 
 ---
 
 ## 📅 일자별 상세 누적 패치노트 (최신순)
+
+### 2026-11-20 — Phase 3 Option 2 (`frozen_residual`) 비퇴행 아키텍처 채택 · V100 재학습 & 150회 엄격 무충돌 79.3% 달성
+
+| 커밋 | 구분 | 변경 내용 및 주요 파일 |
+| :--- | :---: | :--- |
+| `HEAD` | `feat/rl/eval` | **Option 1(Hard Channel Gating) vs Option 2(Frozen Phase 2-B Backbone + Zero-Gated Residual Semantic Adapter) 아키텍처 비교 분석 및 Option 2 채택** — 시맨틱 공백(`Ch1=0, Ch2=0`) 구간에서 공유 백본 변형으로 발생하던 초기 3채널 모델(`v3`)의 비시맨틱 환경 엄격 무충돌 퇴행(`69.3% → 58.0%`)을 해결하기 위해 두 후보 아키텍처를 설계·비교했다. 로컬 코스트맵 경계에서 모드 스위칭 채터링이 발생하는 Option 1을 기각하고, 단일 ONNX 내에 동결된 Phase 2-B 백본과 Zero-Gated 잔차 시맨틱 어댑터($g(Ch_1,Ch_2)=\text{clamp}(\max(|Ch_1|,|Ch_2|)/10^{-4},0,1)$)를 결합한 **Option 2(`--arch frozen_residual`)** 를 구현했다. V100 Dual-Track(`10.62M` steps/track) 재학습 및 DAgger 증류 결과 `sim`/`real_tb3_policy_student_semantic_v3.onnx`(`414.7 KB`, CPU `0.13 ms`) 모두 `Ch1=0, Ch2=0`에서 `non_regression_max_abs_diff = 0.0`을 달성했고, Gazebo 시맨틱 10-Trial A/B 엄격 무위험 **`8/10 (80.0%)` vs Blind `0/10 (0.0%)` (저상 충돌 `0회`)**, 5단계 동일 맵 비교 **`11.76s` 최단시간 무충돌 복귀**, 15대 시나리오 150회 엄격 무충돌 **`119/150 (79.3%, same_debris=150/150)`** (Phase 2-B `104/150 = 69.3%` 대비 **`+10.0%p`**, 초기 `v3` `87/150 = 58.0%` 대비 **`+21.3%p`**) 및 단위 테스트 **`56 passed`** 를 검증했다 (`scripts/host/train_phase2_v100.py`, `src/disaster_recovery/test/test_semantic_rl_env.py`, `benchmark_results/phase3_option2/`, `docs/images/evidence_v4/`, `README.md`). |
 
 ### 2026-11-20 — Phase 3 2D LiDAR-단안 RGB 투영 시맨틱 SLAM E2E 및 3채널 Context-RL (144/150 = 96.0%) 검증 완료
 

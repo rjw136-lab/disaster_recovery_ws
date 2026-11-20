@@ -1,0 +1,38 @@
+{
+  "collapsed_hard": {
+    "baseline": {
+      "scenario": "collapsed_hard",
+      "label_ko": "붕괴 건물 HARD (고밀도·심부 탐사)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 1,
+      "success_rate_pct": 10.0,
+      "arrival_passes": 4,
+      "arrival_success_rate_pct": 40.0,
+      "collision_trials": 9,
+      "mean_error_cm_all": 484.18,
+      "mean_error_cm_pass": 2.01,
+      "mean_time_s_all": 213.17,
+      "mean_time_s_pass": 118.4,
+      "mean_ret_path_m_pass": 16.47,
+      "mean_explored_m": 17.87
+    },
+    "proposed": {
+      "scenario": "collapsed_hard",
+      "label_ko": "붕괴 건물 HARD (고밀도·심부 탐사)",
+      "strategy": "proposed_rl",
+      "trials": 10,
+      "passes": 10,
+      "success_rate_pct": 100.0,
+      "arrival_passes": 10,
+      "arrival_success_rate_pct": 100.0,
+      "collision_trials": 0,
+      "mean_error_cm_all": 8.34,
+      "mean_error_cm_pass": 8.34,
+      "mean_time_s_all": 121.56,
+      "mean_time_s_pass": 121.56,
+      "mean_ret_path_m_pass": 17.62,
+      "mean_explored_m": 17.87
+    }
+  }
+}

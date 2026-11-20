@@ -179,7 +179,8 @@ def render_classic_comp5(model_roots: str) -> None:
             p1_path = os.path.join(HDD_EXP, "bench_hard8_phase1", f"ab_{sc}_10trials.json")
             p2a_path = os.path.join(HDD_EXP, "bench_hard8_phase2a", f"ab_{sc}_10trials.json")
         p2b_path = os.path.join(BM_ROOT, "phase2b_strict", f"ab_{sc}_10trials.json")
-        p3_path = os.path.join(BM_ROOT, "phase3_semantic_v3", f"ab_{sc}_10trials.json")
+        p3_opt2 = os.path.join(BM_ROOT, "phase3_option2", f"ab_{sc}_10trials.json")
+        p3_path = p3_opt2 if os.path.exists(p3_opt2) else os.path.join(BM_ROOT, "phase3_semantic_v3", f"ab_{sc}_10trials.json")
 
         j_p1 = json.load(open(p1_path, "r", encoding="utf-8"))
         j_p2a = json.load(open(p2a_path, "r", encoding="utf-8"))

@@ -147,7 +147,8 @@ def _load_stage_trials(sc: str) -> Dict[str, dict]:
         p_b_p1 = os.path.join(HDD_ROOT, "bench_hard8_10trials", "phase1", f"ab_{sc}_10trials.json")
         p_p2a = os.path.join(HDD_ROOT, "bench_hard8_10trials", "phase2a", f"ab_{sc}_10trials.json")
     p_p2b = os.path.join(BM_ROOT, "phase2b_strict", f"ab_{sc}_10trials.json")
-    p_p3 = os.path.join(BM_ROOT, "phase3_semantic_v3", f"ab_{sc}_10trials.json")
+    p_p3_opt2 = os.path.join(BM_ROOT, "phase3_option2", f"ab_{sc}_10trials.json")
+    p_p3 = p_p3_opt2 if os.path.exists(p_p3_opt2) else os.path.join(BM_ROOT, "phase3_semantic_v3", f"ab_{sc}_10trials.json")
 
     j_bp1 = json.load(open(p_b_p1, "r", encoding="utf-8"))
     j_p2a = json.load(open(p_p2a, "r", encoding="utf-8"))

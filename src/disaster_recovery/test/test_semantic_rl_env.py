@@ -39,6 +39,8 @@ from train_phase2_v100 import (  # noqa: E402
     ContextRLStudent,
     DistilledEdgeStudent,
     FLAT_INPUT_DIM,
+    FrozenBackboneSemanticStudent,
+    FrozenBackboneSemanticTeacher,
     SEMANTIC_FLAT_INPUT_DIM,
     SEMANTIC_PATCH_CHANNELS,
     TemporalContextActorCritic,
@@ -569,3 +571,81 @@ def test_semantic_v3_onnx_export_and_non_overwriting_filenames():
         assert np.all(ort_out[:, 0] >= TB3_MIN_V - 1e-5) and np.all(ort_out[:, 0] <= TB3_MAX_V + 1e-5)
         assert np.all(np.abs(ort_out[:, 1]) <= TB3_MAX_W + 1e-5)
         assert np.allclose(pt_out, ort_out, atol=1e-5)
+
+
+def test_frozen_residual_option2_exact_phase2b_parity_and_semantic_grad():
+    """
+    Verify Option 2 (Frozen Phase 2-B Backbone + Zero-Gated Residual Semantic Adapter):
+      1. Teacher freezes Phase 2-B base.* params, preserves exact output when Ch1=Ch2=0,
+         and propagates gradients only into residual/semantic modules when Ch1/Ch2 > 0.
+      2. Student loads frozen Phase 2-B 1-Ch ONNX base, exports cleanly to ONNX, and matches
+         sim_policy_student.onnx within float32 epsilon whenever Ch1=Ch2=0.
+    """
+    device = torch.device("cpu")
+    torch.manual_seed(77)
+
+    base_teacher = TemporalContextActorCritic(hidden_dim=128, patch_channels=1).to(device)
+    ckpt_1ch = "/hdd/rl_v2_exp/archives/sim/best_teacher_seed101.pt"
+    if os.path.exists(ckpt_1ch):
+        obj = torch.load(ckpt_1ch, map_location=device)
+        base_teacher.load_state_dict(obj["state_dict"])
+    base_teacher.eval()
+
+    opt2_teacher = FrozenBackboneSemanticTeacher(hidden_dim=128, patch_channels=3).to(device)
+    opt2_teacher.load_warm_start(base_teacher)
+    opt2_teacher.enable_semantic_kernel(1.0)
+    opt2_teacher.eval()
+
+    assert all(not p.requires_grad for p in opt2_teacher.base.parameters())
+    assert any(p.requires_grad for p in opt2_teacher.sem_res_mlp.parameters())
+
+    obs_hist = torch.randn((8, HISTORY_LEN, STEP_FEAT_DIM), dtype=torch.float32, device=device)
+    patch_zero12 = torch.zeros((8, 3, PATCH_SIZE, PATCH_SIZE), dtype=torch.float32, device=device)
+    patch_zero12[:, 0:1, :, :] = torch.rand((8, 1, PATCH_SIZE, PATCH_SIZE), dtype=torch.float32)
+
+    with torch.no_grad():
+        base_act_1ch, _ = base_teacher(obs_hist, patch_zero12[:, 0:1])
+        opt2_act_zero, _ = opt2_teacher(obs_hist, patch_zero12)
+    assert torch.allclose(base_act_1ch, opt2_act_zero, atol=1e-5)
+
+    # Zero-gate must prevent semantic gradients on Ch1=Ch2=0 while allowing active gradients on Ch1/Ch2 > 0
+    opt2_teacher.train()
+    patch_sem = patch_zero12.clone()
+    patch_sem[:, 1:3, 4:8, 4:8] = 0.85
+    with torch.no_grad():
+        torch.nn.init.normal_(opt2_teacher.sem_res_mlp[-1].weight, mean=0.0, std=0.02)
+    act_sem, val_sem = opt2_teacher(obs_hist, patch_sem)
+    (act_sem.sum() + val_sem.sum()).backward()
+    assert opt2_teacher.sem_spatial[0].weight.grad is not None
+    assert float(opt2_teacher.sem_spatial[0].weight.grad.abs().sum().item()) > 0.0
+    assert all(p.grad is None for p in opt2_teacher.base.parameters())
+
+    # Student ONNX exact parity check against Phase 2-B sim_policy_student.onnx
+    base_onnx = os.path.join(WS_ROOT, "src", "disaster_recovery", "config", "sim_policy_student.onnx")
+    if not os.path.exists(base_onnx):
+        pytest.skip("sim_policy_student.onnx not present")
+
+    opt2_student = FrozenBackboneSemanticStudent(patch_channels=3, base_onnx_path=base_onnx).to(device)
+    opt2_student.enable_semantic_kernel(1.0)
+    with torch.no_grad():
+        torch.nn.init.normal_(opt2_student.sem_res_head[-1].weight, mean=0.0, std=0.05)
+    opt2_student.eval()
+    assert all(not p.requires_grad for p in opt2_student.base.parameters())
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        out_onnx = os.path.join(tmpdir, "opt2_test.onnx")
+        export_student_onnx(opt2_student, out_onnx, patch_channels=3)
+
+        base_sess = ort.InferenceSession(base_onnx, providers=["CPUExecutionProvider"])
+        opt2_sess = ort.InferenceSession(out_onnx, providers=["CPUExecutionProvider"])
+
+        flat_1 = _flatten_obs(obs_hist, patch_zero12[:, 0:1]).numpy().astype(np.float32)
+        flat_3_zero = _flatten_obs(obs_hist, patch_zero12).numpy().astype(np.float32)
+        flat_3_sem = _flatten_obs(obs_hist, patch_sem).numpy().astype(np.float32)
+
+        y_base = base_sess.run(None, {base_sess.get_inputs()[0].name: flat_1})[0]
+        y_opt2_zero = opt2_sess.run(None, {opt2_sess.get_inputs()[0].name: flat_3_zero})[0]
+        y_opt2_sem = opt2_sess.run(None, {opt2_sess.get_inputs()[0].name: flat_3_sem})[0]
+
+        assert float(np.max(np.abs(y_opt2_zero - y_base))) < 1e-5
+        assert float(np.max(np.abs(y_opt2_sem - y_base))) > 1e-3

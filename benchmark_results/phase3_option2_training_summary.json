@@ -1,0 +1,239 @@
+{
+  "sim": {
+    "total_steps": 10616832,
+    "total_episodes": 70215,
+    "wall_time_s": 839.0,
+    "seeds": [
+      {
+        "track": "sim",
+        "seed": 101,
+        "patch_channels": 3,
+        "total_steps": 3538944,
+        "total_episodes": 23664,
+        "best_unseen_sr": 1.0,
+        "best_base_6_sr": 1.0,
+        "best_dropout_fallback_sr": 1.0,
+        "best_semantic_2_sr": 1.0,
+        "best_low_obs_contact_free_rate": 1.0,
+        "best_gas_hazard_free_rate": 0.6000000238418579,
+        "early_stopped_at": null,
+        "elapsed_s": 278.0,
+        "stage_videos": [
+          {
+            "mp4": "/hdd/evidence/training_v4_option2/phase3_sim_early_upd24.mp4",
+            "png": "/ws/disaster_recovery_ws/docs/images/evidence_v4/phase3_sim_early_upd24.png",
+            "outcome": "PASS",
+            "steps": 177,
+            "ffprobe": "{\n    \"programs\": [\n\n    ],\n    \"streams\": [\n        {\n            \"width\": 1280,\n            \"height\": 720,\n            \"duration\": \"15.416667\",\n            \"nb_frames\": \"185\"\n        }\n    ]\n}"
+          },
+          {
+            "mp4": "/hdd/evidence/training_v4_option2/phase3_sim_mid_upd48.mp4",
+            "png": "/ws/disaster_recovery_ws/docs/images/evidence_v4/phase3_sim_mid_upd48.png",
+            "outcome": "PASS",
+            "steps": 188,
+            "ffprobe": "{\n    \"programs\": [\n\n    ],\n    \"streams\": [\n        {\n            \"width\": 1280,\n            \"height\": 720,\n            \"duration\": \"16.333333\",\n            \"nb_frames\": \"196\"\n        }\n    ]\n}"
+          }
+        ]
+      },
+      {
+        "track": "sim",
+        "seed": 202,
+        "patch_channels": 3,
+        "total_steps": 3538944,
+        "total_episodes": 22649,
+        "best_unseen_sr": 1.0,
+        "best_base_6_sr": 1.0,
+        "best_dropout_fallback_sr": 1.0,
+        "best_semantic_2_sr": 1.0,
+        "best_low_obs_contact_free_rate": 0.9333333969116211,
+        "best_gas_hazard_free_rate": 0.6000000238418579,
+        "early_stopped_at": null,
+        "elapsed_s": 207.5,
+        "stage_videos": []
+      },
+      {
+        "track": "sim",
+        "seed": 303,
+        "patch_channels": 3,
+        "total_steps": 3538944,
+        "total_episodes": 23902,
+        "best_unseen_sr": 0.9750000238418579,
+        "best_base_6_sr": 0.9666666984558105,
+        "best_dropout_fallback_sr": 0.9750000238418579,
+        "best_semantic_2_sr": 1.0,
+        "best_low_obs_contact_free_rate": 1.0,
+        "best_gas_hazard_free_rate": 0.5333333611488342,
+        "early_stopped_at": null,
+        "elapsed_s": 217.7,
+        "stage_videos": []
+      }
+    ],
+    "distilled_onnx": {
+      "onnx_path": "/ws/disaster_recovery_ws/src/disaster_recovery/config/sim_policy_student_semantic_v3.onnx",
+      "onnx_size_kb": 414.7,
+      "arch": "frozen_residual",
+      "non_regression_max_abs_diff": 0.0,
+      "patch_channels": 3,
+      "flat_input_dim": 976,
+      "val_mse_pass1": 0.001113,
+      "val_mse_dagger": 0.001376,
+      "onnx_eval": {
+        "unseen_sr": 0.98333340883255,
+        "base_6_sr": 0.9888889193534851,
+        "dropout_fallback_sr": 0.98333340883255,
+        "semantic_2_sr": 0.9666666984558105,
+        "low_obs_contact_free_rate": 1.0,
+        "gas_hazard_free_rate": 0.6000000238418579,
+        "collision_rate": 0.008333333767950535,
+        "timeout_rate": 0.008333257399499416,
+        "mean_return": 142.26565551757812,
+        "mean_steps": 156.3916778564453,
+        "per_regime": {
+          "collapsed_debris": 0.9333333969116211,
+          "tight_corridor": 1.0,
+          "dynamic_crossing": 1.0,
+          "plinth_slip_drift": 1.0,
+          "u_pocket_culdesac": 1.0,
+          "chicane_door_pinch": 1.0,
+          "low_obstacle_field": 1.0,
+          "gas_victim_corridor": 0.9333333969116211
+        }
+      },
+      "cpu_latency_ms": {
+        "mean": 0.1325,
+        "p95": 0.1471,
+        "p99": 0.1653
+      }
+    },
+    "student_3d_video": {
+      "mp4": "/hdd/evidence/training_v4_option2/phase3_sim_final_student.mp4",
+      "png": "/ws/disaster_recovery_ws/docs/images/evidence_v4/phase3_sim_final_student.png",
+      "outcome": "PASS",
+      "steps": 208,
+      "ffprobe": "{\n    \"programs\": [\n\n    ],\n    \"streams\": [\n        {\n            \"width\": 1280,\n            \"height\": 720,\n            \"duration\": \"18.000000\",\n            \"nb_frames\": \"216\"\n        }\n    ]\n}"
+    },
+    "learning_curve_png": "/ws/disaster_recovery_ws/docs/images/evidence_v4/phase3_learning_curves_sim.png"
+  },
+  "real_tb3": {
+    "total_steps": 10616832,
+    "total_episodes": 70299,
+    "wall_time_s": 839.5,
+    "seeds": [
+      {
+        "track": "real_tb3",
+        "seed": 101,
+        "patch_channels": 3,
+        "total_steps": 3538944,
+        "total_episodes": 23644,
+        "best_unseen_sr": 1.0,
+        "best_base_6_sr": 1.0,
+        "best_dropout_fallback_sr": 1.0,
+        "best_semantic_2_sr": 1.0,
+        "best_low_obs_contact_free_rate": 0.9333333969116211,
+        "best_gas_hazard_free_rate": 0.2666666805744171,
+        "early_stopped_at": null,
+        "elapsed_s": 275.8,
+        "stage_videos": [
+          {
+            "mp4": "/hdd/evidence/training_v4_option2/phase3_real_tb3_early_upd24.mp4",
+            "png": "/ws/disaster_recovery_ws/docs/images/evidence_v4/phase3_real_tb3_early_upd24.png",
+            "outcome": "PASS",
+            "steps": 166,
+            "ffprobe": "{\n    \"programs\": [\n\n    ],\n    \"streams\": [\n        {\n            \"width\": 1280,\n            \"height\": 720,\n            \"duration\": \"14.500000\",\n            \"nb_frames\": \"174\"\n        }\n    ]\n}"
+          },
+          {
+            "mp4": "/hdd/evidence/training_v4_option2/phase3_real_tb3_mid_upd48.mp4",
+            "png": "/ws/disaster_recovery_ws/docs/images/evidence_v4/phase3_real_tb3_mid_upd48.png",
+            "outcome": "PASS",
+            "steps": 162,
+            "ffprobe": "{\n    \"programs\": [\n\n    ],\n    \"streams\": [\n        {\n            \"width\": 1280,\n            \"height\": 720,\n            \"duration\": \"14.166667\",\n            \"nb_frames\": \"170\"\n        }\n    ]\n}"
+          }
+        ]
+      },
+      {
+        "track": "real_tb3",
+        "seed": 202,
+        "patch_channels": 3,
+        "total_steps": 3538944,
+        "total_episodes": 23041,
+        "best_unseen_sr": 0.9916667342185974,
+        "best_base_6_sr": 1.0,
+        "best_dropout_fallback_sr": 0.9916667342185974,
+        "best_semantic_2_sr": 0.9666666984558105,
+        "best_low_obs_contact_free_rate": 1.0,
+        "best_gas_hazard_free_rate": 0.6000000238418579,
+        "early_stopped_at": null,
+        "elapsed_s": 215.3,
+        "stage_videos": []
+      },
+      {
+        "track": "real_tb3",
+        "seed": 303,
+        "patch_channels": 3,
+        "total_steps": 3538944,
+        "total_episodes": 23614,
+        "best_unseen_sr": 0.9916667342185974,
+        "best_base_6_sr": 0.9888889193534851,
+        "best_dropout_fallback_sr": 0.9750000238418579,
+        "best_semantic_2_sr": 1.0,
+        "best_low_obs_contact_free_rate": 0.9333333969116211,
+        "best_gas_hazard_free_rate": 0.20000001788139343,
+        "early_stopped_at": null,
+        "elapsed_s": 216.3,
+        "stage_videos": []
+      }
+    ],
+    "distilled_onnx": {
+      "onnx_path": "/ws/disaster_recovery_ws/src/disaster_recovery/config/real_tb3_policy_student_semantic_v3.onnx",
+      "onnx_size_kb": 414.7,
+      "arch": "frozen_residual",
+      "non_regression_max_abs_diff": 0.0,
+      "patch_channels": 3,
+      "flat_input_dim": 976,
+      "val_mse_pass1": 0.002934,
+      "val_mse_dagger": 0.002931,
+      "onnx_eval": {
+        "unseen_sr": 0.9583333730697632,
+        "base_6_sr": 0.9666666984558105,
+        "dropout_fallback_sr": 0.9750000238418579,
+        "semantic_2_sr": 0.9333333969116211,
+        "low_obs_contact_free_rate": 0.8666667342185974,
+        "gas_hazard_free_rate": 0.2666666805744171,
+        "collision_rate": 0.008333333767950535,
+        "timeout_rate": 0.03333329316228628,
+        "mean_return": 137.8983917236328,
+        "mean_steps": 162.65834045410156,
+        "per_regime": {
+          "collapsed_debris": 1.0,
+          "tight_corridor": 1.0,
+          "dynamic_crossing": 1.0,
+          "plinth_slip_drift": 0.8666667342185974,
+          "u_pocket_culdesac": 0.9333333969116211,
+          "chicane_door_pinch": 1.0,
+          "low_obstacle_field": 0.8666667342185974,
+          "gas_victim_corridor": 1.0
+        }
+      },
+      "cpu_latency_ms": {
+        "mean": 0.1295,
+        "p95": 0.1402,
+        "p99": 0.1548
+      }
+    },
+    "student_3d_video": {
+      "mp4": "/hdd/evidence/training_v4_option2/phase3_real_tb3_final_student.mp4",
+      "png": "/ws/disaster_recovery_ws/docs/images/evidence_v4/phase3_real_tb3_final_student.png",
+      "outcome": "PASS",
+      "steps": 163,
+      "ffprobe": "{\n    \"programs\": [\n\n    ],\n    \"streams\": [\n        {\n            \"width\": 1280,\n            \"height\": 720,\n            \"duration\": \"14.250000\",\n            \"nb_frames\": \"171\"\n        }\n    ]\n}"
+    },
+    "learning_curve_png": "/ws/disaster_recovery_ws/docs/images/evidence_v4/phase3_learning_curves_real_tb3.png"
+  },
+  "gpu_telemetry": {
+    "mean_gpu_util": 34.15615463256836,
+    "max_gpu_util": 59.0,
+    "max_vram_mib": 1128.0,
+    "mean_power_w": 58.51888656616211,
+    "max_temp_c": 34.0
+  }
+}

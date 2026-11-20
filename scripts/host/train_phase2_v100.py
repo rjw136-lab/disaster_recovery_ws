@@ -388,6 +388,320 @@ class DistilledEdgeStudent(_BaseDistilledEdgeStudent):
 ContextRLStudent = DistilledEdgeStudent
 
 
+def load_phase2b_student_weights_from_onnx(base_student: _BaseDistilledEdgeStudent, onnx_path: str) -> List[str]:
+    """Load exact frozen Phase 2-B 1-channel DistilledEdgeStudent weights from an ONNX artifact."""
+    import onnx
+    from onnx import numpy_helper
+
+    model_proto = onnx.load(str(onnx_path))
+    raw_inits: Dict[str, torch.Tensor] = {}
+    for init in model_proto.graph.initializer:
+        raw_inits[init.name] = torch.from_numpy(numpy_helper.to_array(init).copy()).to(dtype=torch.float32)
+
+    dst_sd = base_student.state_dict()
+    missing = [k for k in dst_sd.keys() if k not in raw_inits]
+    if missing:
+        raise RuntimeError(f"ONNX {onnx_path} missing expected Phase 2-B student weights: {missing}")
+
+    loaded_keys: List[str] = []
+    with torch.no_grad():
+        for k, dst_t in dst_sd.items():
+            src_t = raw_inits[k]
+            if tuple(src_t.shape) != tuple(dst_t.shape):
+                raise RuntimeError(f"Shape mismatch for {k} in {onnx_path}: {tuple(src_t.shape)} != {tuple(dst_t.shape)}")
+            dst_t.copy_(src_t.to(device=dst_t.device, dtype=dst_t.dtype))
+            loaded_keys.append(k)
+    base_student.load_state_dict(dst_sd)
+    return loaded_keys
+
+
+class FrozenBackboneSemanticTeacher(nn.Module):
+    """
+    Option 2 Architecture (Teacher): Frozen Phase 2-B 1-Ch Teacher Backbone +
+    Zero-Gated Residual Semantic Adapter + Trainable Semantic Critic.
+    Guarantees bit-exact Phase 2-B invariance whenever Ch 1 & Ch 2 are absent (0).
+    """
+
+    def __init__(self, hidden_dim: int = 128, patch_channels: int = 3):
+        super().__init__()
+        self.hidden_dim = int(hidden_dim)
+        self.patch_channels = int(patch_channels)
+        self.base = _BaseTemporalContextActorCritic(hidden_dim=self.hidden_dim)
+        for p in self.base.parameters():
+            p.requires_grad_(False)
+        self.base.eval()
+
+        fused_dim = STEP_FEAT_DIM + self.hidden_dim + 48
+        self.sem_safety_head = SemanticCorridorSafetyHead()
+        self.sem_spatial = nn.Sequential(
+            nn.Conv2d(self.patch_channels, 12, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(12, 24, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d((3, 3)),
+            nn.Flatten(),
+            nn.Linear(216, 48),
+            nn.Tanh(),
+        )
+        self.sem_res_mlp = nn.Sequential(
+            nn.Linear(fused_dim + 48 + 2, 128),
+            nn.Tanh(),
+            nn.Linear(128, 64),
+            nn.Tanh(),
+            nn.Linear(64, 2),
+        )
+        nn.init.zeros_(self.sem_res_mlp[-1].weight)
+        nn.init.zeros_(self.sem_res_mlp[-1].bias)
+        self.log_std = nn.Parameter(torch.tensor([-1.55, -1.40], dtype=torch.float32))
+
+        self.critic_net = nn.Sequential(
+            nn.Linear(fused_dim + 48, 128),
+            nn.Tanh(),
+            nn.Linear(128, 128),
+            nn.Tanh(),
+            nn.Linear(128, 1),
+        )
+
+    def train(self, mode: bool = True):
+        super().train(mode)
+        self.base.eval()
+        return self
+
+    def enable_semantic_kernel(self, scale: float = 1.0) -> None:
+        self.sem_safety_head.set_scale(scale)
+
+    def _align_patch_channels(self, local_patch: torch.Tensor) -> torch.Tensor:
+        if local_patch.ndim == 3:
+            local_patch = local_patch.unsqueeze(1)
+        c_in = local_patch.shape[1]
+        if c_in == self.patch_channels:
+            return local_patch
+        if c_in < self.patch_channels:
+            pad_c = self.patch_channels - c_in
+            zeros = torch.zeros(
+                (local_patch.shape[0], pad_c, local_patch.shape[2], local_patch.shape[3]),
+                dtype=local_patch.dtype,
+                device=local_patch.device,
+            )
+            return torch.cat([local_patch, zeros], dim=1)
+        return local_patch[:, : self.patch_channels, :, :]
+
+    def load_warm_start(self, source_ckpt_or_model: object, ch12_init_std: float = 0.0) -> Dict[str, object]:
+        del ch12_init_std
+        if isinstance(source_ckpt_or_model, (str, os.PathLike)):
+            raw_obj = torch.load(str(source_ckpt_or_model), map_location="cpu")
+        elif isinstance(source_ckpt_or_model, nn.Module):
+            raw_obj = source_ckpt_or_model.state_dict()
+        elif isinstance(source_ckpt_or_model, dict):
+            raw_obj = source_ckpt_or_model
+        else:
+            raise TypeError(f"Unsupported warm-start source type: {type(source_ckpt_or_model)}")
+
+        src_sd = raw_obj["state_dict"] if isinstance(raw_obj, dict) and "state_dict" in raw_obj else raw_obj
+        base_sd = self.base.state_dict()
+        missing = [k for k in base_sd if k not in src_sd]
+        if missing:
+            raise RuntimeError(f"Phase 2-B teacher checkpoint missing base keys: {missing}")
+
+        with torch.no_grad():
+            for k, dst_t in base_sd.items():
+                dst_t.copy_(src_sd[k].to(device=dst_t.device, dtype=dst_t.dtype))
+            self.base.load_state_dict(base_sd)
+            # Initialize semantic critic from Phase 2-B critic columns + zero semantic columns
+            w0 = self.base.critic_net[0].weight
+            b0 = self.base.critic_net[0].bias
+            self.critic_net[0].weight[:, : w0.shape[1]].copy_(w0)
+            self.critic_net[0].weight[:, w0.shape[1] :].zero_()
+            self.critic_net[0].bias.copy_(b0)
+            self.critic_net[2].weight.copy_(self.base.critic_net[2].weight)
+            self.critic_net[2].bias.copy_(self.base.critic_net[2].bias)
+            self.critic_net[4].weight.copy_(self.base.critic_net[4].weight)
+            self.critic_net[4].bias.copy_(self.base.critic_net[4].bias)
+
+        for p in self.base.parameters():
+            p.requires_grad_(False)
+        self.base.eval()
+        return {"transferred_keys": list(base_sd.keys()), "expanded_conv_keys": []}
+
+    def _compute_mean_pre_and_value(
+        self,
+        obs_hist: torch.Tensor,
+        local_patch: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        aligned_patch = self._align_patch_channels(local_patch)
+        b = obs_hist.shape[0]
+        with torch.no_grad():
+            base_fused = self.base.encode(obs_hist, aligned_patch[:, 0:1, :, :])
+            base_mean_pre = torch.clamp(self.base.actor_net(base_fused), -3.5, 3.5)
+            base_act = scale_raw_action(torch.tanh(base_mean_pre))
+
+        safe_act = self.sem_safety_head(obs_hist, aligned_patch, base_act)
+        sem_feat = self.sem_spatial(aligned_patch)
+
+        ch12_peak = aligned_patch[:, 1:, :, :].reshape(b, -1).max(dim=1).values
+        sem_gate = torch.clamp((ch12_peak - 1e-4) / 0.04, 0.0, 1.0).unsqueeze(-1)
+
+        v_mid = 0.5 * (TB3_MIN_V + TB3_MAX_V)
+        v_half = 0.5 * (TB3_MAX_V - TB3_MIN_V)
+        raw_s = torch.stack(
+            [
+                torch.clamp((safe_act[:, 0] - v_mid) / v_half, -0.999, 0.999),
+                torch.clamp(safe_act[:, 1] / TB3_MAX_W, -0.999, 0.999),
+            ],
+            dim=-1,
+        )
+        safe_pre = 0.5 * torch.log((1.0 + raw_s) / (1.0 - raw_s))
+        res_pre = torch.clamp(self.sem_res_mlp(torch.cat([base_fused, sem_feat, safe_act], dim=-1)), -2.5, 2.5)
+        mean_pre = torch.clamp(safe_pre + sem_gate * res_pre, -3.5, 3.5)
+        value = self.critic_net(torch.cat([base_fused, sem_feat], dim=-1)).squeeze(-1)
+        return mean_pre, value
+
+    def forward_base(self, obs_hist: torch.Tensor, local_patch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        aligned_patch = self._align_patch_channels(local_patch)
+        with torch.no_grad():
+            base_fused = self.base.encode(obs_hist, aligned_patch[:, 0:1, :, :])
+            base_act = scale_raw_action(torch.tanh(torch.clamp(self.base.actor_net(base_fused), -3.5, 3.5)))
+            base_val = self.base.critic_net(base_fused).squeeze(-1)
+        return base_act, base_val
+
+    def forward(self, obs_hist: torch.Tensor, local_patch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        mean_pre, value = self._compute_mean_pre_and_value(obs_hist, local_patch)
+        return scale_raw_action(torch.tanh(mean_pre)), value
+
+    def get_action_and_value(
+        self,
+        obs_hist: torch.Tensor,
+        local_patch: torch.Tensor,
+        action_taken: Optional[torch.Tensor] = None,
+        deterministic: bool = False,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        mean_pre, value = self._compute_mean_pre_and_value(obs_hist, local_patch)
+        std = torch.exp(torch.clamp(self.log_std, -2.8, -0.2)).unsqueeze(0)
+        dist = torch.distributions.Normal(mean_pre, std)
+
+        v_mid = 0.5 * (TB3_MIN_V + TB3_MAX_V)
+        v_half = 0.5 * (TB3_MAX_V - TB3_MIN_V)
+
+        if action_taken is None:
+            u = mean_pre if deterministic else dist.rsample()
+            raw_tanh = torch.tanh(u)
+            action = scale_raw_action(raw_tanh)
+        else:
+            v_raw = torch.clamp((action_taken[..., 0] - v_mid) / v_half, -0.9995, 0.9995)
+            w_raw = torch.clamp(action_taken[..., 1] / TB3_MAX_W, -0.9995, 0.9995)
+            raw_tanh = torch.stack([v_raw, w_raw], dim=-1)
+            u = 0.5 * torch.log((1.0 + raw_tanh) / (1.0 - raw_tanh))
+            action = action_taken
+
+        log_prob = (dist.log_prob(u) - torch.log(torch.clamp(1.0 - raw_tanh * raw_tanh, min=1e-6))).sum(dim=-1)
+        entropy = dist.entropy().sum(dim=-1)
+        return action, log_prob, entropy, value
+
+
+class FrozenBackboneSemanticStudent(nn.Module):
+    """
+    Option 2 Architecture (ONNX Edge Student): Frozen Phase 2-B 1-Ch Student Weights +
+    Zero-Gated Residual Semantic Adapter + Differentiable SemanticCorridorSafetyHead.
+    Whenever Ch 1 & Ch 2 are 0, outputs match Phase 2-B 1-Ch Student ONNX identically.
+    """
+
+    def __init__(self, patch_channels: int = 3, base_onnx_path: Optional[str] = None):
+        super().__init__()
+        self.patch_channels = int(patch_channels)
+        self.flat_input_dim = compute_flat_input_dim(self.patch_channels)
+        self.base = _BaseDistilledEdgeStudent(patch_channels=1)
+        if base_onnx_path and os.path.exists(base_onnx_path):
+            load_phase2b_student_weights_from_onnx(self.base, base_onnx_path)
+        for p in self.base.parameters():
+            p.requires_grad_(False)
+        self.base.eval()
+
+        self.sem_safety_head = SemanticCorridorSafetyHead()
+        self.sem_spatial = nn.Sequential(
+            nn.Conv2d(self.patch_channels, 12, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(12, 16, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d((3, 3)),
+            nn.Flatten(),
+            nn.Linear(144, 32),
+            nn.Tanh(),
+        )
+        self.sem_res_head = nn.Sequential(
+            nn.Linear(STEP_FEAT_DIM + 64 + 48 + 32 + 2, 96),
+            nn.Tanh(),
+            nn.Linear(96, 64),
+            nn.Tanh(),
+            nn.Linear(64, 2),
+        )
+        nn.init.zeros_(self.sem_res_head[-1].weight)
+        nn.init.zeros_(self.sem_res_head[-1].bias)
+
+    def train(self, mode: bool = True):
+        super().train(mode)
+        self.base.eval()
+        return self
+
+    def enable_semantic_kernel(self, scale: float = 1.0) -> None:
+        self.sem_safety_head.set_scale(scale)
+
+    def forward(
+        self,
+        obs_or_flat: torch.Tensor,
+        local_patch: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        b = obs_or_flat.shape[0]
+        hist_dim = HISTORY_LEN * STEP_FEAT_DIM
+        if local_patch is not None:
+            hist = obs_or_flat.reshape(b, HISTORY_LEN, STEP_FEAT_DIM)
+            if local_patch.ndim == 3:
+                local_patch = local_patch.unsqueeze(1)
+            c_in = local_patch.shape[1]
+            if c_in == self.patch_channels:
+                patch = local_patch
+            elif c_in < self.patch_channels:
+                zeros = torch.zeros(
+                    (b, self.patch_channels - c_in, PATCH_SIZE, PATCH_SIZE),
+                    dtype=local_patch.dtype,
+                    device=local_patch.device,
+                )
+                patch = torch.cat([local_patch, zeros], dim=1)
+            else:
+                patch = local_patch[:, : self.patch_channels, :, :]
+        else:
+            hist = obs_or_flat[:, :hist_dim].view(b, HISTORY_LEN, STEP_FEAT_DIM)
+            patch = obs_or_flat[:, hist_dim:].view(b, self.patch_channels, PATCH_SIZE, PATCH_SIZE)
+
+        base_t_feat = self.base.tcn(hist.transpose(1, 2))
+        base_s_feat = self.base.spatial(patch[:, 0:1, :, :])
+        cur = hist[:, -1, :]
+        base_out_pre = self.base.head(torch.cat([cur, base_t_feat, base_s_feat], dim=-1))
+        base_act = scale_raw_action(torch.tanh(base_out_pre))
+
+        if self.patch_channels < 3:
+            return base_act
+
+        ch12_peak = patch[:, 1:, :, :].reshape(b, -1).max(dim=1).values
+        sem_gate = torch.clamp((ch12_peak - 1e-4) / 0.04, 0.0, 1.0).unsqueeze(-1)
+        safe_act = self.sem_safety_head(hist, patch, base_act)
+
+        sem_feat = self.sem_spatial(patch)
+        res_in = torch.cat([cur, base_t_feat, base_s_feat, sem_feat, safe_act], dim=-1)
+        res_raw = self.sem_res_head(res_in)
+        res_delta = torch.stack(
+            [0.14 * torch.tanh(res_raw[:, 0]), 0.60 * torch.tanh(res_raw[:, 1])],
+            dim=-1,
+        )
+        out = safe_act + sem_gate * res_delta
+        return torch.stack(
+            [
+                torch.clamp(out[:, 0], TB3_MIN_V, TB3_MAX_V),
+                torch.clamp(out[:, 1], -TB3_MAX_W, TB3_MAX_W),
+            ],
+            dim=-1,
+        )
+
+
 def export_student_onnx(
     student: DistilledEdgeStudent,
     out_onnx_path: str,
@@ -955,6 +1269,7 @@ def train_teacher_seed(
     use_semantic_channels: Optional[bool] = None,
     warm_start_ckpt: Optional[str] = None,
     warm_start_ch12_std: float = 0.0,
+    arch: str = "legacy",
 ) -> Tuple[str, Dict[str, object]]:
     """Train one Recurrent PPO seed on mixed-regime VectorDisasterEnv with unseen-seed early stopping."""
     torch.manual_seed(seed)
@@ -971,20 +1286,33 @@ def train_teacher_seed(
         use_semantic_channels=use_semantic_channels,
     )
     teacher_hidden_dim = 128
-    model = TemporalContextActorCritic(hidden_dim=teacher_hidden_dim, patch_channels=env.patch_channels).to(device)
+    use_frozen_res = (arch == "frozen_residual") and (env.patch_channels >= 3)
+    if use_frozen_res:
+        model: nn.Module = FrozenBackboneSemanticTeacher(
+            hidden_dim=teacher_hidden_dim, patch_channels=env.patch_channels
+        ).to(device)
+    else:
+        model = TemporalContextActorCritic(hidden_dim=teacher_hidden_dim, patch_channels=env.patch_channels).to(device)
     has_warm_start = False
     if warm_start_ckpt and os.path.exists(warm_start_ckpt):
         ws_info = model.load_warm_start(warm_start_ckpt, ch12_init_std=warm_start_ch12_std)
         has_warm_start = True
         print(
-            f"  [WARM-START {track}|s={seed}] Loaded 1ch->3ch from {warm_start_ckpt} "
+            f"  [WARM-START {track}|s={seed}|arch={arch}] Loaded 1ch->3ch from {warm_start_ckpt} "
             f"(expanded={ws_info['expanded_conv_keys']}, ch12_std={warm_start_ch12_std})",
             flush=True,
         )
+    elif use_frozen_res:
+        raise RuntimeError(f"arch='frozen_residual' requires valid Phase 2-B warm_start_ckpt, got: {warm_start_ckpt}")
+
     if env.patch_channels >= 3 and env.use_semantic_channels:
         model.enable_semantic_kernel(1.0)
-    base_lr = 1.5e-5 if (has_warm_start and env.patch_channels >= 3) else 3.5e-4
-    optimizer = torch.optim.AdamW(model.parameters(), lr=base_lr, weight_decay=1e-4)
+    trainable_params = [p for p in model.parameters() if p.requires_grad]
+    if use_frozen_res:
+        base_lr = 2.5e-4
+    else:
+        base_lr = 1.5e-5 if (has_warm_start and env.patch_channels >= 3) else 3.5e-4
+    optimizer = torch.optim.AdamW(trainable_params, lr=base_lr, weight_decay=1e-4)
 
     obs_hist, local_patch = env.reset_envs()
     ckpt_name = (
@@ -1030,7 +1358,10 @@ def train_teacher_seed(
 
     for upd in range(1, max_updates + 1):
         frac = 1.0 - (upd - 1) / float(max(1, max_updates))
-        if has_warm_start and env.patch_channels >= 3:
+        if use_frozen_res:
+            lr_now = 6.0e-5 + (2.5e-4 - 6.0e-5) * frac
+            ent_coef = 0.0002 + (0.0015 - 0.0002) * frac
+        elif has_warm_start and env.patch_channels >= 3:
             lr_now = 5.0e-6 + (2.0e-5 - 5.0e-6) * frac
             ent_coef = 0.0002 + (0.0010 - 0.0002) * frac
         else:
@@ -1125,7 +1456,7 @@ def train_teacher_seed(
                 loss = pg_loss + 0.35 * v_loss - ent_coef * ent_loss
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
-                if has_warm_start and env.patch_channels >= 3:
+                if has_warm_start and env.patch_channels >= 3 and (not use_frozen_res):
                     # Keep warm-started Ch 0 conv & GRU backbone invariant while refining Ch 1 & Ch 2
                     for p_name, param in model.named_parameters():
                         if param.grad is None:
@@ -1134,7 +1465,7 @@ def train_teacher_seed(
                             param.grad[:, :1, :, :] = 0.0
                         elif not p_name.startswith("critic"):
                             param.grad.mul_(0.05)
-                nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                nn.utils.clip_grad_norm_(trainable_params, 1.0)
                 optimizer.step()
 
                 pg_losses.append(float(pg_loss.item()))
@@ -1229,6 +1560,7 @@ def train_teacher_seed(
                         "state_dict": model.state_dict(),
                         "hidden_dim": teacher_hidden_dim,
                         "patch_channels": env.patch_channels,
+                        "arch": arch if use_frozen_res else "legacy",
                         "track": track,
                         "seed": seed,
                         "update": upd,
@@ -1298,29 +1630,50 @@ def distill_ensemble_to_onnx(
     dagger_samples: int = 80_000,
     patch_channels: int = PATCH_CHANNELS,
     use_semantic_channels: Optional[bool] = None,
+    arch: str = "legacy",
+    base_onnx_path: Optional[str] = None,
 ) -> Dict[str, object]:
     """
     Distill a 3-seed Teacher Ensemble into a static-shape DistilledEdgeStudent ONNX model
     with observation noise & DAgger rollout aggregation, then verify Unseen SR & CPU latency.
+    When arch='frozen_residual', loads frozen Phase 2-B 1-Ch ONNX student weights into
+    FrozenBackboneSemanticStudent and trains only the Zero-Gated Residual Semantic Adapter.
     """
-    loaded: List[Tuple[float, TemporalContextActorCritic]] = []
+    loaded: List[Tuple[float, nn.Module]] = []
+    detected_arch = str(arch)
     for cp in ckpt_paths:
         ckpt = torch.load(cp, map_location=device)
         ckpt_sd = ckpt["state_dict"] if isinstance(ckpt, dict) and "state_dict" in ckpt else ckpt
-        conv_w = ckpt_sd.get("spatial_conv.0.weight")
-        ckpt_ch = int(conv_w.shape[1]) if conv_w is not None and conv_w.ndim == 4 else int(patch_channels)
-        m = TemporalContextActorCritic(
-            hidden_dim=int(ckpt.get("hidden_dim", 64)) if isinstance(ckpt, dict) else 128,
-            patch_channels=int(patch_channels),
-        ).to(device)
-        if ckpt_ch == int(patch_channels):
+        ckpt_arch = ckpt.get("arch", arch) if isinstance(ckpt, dict) else arch
+        if ckpt_arch == "frozen_residual" or any(k.startswith("sem_res_mlp.") for k in ckpt_sd.keys()):
+            detected_arch = "frozen_residual"
+            m: nn.Module = FrozenBackboneSemanticTeacher(
+                hidden_dim=int(ckpt.get("hidden_dim", 128)) if isinstance(ckpt, dict) else 128,
+                patch_channels=int(patch_channels),
+            ).to(device)
             m.load_state_dict(ckpt_sd)
         else:
-            m.load_warm_start(ckpt_sd, ch12_init_std=0.0)
+            conv_w = ckpt_sd.get("spatial_conv.0.weight")
+            ckpt_ch = int(conv_w.shape[1]) if conv_w is not None and conv_w.ndim == 4 else int(patch_channels)
+            m = TemporalContextActorCritic(
+                hidden_dim=int(ckpt.get("hidden_dim", 64)) if isinstance(ckpt, dict) else 128,
+                patch_channels=int(patch_channels),
+            ).to(device)
+            if ckpt_ch == int(patch_channels):
+                m.load_state_dict(ckpt_sd)
+            else:
+                m.load_warm_start(ckpt_sd, ch12_init_std=0.0)
         if int(patch_channels) >= 3 and (use_semantic_channels is not False):
             m.enable_semantic_kernel(1.0)
         m.eval()
         loaded.append((float(ckpt.get("unseen_sr", 0.0)) if isinstance(ckpt, dict) else 0.0, m))
+
+    use_frozen_res = (detected_arch == "frozen_residual") and (int(patch_channels) >= 3)
+    resolved_base_onnx = base_onnx_path or os.path.join(
+        WS_ROOT, "src", "disaster_recovery", "config", f"{track}_policy_student.onnx"
+    )
+    if use_frozen_res and (not os.path.exists(resolved_base_onnx)):
+        raise FileNotFoundError(f"Frozen Phase 2-B base ONNX not found: {resolved_base_onnx}")
 
     # Rank descending by Unseen SR so teachers[0] is the strongest Lead Teacher
     loaded.sort(key=lambda x: x[0], reverse=True)
@@ -1364,14 +1717,25 @@ def distill_ensemble_to_onnx(
     x_list: List[torch.Tensor] = []
     y_list: List[torch.Tensor] = []
     collected = 0
-    print(f"\n[DISTILL {track}] Collecting {teacher_samples} Teacher Ensemble transitions (ch={env.patch_channels})...", flush=True)
+    print(
+        f"\n[DISTILL {track}|arch={detected_arch}] Collecting {teacher_samples} Teacher Ensemble transitions (ch={env.patch_channels})...",
+        flush=True,
+    )
     with torch.no_grad():
         while collected < teacher_samples:
-            target_act = ensemble_base_act(obs_hist, local_patch) if env.patch_channels >= 3 else ensemble_act(obs_hist, local_patch)
             roll_act = ensemble_act(obs_hist, local_patch)
-            x_list.append(_flatten_obs(obs_hist, local_patch).cpu())
-            y_list.append(target_act.cpu())
-            collected += obs_hist.shape[0]
+            if use_frozen_res:
+                # Option 2: supervise residual adapter directly against full semantic Teacher on Ch1/Ch2-active states
+                ch12_active = local_patch[:, 1:, :, :].reshape(obs_hist.shape[0], -1).max(dim=1).values > 1e-4
+                if bool(ch12_active.any()):
+                    x_list.append(_flatten_obs(obs_hist[ch12_active], local_patch[ch12_active]).cpu())
+                    y_list.append(roll_act[ch12_active].cpu())
+                    collected += int(ch12_active.sum().item())
+            else:
+                target_act = ensemble_base_act(obs_hist, local_patch) if env.patch_channels >= 3 else roll_act
+                x_list.append(_flatten_obs(obs_hist, local_patch).cpu())
+                y_list.append(target_act.cpu())
+                collected += obs_hist.shape[0]
 
             # Add mild exploration noise so student covers near-boundary recovery states
             exec_act = roll_act + torch.randn_like(roll_act) * torch.tensor([0.015, 0.05], device=device)
@@ -1383,14 +1747,22 @@ def distill_ensemble_to_onnx(
                 obs_next, patch_next = env.reset_envs(env_ids=done_ids, plr_prob=0.35)
             obs_hist, local_patch = obs_next, patch_next
 
-    student = DistilledEdgeStudent(patch_channels=env.patch_channels).to(device)
-    student.enable_semantic_kernel(0.0)
-    optimizer = torch.optim.AdamW(student.parameters(), lr=1.2e-3, weight_decay=1e-4)
+    if use_frozen_res:
+        student: nn.Module = FrozenBackboneSemanticStudent(
+            patch_channels=env.patch_channels, base_onnx_path=resolved_base_onnx
+        ).to(device)
+        student.enable_semantic_kernel(1.0 if (env.use_semantic_channels is not False) else 0.0)
+        stu_params = [p for p in student.parameters() if p.requires_grad]
+    else:
+        student = DistilledEdgeStudent(patch_channels=env.patch_channels).to(device)
+        student.enable_semantic_kernel(0.0)
+        stu_params = list(student.parameters())
+    optimizer = torch.optim.AdamW(stu_params, lr=1.2e-3, weight_decay=1e-4)
 
     def _fit_student(x_all: torch.Tensor, y_all: torch.Tensor, epochs: int) -> Tuple[float, float]:
         n = x_all.shape[0]
         perm = torch.randperm(n)
-        n_val = max(4096, int(0.10 * n))
+        n_val = max(min(4096, n // 5), int(0.10 * n))
         val_idx = perm[:n_val]
         tr_idx = perm[n_val:]
         sched = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(1, epochs))
@@ -1406,7 +1778,8 @@ def distill_ensemble_to_onnx(
                 yb = y_all[idx].to(device)
                 # Data augmentation: slight Gaussian input jitter on LiDAR channels during distillation
                 xb_aug = xb.clone()
-                xb_aug[:, : HISTORY_LEN * STEP_FEAT_DIM] += torch.randn_like(xb_aug[:, : HISTORY_LEN * STEP_FEAT_DIM]) * 0.008
+                if not use_frozen_res:
+                    xb_aug[:, : HISTORY_LEN * STEP_FEAT_DIM] += torch.randn_like(xb_aug[:, : HISTORY_LEN * STEP_FEAT_DIM]) * 0.008
                 pred = student(xb_aug)
                 # Normalize action scale: v range 0.30, w range 1.30
                 scale = torch.tensor([1.0 / 0.30, 1.0 / 1.30], device=device)
@@ -1447,17 +1820,26 @@ def distill_ensemble_to_onnx(
         while collected_dag < dagger_samples:
             flat_obs = _flatten_obs(obs_hist, local_patch)
             s_act = student(flat_obs)
-            t_act = ensemble_base_act(obs_hist, local_patch) if env.patch_channels >= 3 else ensemble_act(obs_hist, local_patch)
-            dx_list.append(flat_obs.cpu())
-            dy_list.append(t_act.cpu())
-            collected_dag += obs_hist.shape[0]
+            if use_frozen_res:
+                t_act = ensemble_act(obs_hist, local_patch)
+                ch12_active = local_patch[:, 1:, :, :].reshape(obs_hist.shape[0], -1).max(dim=1).values > 1e-4
+                if bool(ch12_active.any()):
+                    dx_list.append(flat_obs[ch12_active].cpu())
+                    dy_list.append(t_act[ch12_active].cpu())
+                    collected_dag += int(ch12_active.sum().item())
+            else:
+                t_act = ensemble_base_act(obs_hist, local_patch) if env.patch_channels >= 3 else ensemble_act(obs_hist, local_patch)
+                dx_list.append(flat_obs.cpu())
+                dy_list.append(t_act.cpu())
+                collected_dag += obs_hist.shape[0]
             obs_next, patch_next, _, dones, _ = env.step(s_act)
             done_ids = torch.nonzero(dones, as_tuple=False).squeeze(-1)
             if len(done_ids) > 0:
                 obs_next, patch_next = env.reset_envs(env_ids=done_ids, plr_prob=0.40)
             obs_hist, local_patch = obs_next, patch_next
 
-    student.enable_semantic_kernel(0.0)
+    if not use_frozen_res:
+        student.enable_semantic_kernel(0.0)
     x_all = torch.cat([x_tensor] + dx_list, dim=0)
     y_all = torch.cat([y_tensor] + dy_list, dim=0)
     tr2, val2 = _fit_student(x_all, y_all, epochs=28)
@@ -1475,6 +1857,21 @@ def distill_ensemble_to_onnx(
     opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
     sess = ort.InferenceSession(out_onnx_path, sess_options=opts, providers=["CPUExecutionProvider"])
     in_name = sess.get_inputs()[0].name
+
+    non_reg_max_diff: Optional[float] = None
+    if use_frozen_res and os.path.exists(resolved_base_onnx):
+        base_sess = ort.InferenceSession(resolved_base_onnx, sess_options=opts, providers=["CPUExecutionProvider"])
+        base_in = base_sess.get_inputs()[0].name
+        rng = np.random.default_rng(42)
+        h_test = rng.normal(0.0, 0.5, size=(512, HISTORY_LEN * STEP_FEAT_DIM)).astype(np.float32)
+        c0_test = np.clip(rng.uniform(0.0, 1.0, size=(512, PATCH_SIZE * PATCH_SIZE)), 0.0, 1.0).astype(np.float32)
+        c12_zero = np.zeros((512, 2 * PATCH_SIZE * PATCH_SIZE), dtype=np.float32)
+        in_1ch = np.concatenate([h_test, c0_test], axis=1)
+        in_3ch_zero = np.concatenate([h_test, c0_test, c12_zero], axis=1)
+        out_1ch = base_sess.run(None, {base_in: in_1ch})[0]
+        out_3ch = sess.run(None, {in_name: in_3ch_zero})[0]
+        non_reg_max_diff = float(np.max(np.abs(out_3ch - out_1ch)))
+        print(f"  [NON-REGRESSION CHECK {track}] max|ONNX_opt2(Ch1=0,Ch2=0) - Phase2B_1ch| = {non_reg_max_diff:.2e}", flush=True)
 
     def onnx_policy_fn(h: torch.Tensor, p: torch.Tensor) -> torch.Tensor:
         flat_np = _flatten_obs(h, p).detach().cpu().numpy().astype(np.float32)
@@ -1512,6 +1909,8 @@ def distill_ensemble_to_onnx(
     return {
         "onnx_path": out_onnx_path,
         "onnx_size_kb": round(onnx_size_kb, 1),
+        "arch": detected_arch,
+        "non_regression_max_abs_diff": non_reg_max_diff,
         "patch_channels": env.patch_channels,
         "flat_input_dim": flat_dim,
         "val_mse_pass1": round(val1, 6),
@@ -1661,6 +2060,8 @@ def main() -> int:
     parser.add_argument("--no-warm-start", action="store_true", help="Disable automatic Teacher Warm-Start from Phase 2-B 1-channel checkpoints")
     parser.add_argument("--warm-start-ch12-std", type=float, default=0.0, help="Init std for Ch 1 & Ch 2 conv weights during 1ch->3ch warm-start (0.0 preserves exact policy)")
     parser.add_argument("--semantic-onnx-suffix", default="_semantic_v3", help="Suffix for 3-channel semantic ONNX export so existing 1-channel ONNX is never overwritten")
+    parser.add_argument("--arch", default="legacy", choices=["legacy", "frozen_residual"], help="Option 2 ('frozen_residual'): freeze Phase 2-B 1-Ch backbone and train only zero-gated residual semantic adapter")
+    parser.add_argument("--base-onnx-dir", default="", help="Directory holding Phase 2-B {track}_policy_student.onnx when arch=frozen_residual")
     parser.add_argument("--archive-root", default="/hdd/rl_archives")
     parser.add_argument("--evidence-dir", default="/hdd/evidence/training")
     parser.add_argument("--repo-img-dir", default=os.path.join(WS_ROOT, "docs", "images", "evidence"))
@@ -1813,6 +2214,7 @@ def main() -> int:
                     use_semantic_channels=use_sem,
                     warm_start_ckpt=warm_ckpt,
                     warm_start_ch12_std=args.warm_start_ch12_std,
+                    arch=args.arch,
                 )
                 ckpt_paths.append(cp)
                 seed_summaries.append(summ)
@@ -1821,6 +2223,8 @@ def main() -> int:
                 track, patch_channels=patch_channels, semantic_suffix=args.semantic_onnx_suffix
             )
             out_onnx = os.path.join(onnx_out_dir, onnx_fname)
+            base_onnx_dir = args.base_onnx_dir.strip() or os.path.join(WS_ROOT, "src", "disaster_recovery", "config")
+            base_onnx = os.path.join(base_onnx_dir, f"{track}_policy_student.onnx")
             dist_res = distill_ensemble_to_onnx(
                 track=track,
                 ckpt_paths=ckpt_paths,
@@ -1828,6 +2232,8 @@ def main() -> int:
                 device=device,
                 patch_channels=patch_channels,
                 use_semantic_channels=use_sem,
+                arch=args.arch,
+                base_onnx_path=base_onnx,
             )
 
             # Render final ONNX Student 3D MP4 & PNG visual proof on unseen procedural test case

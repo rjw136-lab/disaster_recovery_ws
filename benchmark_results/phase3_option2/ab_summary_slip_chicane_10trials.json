@@ -1,0 +1,38 @@
+{
+  "slip_chicane": {
+    "baseline": {
+      "scenario": "slip_chicane",
+      "label_ko": "저마찰 슬립 S자 연속 문틀 (mu=0.32)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 0,
+      "success_rate_pct": 0.0,
+      "arrival_passes": 3,
+      "arrival_success_rate_pct": 30.0,
+      "collision_trials": 10,
+      "mean_error_cm_all": 386.16,
+      "mean_error_cm_pass": null,
+      "mean_time_s_all": 231.61,
+      "mean_time_s_pass": null,
+      "mean_ret_path_m_pass": null,
+      "mean_explored_m": 15.25
+    },
+    "proposed": {
+      "scenario": "slip_chicane",
+      "label_ko": "저마찰 슬립 S자 연속 문틀 (mu=0.32)",
+      "strategy": "proposed_rl",
+      "trials": 10,
+      "passes": 9,
+      "success_rate_pct": 90.0,
+      "arrival_passes": 10,
+      "arrival_success_rate_pct": 100.0,
+      "collision_trials": 1,
+      "mean_error_cm_all": 7.89,
+      "mean_error_cm_pass": 7.86,
+      "mean_time_s_all": 118.51,
+      "mean_time_s_pass": 117.47,
+      "mean_ret_path_m_pass": 15.47,
+      "mean_explored_m": 14.56
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "dynamic_crossfire_alley": {
+    "baseline": {
+      "scenario": "dynamic_crossfire_alley",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 3,
+      "success_rate_pct": 30.0
+    },
+    "proposed": {
+      "scenario": "dynamic_crossfire_alley",
+      "label_ko": "동적 교차 협곡 (잔상 장벽·대각선 교차 장애물)",
+      "strategy": "proposed_rl",
+      "trials": 10,
+      "passes": 1,
+      "success_rate_pct": 10.0,
+      "arrival_passes": 7,
+      "arrival_success_rate_pct": 70.0,
+      "collision_trials": 9,
+      "mean_error_cm_all": 161.83,
+      "mean_error_cm_pass": 7.82,
+      "mean_time_s_all": 148.4,
+      "mean_time_s_pass": 50.3,
+      "mean_ret_path_m_pass": 8.63,
+      "mean_explored_m": 14.15
+    }
+  }
+}

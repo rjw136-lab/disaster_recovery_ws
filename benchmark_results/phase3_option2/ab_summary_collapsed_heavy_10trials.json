@@ -1,0 +1,35 @@
+{
+  "collapsed_heavy": {
+    "baseline": {
+      "scenario": "collapsed_heavy",
+      "label_ko": "붕괴 건물 (고밀도 다중 낙석)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 2,
+      "success_rate_pct": 20.0,
+      "mean_error_cm_all": 475.56,
+      "mean_error_cm_pass": 3.88,
+      "mean_time_s_all": 238.49,
+      "mean_time_s_pass": 171.35,
+      "mean_ret_path_m_pass": 18.57,
+      "mean_explored_m": 16.46
+    },
+    "proposed": {
+      "scenario": "collapsed_heavy",
+      "label_ko": "붕괴 건물 (고밀도 다중 낙석)",
+      "strategy": "proposed_rl",
+      "trials": 10,
+      "passes": 8,
+      "success_rate_pct": 80.0,
+      "arrival_passes": 10,
+      "arrival_success_rate_pct": 100.0,
+      "collision_trials": 2,
+      "mean_error_cm_all": 8.25,
+      "mean_error_cm_pass": 8.22,
+      "mean_time_s_all": 122.67,
+      "mean_time_s_pass": 105.69,
+      "mean_ret_path_m_pass": 15.87,
+      "mean_explored_m": 16.46
+    }
+  }
+}
