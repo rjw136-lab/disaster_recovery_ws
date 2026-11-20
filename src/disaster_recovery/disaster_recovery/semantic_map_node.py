@@ -567,7 +567,7 @@ class SemanticMapNode(Node):
             m.lifetime = MsgDuration(sec=0, nanosec=0)
             arr.markers.append(m)
 
-            # 2. TEXT_VIEW_FACING Label Marker
+            # 2. TEXT_VIEW_FACING Label Marker (stagger z to prevent overlap, show map (x, y) coords)
             txt = Marker()
             txt.header.stamp = now_msg
             txt.header.frame_id = frame_id
@@ -577,12 +577,12 @@ class SemanticMapNode(Node):
             txt.action = Marker.ADD
             txt.pose.position.x = mx
             txt.pose.position.y = my
-            txt.pose.position.z = m.pose.position.z + 0.28
+            txt.pose.position.z = m.pose.position.z + 0.30 + 0.22 * (marker_id % 3)
             txt.pose.orientation.w = 1.0
-            txt.scale.z = 0.16
-            txt.color = ColorRGBA(r=1.0, g=1.0, b=1.0, a=0.95)
+            txt.scale.z = 0.20
+            txt.color = ColorRGBA(r=1.0, g=1.0, b=1.0, a=0.98)
             tag = ' [LOW]' if low_conf else ''
-            txt.text = f"{cls_name} ({conf:.2f}, n={hits}){tag}"
+            txt.text = f"{cls_name} ({mx:.2f},{my:.2f}m) n={hits}{tag}"
             txt.lifetime = MsgDuration(sec=0, nanosec=0)
             arr.markers.append(txt)
 

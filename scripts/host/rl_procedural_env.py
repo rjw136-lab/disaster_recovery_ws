@@ -1503,12 +1503,19 @@ class VectorDisasterEnv:
             self.entered_hazard |= in_hazard_now
 
             pen_depth = torch.clamp(-min_hazard_clear / 0.30, 0.0, 1.0)
-            hazard_entry_pen = torch.where(in_hazard_now, -0.75 - 1.75 * pen_depth, 0.0)
+            hazard_entry_pen = (
+                torch.where(in_hazard_now, -1.60 - 2.60 * pen_depth, 0.0)
+                + torch.where(
+                    (~in_hazard_now) & (min_hazard_clear < 0.08),
+                    (min_hazard_clear - 0.08) * 3.0,
+                    0.0,
+                )
+            )
 
             near_safe_bypass = (
                 (~in_hazard_now)
-                & (min_hazard_clear >= 0.05)
-                & (min_hazard_clear < 0.45)
+                & (min_hazard_clear >= 0.06)
+                & (min_hazard_clear < 0.55)
                 & (actual_ds > 0.006)
             )
             hazard_pass_bonus = (
@@ -1518,7 +1525,7 @@ class VectorDisasterEnv:
                 & (self.rx > self.nav_wp[:, 1, 0] + 0.18)
             )
             self.hazard_clear_bonus_given |= hazard_pass_bonus
-            hazard_clear_rew = torch.where(near_safe_bypass, 0.18, 0.0) + torch.where(hazard_pass_bonus, 4.5, 0.0)
+            hazard_clear_rew = torch.where(near_safe_bypass, 0.24, 0.0) + torch.where(hazard_pass_bonus, 8.0, 0.0)
         else:
             in_hazard_now = torch.zeros(self.B, dtype=torch.bool, device=self.device)
             min_hazard_clear = torch.full((self.B,), 10.0, dtype=torch.float32, device=self.device)

@@ -5,13 +5,16 @@
       "label_ko": "ㄷ자 막다른 함정 (후진·대우회 필수)",
       "strategy": "baseline",
       "trials": 10,
-      "passes": 4,
-      "success_rate_pct": 40.0,
-      "mean_error_cm_all": 286.45,
-      "mean_error_cm_pass": 3.08,
-      "mean_time_s_all": 210.87,
-      "mean_time_s_pass": 145.95,
-      "mean_ret_path_m_pass": 16.24,
+      "passes": 1,
+      "success_rate_pct": 10.0,
+      "arrival_passes": 8,
+      "arrival_success_rate_pct": 80.0,
+      "collision_trials": 9,
+      "mean_error_cm_all": 108.81,
+      "mean_error_cm_pass": 1.75,
+      "mean_time_s_all": 177.98,
+      "mean_time_s_pass": 102.7,
+      "mean_ret_path_m_pass": 14.66,
       "mean_explored_m": 15.56
     },
     "proposed": {
@@ -21,12 +24,15 @@
       "trials": 10,
       "passes": 10,
       "success_rate_pct": 100.0,
-      "mean_error_cm_all": 7.99,
-      "mean_error_cm_pass": 7.99,
-      "mean_time_s_all": 97.68,
-      "mean_time_s_pass": 97.68,
-      "mean_ret_path_m_pass": 14.89,
-      "mean_explored_m": 15.55
+      "arrival_passes": 10,
+      "arrival_success_rate_pct": 100.0,
+      "collision_trials": 0,
+      "mean_error_cm_all": 8.0,
+      "mean_error_cm_pass": 8.0,
+      "mean_time_s_all": 91.59,
+      "mean_time_s_pass": 91.59,
+      "mean_ret_path_m_pass": 14.61,
+      "mean_explored_m": 15.56
     }
   }
 }

@@ -534,6 +534,7 @@ class SimHarnessNode(Node):
         self.scan_front_min = 10.0
         self.scan_left_min = 10.0
         self.scan_right_min = 10.0
+        self.scan_all_min = 10.0
         self.scan_ranges: Optional[np.ndarray] = None
         self.scan_angles: Optional[np.ndarray] = None
         self.scan_pts_robot: Optional[np.ndarray] = None
@@ -557,7 +558,9 @@ class SimHarnessNode(Node):
 
     def sim_sleep(self, sim_sec: float) -> None:
         t0 = self.sim_now()
-        while self.sim_now() - t0 < sim_sec:
+        tw0 = time.time()
+        max_w = max(4.0, float(sim_sec) * 3.0)
+        while self.sim_now() - t0 < sim_sec and (time.time() - tw0) < max_w:
             rclpy.spin_once(self, timeout_sec=0.01)
 
     def _hb_tick(self):
@@ -606,6 +609,8 @@ class SimHarnessNode(Node):
         self.scan_front_min = float(np.min(ranges[fwd])) if np.any(fwd) else 10.0
         self.scan_left_min = float(np.min(ranges[left])) if np.any(left) else 10.0
         self.scan_right_min = float(np.min(ranges[right])) if np.any(right) else 10.0
+        phys_valid = (ranges >= 0.120) & (ranges <= 3.5) & np.isfinite(ranges)
+        self.scan_all_min = float(np.min(ranges[phys_valid])) if np.any(phys_valid) else 10.0
         self.scan_ranges = clean
         self.scan_angles = angles
         pts_mask = (ranges >= 0.13) & (ranges <= 3.5) & np.isfinite(ranges)
@@ -959,6 +964,8 @@ def _summarize_results(cfg: ScenarioConfig, strategy: str, results: List[dict]) 
     """Aggregate summary statistics across completed trials for one strategy."""
     ordered = sorted(results, key=lambda r: int(r["trial"]))
     passes = [r for r in ordered if r["success"]]
+    arrival_passes = [r for r in ordered if r.get("arrival_success", r["success"])]
+    collision_trials = [r for r in ordered if not r.get("collision_free", True)]
     summary = {
         "scenario": cfg.name,
         "label_ko": cfg.label_ko,
@@ -966,6 +973,9 @@ def _summarize_results(cfg: ScenarioConfig, strategy: str, results: List[dict]) 
         "trials": len(ordered),
         "passes": len(passes),
         "success_rate_pct": round(100.0 * len(passes) / max(1, len(ordered)), 1),
+        "arrival_passes": len(arrival_passes),
+        "arrival_success_rate_pct": round(100.0 * len(arrival_passes) / max(1, len(ordered)), 1),
+        "collision_trials": len(collision_trials),
         "mean_error_cm_all": round(float(np.mean([r["terminal_error_cm"] for r in ordered])), 2),
         "mean_error_cm_pass": round(float(np.mean([r["terminal_error_cm"] for r in passes])), 2) if passes else None,
         "mean_time_s_all": round(float(np.mean([r["return_duration_s"] for r in ordered])), 2),
@@ -989,6 +999,7 @@ def run_strategy_suite(
     kill_stale: bool = False,
     context_rl_onnx_path: str = "",
     disable_phase2b_envelope: bool = False,
+    strict_collision_free: bool = True,
 ) -> dict:
     results: List[dict] = list(initial_results) if initial_results else []
     done_trials = {int(r["trial"]) for r in results}
@@ -1056,6 +1067,10 @@ def run_strategy_suite(
             delete_debris_entities(max_count=12)
             node.reset_gazebo_world(timeout_s=3.0)
             run_cmd_bounded(
+                f"GAZEBO_MASTER_URI={gz_master_uri} timeout -k 1 2 gz model -m burger -x {base_x} -y {base_y} -z 0.01 -R 0 -P 0 -Y {base_yaw} >/dev/null 2>&1",
+                timeout_s=3.0,
+            )
+            run_cmd_bounded(
                 f"GAZEBO_MASTER_URI={gz_master_uri} timeout -k 1 2 gz physics -u {u_rate} >/dev/null 2>&1",
                 timeout_s=4.0,
             )
@@ -1065,7 +1080,8 @@ def run_strategy_suite(
 
             # Confirm controller ready in NORMAL_TELEOP near reset_pose
             wait_t0 = node.sim_now()
-            while node.sim_now() - wait_t0 < 6.0:
+            wait_w0 = time.time()
+            while node.sim_now() - wait_t0 < 6.0 and (time.time() - wait_w0) < 12.0:
                 rclpy.spin_once(node, timeout_sec=0.02)
                 if node.ctrl_state == "NORMAL_TELEOP" and math.hypot(node.cur_x - base_x, node.cur_y - base_y) < 0.20:
                     break
@@ -1096,9 +1112,14 @@ def run_strategy_suite(
                     return False
                 return True
 
+            t_wall_out0 = time.time()
+            max_wall_out = max(120.0, cfg.outbound_timeout_sim * 1.5)
             while not _phase1_done():
+                if time.time() - t_wall_out0 > max_wall_out:
+                    break
                 t_tick = node.sim_now()
-                while node.sim_now() - t_tick < 0.05:
+                t_w_tick = time.time()
+                while node.sim_now() - t_tick < 0.05 and (time.time() - t_w_tick) < 0.6:
                     rclpy.spin_once(node, timeout_sec=0.01)
 
                 step_d = math.hypot(node.cur_x - prev_x, node.cur_y - prev_y)
@@ -1130,7 +1151,8 @@ def run_strategy_suite(
                         if math.hypot(node.cur_x - anchor_x, node.cur_y - anchor_y) < 0.12:
                             turn_d = 0.60 if node.scan_left_min >= node.scan_right_min else -0.60
                             esc_t0 = node.sim_now()
-                            while node.sim_now() - esc_t0 < 0.9:
+                            esc_w0 = time.time()
+                            while node.sim_now() - esc_t0 < 0.9 and (time.time() - esc_w0) < 3.0:
                                 node.drive_raw(-0.08, turn_d)
                                 rclpy.spin_once(node, timeout_sec=0.01)
                         anchor_x, anchor_y = node.cur_x, node.cur_y
@@ -1146,7 +1168,8 @@ def run_strategy_suite(
                         if math.hypot(node.cur_x - anchor_x, node.cur_y - anchor_y) < 0.12:
                             turn_d = 0.60 if node.scan_left_min >= node.scan_right_min else -0.60
                             esc_t0 = node.sim_now()
-                            while node.sim_now() - esc_t0 < 1.0:
+                            esc_w0 = time.time()
+                            while node.sim_now() - esc_t0 < 1.0 and (time.time() - esc_w0) < 3.0:
                                 node.drive_raw(-0.10, turn_d)
                                 rclpy.spin_once(node, timeout_sec=0.01)
                             goal_x, goal_y = goal_pool[goal_ptr % len(goal_pool)]
@@ -1220,10 +1243,18 @@ def run_strategy_suite(
             success = False
             return_trajectory: List[List[float]] = [[round(turnoff_x, 3), round(turnoff_y, 3)]]
             states_visited = set()
+            min_scan_m = 10.0
+            lidar_collision_steps = 0
+            min_debris_dist_m = 99.0
 
+            t_wall_ret0 = time.time()
+            max_wall_ret = max(180.0, max_return_wait * 1.5)
             while node.sim_now() - t_blackout < max_return_wait:
+                if time.time() - t_wall_ret0 > max_wall_ret:
+                    break
                 t_step = node.sim_now()
-                while node.sim_now() - t_step < 0.10:
+                t_w_step = time.time()
+                while node.sim_now() - t_step < 0.10 and (time.time() - t_w_step) < 0.8:
                     rclpy.spin_once(node, timeout_sec=0.01)
 
                 states_visited.add(node.ctrl_state)
@@ -1243,6 +1274,23 @@ def run_strategy_suite(
                     and math.hypot(node.cur_x - base_x, node.cur_y - base_y) < 0.85
                 ):
                     saw_recovery = True
+
+                if saw_recovery:
+                    if node.scan_all_min < min_scan_m:
+                        min_scan_m = node.scan_all_min
+                    if node.scan_all_min <= 0.121:
+                        lidar_collision_steps += 1
+                    if debris_positions:
+                        odom_d = min(math.hypot(node.cur_x - dx, node.cur_y - dy) for dx, dy in debris_positions)
+                        if odom_d < 0.45:
+                            tp_now = get_gazebo_true_pose("burger")
+                            if tp_now is not None:
+                                true_d = min(math.hypot(tp_now[0] - dx, tp_now[1] - dy) for dx, dy in debris_positions)
+                                min_debris_dist_m = min(min_debris_dist_m, true_d)
+                            else:
+                                min_debris_dist_m = min(min_debris_dist_m, odom_d)
+                        else:
+                            min_debris_dist_m = min(min_debris_dist_m, odom_d)
 
                 if math.hypot(node.cur_x - return_trajectory[-1][0], node.cur_y - return_trajectory[-1][1]) >= 0.12:
                     return_trajectory.append([round(node.cur_x, 3), round(node.cur_y, 3)])
@@ -1265,6 +1313,13 @@ def run_strategy_suite(
             elif not success and err_m < 0.60 and (saw_recovery or "EMERGENCY_STOP" in states_visited):
                 success = True
 
+            arrival_success = bool(success)
+            debris_collision = bool(debris_positions and min_debris_dist_m < 0.265)
+            lidar_collision = bool(lidar_collision_steps >= 4)
+            collision_free = not (debris_collision or lidar_collision)
+            if strict_collision_free:
+                success = bool(arrival_success and collision_free)
+
             # Return path travel distance
             ret_path_len = 0.0
             for k in range(1, len(return_trajectory)):
@@ -1285,6 +1340,13 @@ def run_strategy_suite(
                 "debris_count": len(debris_positions),
                 "debris_positions": spec["debris_positions"],
                 "success": success,
+                "arrival_success": arrival_success,
+                "collision_free": collision_free,
+                "debris_collision": debris_collision,
+                "lidar_collision": lidar_collision,
+                "min_debris_dist_m": round(min_debris_dist_m, 3) if debris_positions else None,
+                "min_scan_m": round(min_scan_m, 3) if min_scan_m < 9.9 else None,
+                "lidar_collision_steps": lidar_collision_steps,
                 "return_duration_s": round(return_duration, 2),
                 "terminal_error_cm": round(err_m * 100.0, 2),
                 "final_pose": [round(final_x, 3), round(final_y, 3), round(final_th, 3)],
@@ -1297,13 +1359,13 @@ def run_strategy_suite(
             results.append(rec)
             if on_trial_done is not None:
                 on_trial_done(rec, results)
-            tag = "PASS" if success else "FAIL"
+            tag = "PASS" if success else ("COL_FAIL" if arrival_success and not collision_free else "FAIL")
             wall_dt = max(0.1, time.time() - t_wall_trial0)
             sim_dt = max(0.0, node.sim_now() - t_sim_trial0)
             print(
                 f"  [{strategy.upper():8s} | {cfg.name:15s} #{t_idx:02d}/{len(scenario_specs)}] "
-                f"{tag} | depth={explored_m:5.2f}m | rocks={len(debris_positions)} | "
-                f"err={err_m*100:6.1f}cm | time={return_duration:6.1f}s | end={node.ctrl_state} | RTF={sim_dt/wall_dt:.1f}x"
+                f"{tag:8s} | depth={explored_m:5.2f}m | rocks={len(debris_positions)} | "
+                f"d_rock={min_debris_dist_m:4.2f}m | err={err_m*100:6.1f}cm | time={return_duration:6.1f}s | end={node.ctrl_state} | RTF={sim_dt/wall_dt:.1f}x"
             )
     finally:
         delete_debris_entities(max_count=12)
@@ -1383,6 +1445,11 @@ def main():
         action="store_true",
         help="Kill all global gzserver/recovery_controller before start (unsafe during parallel runs)",
     )
+    parser.add_argument(
+        "--allow-collision-pass",
+        action="store_true",
+        help="Allow arrival with debris/LiDAR collision to count as PASS (legacy mode; default is strict collision-free)",
+    )
     args = parser.parse_args()
 
     os.environ["ROS_LOCALHOST_ONLY"] = "1"
@@ -1461,6 +1528,7 @@ def main():
                 gz_port=args.gz_port,
                 ros_domain_id=args.ros_domain_id,
                 kill_stale=args.kill_stale,
+                strict_collision_free=(not args.allow_collision_pass),
             )
             base_trials_init = list(base_res["trials"])
             _save_checkpoint({}, base_trials_init, phase="baseline")
@@ -1480,6 +1548,7 @@ def main():
             kill_stale=args.kill_stale,
             context_rl_onnx_path=args.context_rl_onnx,
             disable_phase2b_envelope=args.disable_phase2b_envelope,
+            strict_collision_free=(not args.allow_collision_pass),
         )
 
         # Save fixed specs and A/B comparison JSON

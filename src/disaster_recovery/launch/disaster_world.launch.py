@@ -74,14 +74,14 @@ def generate_launch_description():
         launch_arguments={'use_sim_time': use_sim_time}.items()
     )
 
-    # Static TFs for TurtleBot3 Burger camera:
-    # 1) base_link -> camera_link: xyz=(0.040, 0.0, 0.130), rpy=(0, 0, 0)
+    # Static TFs for TurtleBot3 Burger camera (mounted clear above scaled visual shell):
+    # 1) base_link -> camera_link: xyz=(0.180, 0.0, 0.300), ypr=(0.0, -0.14, 0.0)
     # 2) camera_link -> camera_rgb_optical_frame: xyz=(0, 0, 0), rpy=(-pi/2, 0, -pi/2)
     camera_base_tf_cmd = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
         name='base_to_camera_tf',
-        arguments=['0.040', '0.0', '0.130', '0.0', '0.0', '0.0', 'base_link', 'camera_link'],
+        arguments=['0.180', '0.0', '0.300', '0.0', '-0.14', '0.0', 'base_link', 'camera_link'],
         parameters=[{'use_sim_time': use_sim_time}],
         output='screen'
     )

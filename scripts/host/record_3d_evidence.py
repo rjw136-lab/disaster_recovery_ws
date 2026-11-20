@@ -791,6 +791,7 @@ def main() -> int:
         telemetry_log=telemetry_log,
         success=success,
         err_cm=err_cm,
+        onnx_path=args.onnx_path,
     )
 
     # Integrity verification (ffprobe) & keyframe PNG extraction
@@ -831,6 +832,7 @@ def _apply_hud_overlay(
     telemetry_log: Sequence[Tuple[float, float, str, float]],
     success: bool,
     err_cm: float,
+    onnx_path: str = "",
 ) -> None:
     """Stamp top telemetry HUD bar and bottom event banner onto every frame of raw_mp4 -> out_mp4."""
     if not os.path.exists(raw_mp4):
@@ -861,10 +863,15 @@ def _apply_hud_overlay(
             except Exception:
                 continue
 
+    is_sem_v3 = "semantic_v3" in (onnx_path or "")
     strat_label = {
         "baseline": "Baseline (단순 역추적)",
         "proposed": "Phase 1 (proposed A*)",
-        "proposed_rl": "Phase 2-B (Adaptive Safety + RL)",
+        "proposed_rl": (
+            "Phase 3 (3-Ch Semantic Context-RL)"
+            if is_sem_v3
+            else "Phase 2-B (Adaptive Safety + RL)"
+        ),
     }.get(strategy, strategy)
 
     has_nvenc = False

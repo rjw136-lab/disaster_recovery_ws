@@ -109,10 +109,10 @@ class SemanticCorridorSafetyHead(nn.Module):
             torch.exp(-0.5 * (d_perp / 0.145) ** 2) * torch.clamp(1.25 - d_fwd / 0.85, 0.25, 1.25),
             torch.zeros_like(d_fwd),
         )
-        in_c2 = (d_fwd > -0.04) & (d_fwd < 0.90) & (d_perp < 0.34)
+        in_c2 = (d_fwd > -0.05) & (d_fwd < 0.92) & (d_perp < 0.37)
         k_ch2 = torch.where(
             in_c2,
-            torch.exp(-0.5 * (d_perp / 0.18) ** 2) * torch.clamp(1.20 - d_fwd / 0.88, 0.25, 1.20),
+            torch.exp(-0.5 * (d_perp / 0.19) ** 2) * torch.clamp(1.22 - d_fwd / 0.90, 0.25, 1.22),
             torch.zeros_like(d_fwd),
         )
         self.register_buffer("k_ch1_t", k_ch1.T.contiguous(), persistent=False)  # (144, M)
@@ -133,7 +133,7 @@ class SemanticCorridorSafetyHead(nn.Module):
         ch1_f = local_patch[:, 1, :, :].reshape(b, PATCH_SIZE * PATCH_SIZE)
         ch2_f = local_patch[:, 2, :, :].reshape(b, PATCH_SIZE * PATCH_SIZE)
         cost_ch1 = torch.matmul(ch1_f, self.k_ch1_t) * 3.8
-        cost_ch2 = torch.matmul(ch2_f, self.k_ch2_t) * 2.6
+        cost_ch2 = torch.matmul(ch2_f, self.k_ch2_t) * 2.95
         sem_cost = cost_ch1 + cost_ch2
         sem_peak = sem_cost.max(dim=1).values
         sem_gate = torch.clamp((sem_peak - 0.08) / 0.14, 0.0, 1.0) * self.scale_gate
