@@ -687,6 +687,10 @@ def render_3d_rollout_video(
         frames_patch: List[np.ndarray] = []
         frames_cyls: List[Tuple[np.ndarray, np.ndarray]] = []
         frames_clear: List[float] = []
+        frames_low_hits: List[int] = []
+        frames_gas_hits: List[int] = []
+        low_hits_acc = 0
+        gas_hits_acc = 0
         outcome = "TIMEOUT"
 
         for t in range(320):
@@ -701,6 +705,8 @@ def render_3d_rollout_video(
                 env.cyl_active[0].detach().cpu().numpy().copy(),
             ))
             frames_clear.append(float(min_c[0].item()))
+            frames_low_hits.append(low_hits_acc)
+            frames_gas_hits.append(gas_hits_acc)
 
             act = policy_fn(obs_hist, local_patch)
             cmd_v = float(act[0, 0].item())
@@ -710,7 +716,11 @@ def render_3d_rollout_video(
             frames_vw.append((cmd_v, cmd_w, act_v, act_w))
 
             obs_hist, local_patch, _, dones, info = env.step(act)
-            if bool(dones[0].item()):
+            if "low_obs_contact" in info and bool(info["low_obs_contact"][0].item()):
+                low_hits_acc += 1
+            if "gas_violation" in info and bool(info["gas_violation"][0].item()):
+                gas_hits_acc += 1
+            if bool(dones[0].item()) or t == 319:
                 frames_rx.append(float(env.rx[0].item()))
                 frames_ry.append(float(env.ry[0].item()))
                 frames_rth.append(float(env.rth[0].item()))
@@ -722,11 +732,22 @@ def render_3d_rollout_video(
                     env.cyl_active[0].detach().cpu().numpy().copy(),
                 ))
                 frames_clear.append(float(min_c[0].item()))
+                frames_low_hits.append(low_hits_acc)
+                frames_gas_hits.append(gas_hits_acc)
                 frames_vw.append((cmd_v, cmd_w, float(env.actual_vw[0, 0].item()), float(env.actual_vw[0, 1].item())))
                 if bool(info["reached"][0].item()):
-                    outcome = "PASS"
+                    if low_hits_acc == 0 and gas_hits_acc == 0:
+                        outcome = "PASS"
+                    elif low_hits_acc > 0 and gas_hits_acc > 0:
+                        outcome = f"HAZARD HIT (Low x{low_hits_acc}, Gas x{gas_hits_acc})"
+                    elif low_hits_acc > 0:
+                        outcome = f"LOW-OBS HIT (x{low_hits_acc})"
+                    else:
+                        outcome = f"GAS VIOLATION (x{gas_hits_acc})"
                 elif bool(info["collision"][0].item()):
                     outcome = "COLLISION"
+                else:
+                    outcome = f"TIMEOUT (Low x{low_hits_acc})" if low_hits_acc > 0 else "TIMEOUT"
                 break
 
         eval_seed = cand_seed
@@ -744,7 +765,7 @@ def render_3d_rollout_video(
     ]
     proc = subprocess.Popen(ff_cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    key_idx = len(frames_rx) - 1 if outcome == "PASS" else max(0, min(len(frames_rx) - 1, int(0.65 * (len(frames_rx) - 1))))
+    key_idx = len(frames_rx) - 1 if outcome == "PASS" else max(0, min(len(frames_rx) - 1, int(0.85 * (len(frames_rx) - 1))))
     angs_local = np.linspace(0.0, 2.0 * np.pi, len(frames_lidar[0]), endpoint=False)
 
     # Hold end frame briefly so viewer sees outcome cleanly
@@ -878,10 +899,13 @@ def render_3d_rollout_video(
         )
         cv, cw, av, aw = frames_vw[idx]
         dist_rem = math.hypot(goal_x - rx, goal_y - ry)
-        status_col = "#4ade80" if outcome == "PASS" and idx == len(frames_rx) - 1 else ("#f87171" if outcome == "COLLISION" and idx == len(frames_rx) - 1 else "#e2e8f0")
+        cur_lh = frames_low_hits[idx]
+        cur_gh = frames_gas_hits[idx]
+        is_fail = outcome != "PASS"
+        status_col = "#4ade80" if (not is_fail and idx == len(frames_rx) - 1) else ("#f87171" if (cur_lh > 0 or cur_gh > 0 or (is_fail and idx == len(frames_rx) - 1)) else "#e2e8f0")
         hud = (
             f"Tick: {idx:03d} ({idx * 0.1:.1f}s) | Outcome: {outcome}\n"
-            f"Goal Rem: {dist_rem:.2f} m | Min Clear: {frames_clear[idx]:.2f} m\n"
+            f"Goal Rem: {dist_rem:.2f} m | Clear: {frames_clear[idx]:.2f} m | LowHit: {cur_lh} | GasHit: {cur_gh}\n"
             f"Cmd (v,w): ({cv:+.2f}, {cw:+.2f}) | Act: ({av:+.2f}, {aw:+.2f})"
         )
         ax2d.set_title(hud, color=status_col, fontsize=10, fontweight="bold", loc="left", pad=8)

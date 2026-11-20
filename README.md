@@ -22,7 +22,7 @@
   <img src="docs/images/disaster_recovery_banner_latest.png" alt="Disaster Recovery TurtleBot3 Burger Hero Banner" width="100%">
 </p>
 
-> **시스템 요약 (System Overview)**: 실내 재난 환경 탐사 중 **통신 단절(Heartbeat 3.0초 타임아웃)** 또는 **유해 가스 누출(MQ-2 임계치 초과)** 이 발생했을 때, 외부 관제 없이 온보드 연산(Raspberry Pi 4)만으로 **2D LiDAR-단안 RGB 시맨틱 SLAM + 3채널 Context-RL 자율 복귀(`LIFO 역추적 · RollingLocalGrid 2D A* · 3-Ch Context-RL ONNX · 2D LiDAR ICP 보정 · 연기/동적잔상 필터 · ArUco 정밀 도킹`)** 를 수행하는 TurtleBot3 Burger 제어 시스템이다. (**Phase 3 시맨틱 회피 10-Trial A/B 무충돌 귀환 `90%` vs Blind `30%`, 가스 침범 `0%` · 15대 재난 시나리오 150회 엄격 무충돌 벤치마크 도착 `95.3%` / 무충돌 `62.0%` [통일 기준] 및 Phase 2-B 무충돌 `69.3%` 검증 완료** · [상세](#phase-3-2d-시맨틱-slam--3채널-context-rl-자율-복귀))
+> **시스템 요약 (System Overview)**: 실내 재난 환경 탐사 중 **통신 단절(Heartbeat 3.0초 타임아웃)** 또는 **유해 가스 누출(MQ-2 임계치 초과)** 이 발생했을 때, 외부 관제 없이 온보드 연산(Raspberry Pi 4)만으로 **2D LiDAR-단안 RGB 시맨틱 SLAM + 3채널 Context-RL 자율 복귀(`LIFO 역추적 · RollingLocalGrid 2D A* · 3-Ch Context-RL ONNX · 2D LiDAR ICP 보정 · 연기/동적잔상 필터 · ArUco 정밀 도킹`)** 를 수행하는 TurtleBot3 Burger 제어 시스템이다. (**Phase 3 시맨틱 회피 10-Trial A/B 무충돌 귀환 `90%` vs Blind `30%`, 가스 침범 `0%` · 15대 재난 시나리오 150회 엄격 무충돌 벤치마크 도착 `95.3%` / 무충돌 `62.0%` [통일 기준] 및 Phase 2-B 무충돌 `69.3%` 검증 완료** · [상세](#phase-3-2d-시맨틱-slam--3채널-context-rl--통신-단절-아키텍처))
 
 ---
 
@@ -38,14 +38,14 @@
 
 **성능 검증 & 고도화**
 
-5. [Phase 3: 2D 시맨틱 SLAM & 3채널 Context-RL 자율 복귀](#phase-3-2d-시맨틱-slam--3채널-context-rl-자율-복귀)
-   - [1. 단안 RGB-2D LiDAR 투영 퓨전 & 3패널 E2E 시맨틱 SLAM](#1-단안-rgb-2d-lidar-투영-퓨전--3패널-e2e-시맨틱-slam)
-   - [2. V100 Warm-Start 3채널 Context-RL 재학습 & 롤아웃 진화](#2-v100-warm-start-3채널-context-rl-재학습--롤아웃-진화)
-   - [3. Gazebo 시맨틱 구조·회피 10-Trial A/B 실증 (Blind vs Semantic-Aware)](#3-gazebo-시맨틱-구조회피-10-trial-ab-실증-blind-vs-semantic-aware)
-   - [4. 15대 시나리오 150회 엄격 무충돌(Strict Collision-Free) 비퇴행 벤치마크](#4-15대-시나리오-150회-엄격-무충돌strict-collision-free-비퇴행-벤치마크)
-6. [단계별 고도화 비교 (Baseline → Phase 1 → Phase 2-A → Phase 2-B)](#단계별-고도화-비교-baseline--phase-1--phase-2-a--phase-2-b)
-   - [1. 계층형 자율 복귀 구조 & 15대 시나리오 맵](#1-계층형-자율-복귀-구조--15대-시나리오-맵)
-   - [2. 4-Way 비교 GIF · 3D 주행 영상 · 아카이브](#2-4-way-비교-gif--3d-주행-영상--아카이브)
+5. [5단계 알고리즘 동일 맵 종합 비교 (Baseline → Phase 3)](#5단계-알고리즘-동일-맵-종합-비교-baseline--phase-3)
+   - [1. 5개 알고리즘 차이점 · 장점 · 단점 비교표](#1-5개-알고리즘-차이점--장점--단점-비교표) · [2. Semantic Rescue 5-Way [GIF] & RViz2 좌표 [PNG]](#2-semantic-rescue-5-way-gif--rviz2-좌표-png) · [3. 극한 3대 시나리오 5-Way [GIF] & 15종 아카이브](#3-극한-3대-시나리오-5-way-gif--15종-아카이브)
+6. [Phase 3: 2D 시맨틱 SLAM · 3채널 Context-RL · 통신 단절 아키텍처](#phase-3-2d-시맨틱-slam--3채널-context-rl--통신-단절-아키텍처)
+   - [1. 단안 RGB-2D LiDAR 투영 퓨전 & 3패널 E2E [GIF]](#1-단안-rgb-2d-lidar-투영-퓨전--3패널-e2e-gif)
+   - [2. 통신 연결 ↔ 단절 시 시맨틱(조난자) 인지 원리 및 한계](#2-통신-연결--단절-시-시맨틱조난자-인지-원리-및-한계)
+   - [3. V100 Warm-Start 3채널 Context-RL 재학습 & 진화 [GIF]](#3-v100-warm-start-3채널-context-rl-재학습--진화-gif)
+   - [4. Gazebo 시맨틱 구조·회피 10-Trial A/B [GIF]](#4-gazebo-시맨틱-구조회피-10-trial-ab-gif)
+   - [5. 15대 시나리오 150회 엄격 무충돌 비퇴행 벤치마크](#5-15대-시나리오-150회-엄격-무충돌-비퇴행-벤치마크)
 
 **하드웨어 · 설치 · 실행**
 
@@ -260,114 +260,20 @@ stateDiagram-v2
 
 ---
 
-## Phase 3: 2D 시맨틱 SLAM & 3채널 Context-RL 자율 복귀
+## 5단계 알고리즘 동일 맵 종합 비교 (Baseline → Phase 3)
 
-> 📄 **상세 설계 및 트러블슈팅**: [`docs/차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md`](docs/차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md) · [트러블슈팅 백서 #42](docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md#420-42-phase-3-2d-lidar-단안-rgb-투영-시맨틱-slam-e2e-및-3채널-context-rl-회피-정책-통합-검증)
+> 모든 시각 자료는 움직이는 실험 영상(**`[GIF]`**)과 정적 분석 도표·스냅샷(**`[PNG]`**)으로 구분해 표기했다.
+> 5단계 계층 제어 파이프라인은 **Baseline(`LIFO + 4-Tier Reactive`)** → **Phase 1(`2D Grid A* + 지름길`)** → **Phase 2-A(`1-Ch RL 단순 혼합`)** → **Phase 2-B(`연기/잔상 필터 + 안전 포락선 + 1-Ch RL`)** → **Phase 3(`2D 시맨틱 SLAM 캐시 + 3-Ch Context-RL`)** 순으로 발전했다.
 
-본 시스템의 주력 파이프라인(**Phase 3**)은 선행 연구(이은원·김진현, *로봇학회 논문지*, 2025)를 기반으로 **추가 3D Depth 카메라 없이 기존 LDS-01 2D LiDAR(`/scan`)와 단안 RGB 카메라(YOLO26n)만 투영 퓨전**하여 2D 점유 지도(`/map`) 위에 조난자·장애물·가스·음성 마커와 좌표를 영구 기록한다. 동시에 **3채널 미니지도 기반 Context-RL(`sim_policy_student_semantic_v3.onnx`)** 이 LiDAR 사각지대의 저상 장애물과 유해 가스 구역을 선제 우회하며, 통신 두절로 host 시맨틱 입력이 끊겨도 Modality Dropout 폴백으로 온보드 자율 복귀를 수행한다.
+### 1. 5개 알고리즘 차이점 · 장점 · 단점 비교표
 
-### 1. 단안 RGB-2D LiDAR 투영 퓨전 & 3패널 E2E 시맨틱 SLAM
-
-- **선행 논문 수식 3 오타 정정 & 270° CCW 역변환**: 수식 (3)의 $X \cdot f_y$ 오타를 $Y \cdot f_y$ ($v = (Y \cdot f_y)/Z + c_y$)로 바로잡고, 실차 카메라 90° 시계방향 장착에 맞춘 $270^\circ$ CCW 역변환(`unrotate_point`, `unrotate_bbox_xyxy`)을 정합했다([`semantic_mapper_core.py`](src/disaster_recovery/disaster_recovery/semantic_mapper_core.py)).
-- **배경 벽면 오인 차단 (`+0.25m` 전경 클러스터링)**: 바운딩 박스 가로 중앙 70% 영역 내 2D LaserScan 투영 포인트 중 최소 깊이 기준 $Z \le \min(Z) + 0.25\,\text{m}$ 전경 클러스터 중앙값을 $P_{\text{camera}}$로 채택한다.
-- **실시간 `/map` 마커 스탬핑 & 4종 영구 저장 (`semantic_map_node.py`)**: `slam_toolbox` / Cartographer `/map` 위에 조난자(`person (5.97, 0.36)m`, `conf=0.924`, `hits=92`)·저상 장애물·가스(`GAS_HAZARD (2.51, 0.57)m`)·음성 경보를 실시간 표시하고 `/semantic_map/save_map` 호출 시 `raw_map.png`, `raw_map.yaml`, `semantic_objects.json`, `semantic_map_overlay.png`를 원자적으로 저장한다.
-
-| Gazebo 3D + RViz2 `/map` + YOLO26n 3패널 E2E 주행 | 실시간 3패널 관제 스냅샷 | 2D `/map` 시맨틱 오버레이 |
-| :---: | :---: | :---: |
-| <img src="docs/images/evidence/phase3_semantic_slam_e2e.gif" width="100%" alt="Phase 3 Semantic SLAM E2E GIF"> | <img src="docs/images/evidence/phase3_semantic_slam_live.png" width="100%" alt="Phase 3 Semantic SLAM Live"> | <img src="docs/images/evidence/phase3_gazebo_semantic_map_overlay.png" width="100%" alt="Phase 3 Semantic Map Overlay"> |
-
----
-
-### 2. V100 Warm-Start 3채널 Context-RL 재학습 & 롤아웃 진화
-
-Phase 2-B의 1채널 2D LiDAR 격자를 **3채널 ($12\times 12\times 3 = 432$셀 + 544차원 스칼라 = `976`차원 Flat Input)** 로 확장하고 `SemanticCorridorSafetyHead`와 강화된 위험 구역 페널티(`hazard_entry_pen`, `hazard_pass_bonus = 8.0`)로 Tesla V100 32GB Dual-Track 재학습을 수행했다([`train_phase2_v100.py`](scripts/host/train_phase2_v100.py), [`rl_procedural_env.py`](scripts/host/rl_procedural_env.py)).
-
-| 채널 | 규격 | 입력 소스 | 인지 목적 |
-| :---: | :---: | :--- | :--- |
-| **Ch 0** | $12\times 12$ ($0.15\,\text{m}$) | 2D LiDAR LDS-01 점유 격자 ($1.8\times 1.8\,\text{m}$) | 수평 평면 벽면 및 고상 낙석 회피 |
-| **Ch 1** | $12\times 12$ ($0.15\,\text{m}$) | 단안 RGB-LiDAR 투영 저상 장애물 캐시 | LDS-01 스캔 평면(`z=0.171m`) 아래 저상 장애물 회피 |
-| **Ch 2** | $12\times 12$ ($0.15\,\text{m}$) | 유해 가스 반경(`0.55m`) 및 조난자 구역 | 유해 가스 플룸·조난자 안전 이격 유지 |
-
-- **왜 Phase 2-B(`44.24M` steps/track) 대비 Phase 3(`5.31M` steps/track)는 학습 스텝이 적은가?**
-  - **Phase 2-B**는 1채널 주행·GRU 백본·Critic을 백지상태(From Scratch, `lr=3.5e-4`)에서 학습했기 때문에 트랙당 `44,236,800` steps(시드당 `14,745,600` steps)가 필요했다.
-  - **Phase 3**는 이미 수렴된 Phase 2-B Teacher 가중치를 **Warm-Start(`1ch → 3ch` 채널 확장)** 으로 불러온 뒤, **Ch 0 conv gradient를 `0.0`으로 동결**하고 기존 백본(Critic 제외) gradient를 `0.05×`로 감쇠시키며 낮은 학습률(`2.0e-5 → 5.0e-6`)로 Ch 1·Ch 2 시맨틱 채널만 미세조정했다([`train_phase2_v100.py`](scripts/host/train_phase2_v100.py#L952-L962), [L1104-L1112](scripts/host/train_phase2_v100.py#L1104-L1112)). 이 구조 덕분에 트랙당 `5,308,416` steps(시드당 `1,769,472` steps, 48 updates × 4 PPO epochs + BC 22 / DAgger 28 epochs)만으로 **기존 주행 백본 망각(Catastrophic Forgetting) 없이** 이미 목표 성능에 도달했다.
-- **V100 증류 ONNX 실측 성능** ([`phase3_semantic_training_summary.json`](benchmark_results/phase3_semantic_training_summary.json)):
-  - **`sim_policy_student_semantic_v3.onnx`** (`289.2 KB`, CPU `0.089 ms`): Unseen 8개 레짐 **`98.3%`**, `Base6 = 100.0%`, `Dropout Fallback (28%) = 100.0%`, `Semantic-2 = 93.3%`, `LowObsCF = 100.0%`, `gas_victim_corridor = 86.7%`.
-  - **`real_tb3_policy_student_semantic_v3.onnx`** (`289.2 KB`, CPU `0.089 ms`): Unseen **`96.7%`**, `Base6 = 98.9%`, `Dropout Fallback = 98.3%`, `Semantic-2 = 90.0%`.
-
-| Sim 트랙 학습 곡선 | Real-TB3 트랙 학습 곡선 |
-| :---: | :---: |
-| <img src="docs/images/evidence_v3/phase3_learning_curves_sim.png" width="100%" alt="Phase 3 Sim Learning Curves"> | <img src="docs/images/evidence_v3/phase3_learning_curves_real_tb3.png" width="100%" alt="Phase 3 Real TB3 Learning Curves"> |
-
-| Early (`upd 12` · `PASS`, 187스텝) | Mid (`upd 24` · `PASS`, 185스텝) | Final Distilled Student (`PASS`, 186스텝) |
-| :---: | :---: | :---: |
-| <img src="docs/images/evidence_v3/phase3_sim_early_upd12.gif" width="100%" alt="Phase 3 Early Rollout"> | <img src="docs/images/evidence_v3/phase3_sim_mid_upd24.gif" width="100%" alt="Phase 3 Mid Rollout"> | <img src="docs/images/evidence_v3/phase3_sim_final_student.gif" width="100%" alt="Phase 3 Final Student Rollout"> |
-
----
-
-### 3. Gazebo 시맨틱 구조·회피 10-Trial A/B 실증 (Blind vs Semantic-Aware)
-
-[`disaster_semantic_rescue_world.world`](src/disaster_recovery/worlds/disaster_semantic_rescue_world.world)에서 무작위 저상 장애물(`z=0.095m`, LDS-01 스캔 평면 `0.171m` 하단 사각지대) 2개와 유해 가스 구역(`r=0.55m`)을 복귀 경로에 배치하고, 10회 결정론적 A/B 비교를 수행했다([`semantic_avoidance_ab_10trials.json`](benchmark_results/phase3_semantic_v3/semantic_avoidance_ab_10trials.json), [`run_phase3_semantic_suite.py`](scripts/host/run_phase3_semantic_suite.py)).
-
-| 평가 지표 (`10 Trials`) | Phase 2-B Blind (`use_semantic_rl_policy:=false`) | Phase 3 Semantic-Aware (`use_semantic_rl_policy:=true`) | 개선 폭 |
-| :--- | :---: | :---: | :---: |
-| **도착 성공률 (Arrival)** | `7/10` (`70.0%`) | **`10/10` (`100.0%`)** | **`+30.0%p`** |
-| **무충돌 복귀 성공률 (Collision-Free)** | `3/10` (`30.0%`) | **`9/10` (`90.0%`)** | **`+60.0%p` (`3.0×`)** |
-| **엄격 위험무관통 성공률 (Strict Hazard-Free)** | `2/10` (`20.0%`) | **`9/10` (`90.0%`)** | **`+70.0%p` (`4.5×`)** |
-| **저상 장애물 회피율 (충돌 횟수)** | `50.0%` (`5/10` 충돌) | **`90.0%` (`1/10` 충돌)** | **`+40.0%p`** |
-| **가스 구역 회피율 (침범 횟수)** | `60.0%` (`4/10` 침범) | **`100.0%` (`0/10` 침범)** | **`+40.0%p` (침범 0회)** |
-| **저상 장애물 평균 최소 이격** | `0.3977 m` | **`0.5148 m`** | **`+11.71 cm`** |
-| **가스 중심 평균 최소 이격** | `0.5914 m` | **`0.7676 m`** | **`+17.62 cm`** |
-| **평균 복귀 소요 시간** | `51.33 s` | **`13.36 s`** | **`3.84×` 단축** |
-
-<p align="center">
-  <img src="docs/images/evidence_v3/phase3_semantic_ab_comparison.png" alt="Phase 3 10-Trial Semantic A/B Comparison" width="88%">
-</p>
-
-| Blind vs Semantic-Aware (/map 활성 A/B 비교 GIF) | Blind (`low=0.289m`, `gas=0.749m`) | Semantic-Aware (`low=0.575m`, `gas=0.957m`) |
-| :---: | :---: | :---: |
-| <img src="docs/images/evidence/phase3_semantic_avoidance_ab.gif" width="100%" alt="Phase 3 Semantic Avoidance AB GIF"> | <img src="docs/images/evidence/phase3_semantic_avoidance_blind.png" width="100%" alt="Phase 3 Blind Snapshot"> | <img src="docs/images/evidence/phase3_semantic_avoidance_aware.png" width="100%" alt="Phase 3 Aware Snapshot"> |
-
----
-
-### 4. 15대 시나리오 150회 엄격 무충돌(Strict Collision-Free) 비퇴행 벤치마크
-
-기존 벤치마크(`ab_disaster_benchmark.py`)는 로봇이 벽이나 낙석을 스치며 복귀해도 도착만 하면 `PASS`로 집계하는 한계가 있었다. 이를 해소하기 위해 **`debris_collision == False` (`min_debris_dist >= 0.265 m`) 및 `lidar_collision_steps < 4` (`min_scan <= 0.121 m` 연속 스침 차단)** 를 적용한 **엄격 무충돌(Strict Collision-Free) 150-트라이얼 벤치마크**로 Baseline · Phase 2-B · Phase 3를 재검증했다([`phase2b_strict/`](benchmark_results/phase2b_strict/), [`phase3_semantic_v3/`](benchmark_results/phase3_semantic_v3/)).
-
-> *참고: `phase3_semantic_v3`의 초기 12개 시나리오는 `lidar_collision_steps >= 2` 기준(`87/150 = 58.0%`)으로 기록되었으며, 아래 표는 `phase2b_strict`와 동일한 통일 기준(`lidar_collision_steps < 4` & `debris_collision=False`)과 도착 기준(Arrival)을 함께 병기한다.*
-
-| # | 시나리오 ID | Baseline<br>(무충돌) | Phase 2-B Strict<br>(도착 / 무충돌) | Phase 3 Strict<br>(도착 / 원시 / 통일 무충돌) | Phase 3<br>무충돌 평균시간 · 오차 |
-| :-: | :--- | :---: | :---: | :---: | :---: |
-| **1** | `collapsed` | `5/10` | `10/10` / `7/10` | `10/10` / `7/10` / **`9/10`** | `97.2 s` · `8.3 cm` |
-| **2** | `collapsed_hard` | `1/10` | `10/10` / **`8/10`** | `9/10` / `7/10` / `7/10` | `117.8 s` · `8.5 cm` |
-| **3** | `collapsed_heavy` | `2/10` | `10/10` / `7/10` | `10/10` / `7/10` / **`8/10`** | `105.2 s` · `8.3 cm` |
-| **4** | `collapsed_heavy_hard` | `1/10` | `10/10` / `4/10` | `10/10` / `5/10` / **`6/10`** | `133.7 s` · `8.6 cm` |
-| **5** | `dynamic_crossfire_alley` | `3/10` | `10/10` / `2/10` | `10/10` / `2/10` / `2/10` | `49.6 s` · `8.0 cm` |
-| **6** | `dynamic_gauntlet` | `0/10` | `10/10` / `2/10` | `10/10` / `3/10` / **`3/10`** | `98.3 s` · `8.0 cm` |
-| **7** | `house` | `9/10` | `10/10` / **`6/10`** | `8/10` / `1/10` / `1/10` | `89.9 s` · `8.3 cm` |
-| **8** | `house_hard` | `0/10` | `10/10` / **`9/10`** | `7/10` / `2/10` / `2/10` | `113.0 s` · `8.5 cm` |
-| **9** | `maze` | `9/10` | `10/10` / `10/10` | `10/10` / `8/10` / **`10/10`** | `24.4 s` · `8.3 cm` |
-| **10** | `maze_hard` | `7/10` | `6/10` / **`6/10`** | `9/10` / `4/10` / `4/10` | `24.9 s` · `4.6 cm` |
-| **11** | `slip_chicane` | `2/10` | `10/10` / **`4/10`** | `10/10` / `3/10` / `3/10` | `135.0 s` · `8.5 cm` |
-| **12** | `smoke_lidar_corruption` | `0/10` | `10/10` / **`10/10`** | `10/10` / `9/10` / `9/10` | `77.6 s` · `8.4 cm` |
-| **13** | `tunnel` | `9/10` | `10/10` / `10/10` | `10/10` / `10/10` / **`10/10`** | `83.8 s` · `8.3 cm` |
-| **14** | `tunnel_hard` | `8/10` | `10/10` / **`10/10`** | `10/10` / `9/10` / `9/10` | `108.6 s` · `8.2 cm` |
-| **15** | `u_pocket_trap` | `1/10` | `10/10` / `9/10` | `10/10` / `10/10` / **`10/10`** | `91.6 s` · `8.0 cm` |
-| **합계** | **150 Trials** | **`57/150 (38.0%)`** | **`146/150 (97.3%)` / `104/150 (69.3%)`** | **`143/150 (95.3%)` / `87/150 (58.0%)` / `93/150 (62.0%)`** | **`88.49 s` · `8.13 cm`** *(전체 `107.87 s`)* |
-
-- **엄격 무충돌 기준 도입 시 해석**: 이동 장애물 교차로(`dynamic_crossfire_alley`, `dynamic_gauntlet`) 및 협소 문틀(`house`, `house_hard`)에서는 도착에는 성공하더라도(`10/10`) 벽·이동체 스침이 엄격 감점(`lidar_collision_steps >= 4`)으로 반영되어 무충돌 성공률이 `62.0%`~`69.3%`로 측정된다. 반면 **시맨틱 채널이 직접 작용하는 저상 장애물·가스 환경(`ab10`)**에서는 Phase 3가 Phase 2-B 대비 **무충돌 `30% → 90%`, 가스 회피 `60% → 100%`** 로 압도적 우위를 보인다.
-
-| Non-Regression `dynamic_gauntlet #01` (3D GIF · `49.7s`, 오차 `8.0cm`) | 장애물 조우 (`encounter`) | 기지 복귀 완주 (`outcome`) |
-| :---: | :---: | :---: |
-| <img src="docs/images/evidence/phase3_nonreg_dynamic_gauntlet_t01.gif" width="100%" alt="Phase 3 Dynamic Gauntlet GIF"> | <img src="docs/images/evidence/phase3_nonreg_dynamic_gauntlet_t01_encounter.png" width="100%" alt="Phase 3 Dynamic Gauntlet Encounter"> | <img src="docs/images/evidence/phase3_nonreg_dynamic_gauntlet_t01_outcome.png" width="100%" alt="Phase 3 Dynamic Gauntlet Outcome"> |
-
----
-
-## 단계별 고도화 비교 (Baseline → Phase 1 → Phase 2-A → Phase 2-B)
-
-> Phase 3 이전 단계들은 **역추적(LIFO) + 2D ICP + ArUco** 기본 방식(`Baseline`, Legacy 도착 `80/150 = 53.3%`, 엄격 무충돌 `57/150 = 38.0%`)에서 출발해 **Phase 1(`A*` + 지름길, Legacy `129/150 = 86.0%`)**, **Phase 2-A(V100 RL 단순 혼합, Legacy `124/150 = 82.7%`)**, **Phase 2-B(Layer-0 연기/동적잔상 필터 + 안전 포락선, Legacy 도착 `149/150 = 99.33%` / 엄격 무충돌 `104/150 = 69.3%`)** 순으로 진화했다.
-
-### 1. 계층형 자율 복귀 구조 & 15대 시나리오 맵
+| 단계 | 핵심 제어 구조 | 장점 (Strengths) | 단점 · 한계 (Limitations) | 동일 복합 맵(`Semantic Rescue`) 결과 |
+| :--- | :--- | :--- | :--- | :--- |
+| **Baseline**<br>(`baseline`) | 4계층 반응형 회피 + 단순 TD3 + LIFO 순차 역추적 + 2D ICP | 구조가 단순하고 연산 부하가 가장 낮음; 장애물 없는 단순 통로 직진 복귀 가능 | 전역/국소 격자 플래너(A*) 및 탈출(`ESCAPE`) 부재로 U자 함정·문틀·2차 붕괴에서 정체; 연막/동적 장애물/저상/가스 인지 불가 (`150회 엄격 38.0%`) | `도착 O` / **`저상 충돌 FAIL`**<br>(`low=0.210m`, `19.1s`) |
+| **Phase 1**<br>(`proposed`) | `RollingLocalGrid(0.04m)` 2D A* + 비파괴 위상 지름길 + `ESCAPE` | 3D 벽면·낙석 우회 및 U자 함정 탈출 정확도 급상승 (정적 장애물 강인) | LiDAR 반사 잡음(연기)과 동적 장애물 잔상에 과차단되어 멈춤; **저상 장애물·유독가스(비물리)·조난자 보호구역 Blind** | **`정체 TIMEOUT FAIL`**<br>(`low=0.197m` + `gas=0.381m`, `135.1s`) |
+| **Phase 2-A**<br>(`proposed_rl`,<br>`envelope=false`) | 1-Ch Context-RL + A* 고정/단순 블렌딩 | A* 재계획 지연 구간에서 연속 곡선 조향 가능 | 좁은 문틀·2차 붕괴 협소 통로에서 RL 조향이 A* 경로를 간섭해 진동·정체 발생; 저상/가스 Blind | **`정체 TIMEOUT FAIL`**<br>(`err=271.6cm`, `135.5s`) |
+| **Phase 2-B**<br>(`proposed_rl`,<br>`envelope=true`, 1-Ch) | **Layer-0 연기 각도 필터 + 동적 잔상 빠른 소거 + 안전 포락선** + 1-Ch ONNX | 2D LiDAR(`z=0.171m`) 평면에 잡히는 모든 벽·낙석·연기·이동체 회피 최상위 (`150회 도착 97.3%` / `무충돌 69.3%`) | 1채널 2D LiDAR 입력만 사용하므로 **스캔 평면 아래 저상 장애물(`h<0.17m`)과 유독가스·조난자 좌표를 전혀 인지 불가** | `도착 O` / **`저상 충돌 FAIL`**<br>(`low=0.239m`, `21.4s`) |
+| **Phase 3**<br>(`proposed_rl`,<br>`use_semantic=true`, 3-Ch) | **SLAM `/map` RGB-LiDAR 시맨틱 캐시(`SemanticObjectCache`)** + 3-Ch `semantic_v3` ONNX | 2D LiDAR 비가시 저상 장애물(`Ch1`)·유독가스/조난자 보호반경(`Ch2`)까지 단절 전 캐싱·선제 회피 (`10-Trial A/B 90%`, `가스 회피 100%`) | 통신 단절 직전까지 탐지·백업된 좌표는 완벽 유지하나, **단절 중 새로 나타난 조난자는 YOLO(Host) 중단으로 추가 탐지 불가** | **`무충돌·무피폭 PASS`**<br>(`low=0.459m`, `gas=0.986m`, **`11.3s`**) |
 
 ```mermaid
 flowchart TD
@@ -378,21 +284,161 @@ flowchart TD
     G -->|"출발 기지 0.5m 진입"| T["종말 도킹 계층 (Terminal)<br/>ArUco 2cm 정밀 도킹 (+10s 안전 타임아웃)"]
 ```
 
-| 15대 재난 시나리오 3D Gazebo 환경 (9개 고유 월드) | 2D 구조 단면 및 4단계 복귀 궤적 지도 |
+### 2. Semantic Rescue 5-Way `[GIF]` & RViz2 좌표 `[PNG]`
+
+[`disaster_semantic_rescue_world.world`](src/disaster_recovery/worlds/disaster_semantic_rescue_world.world) 에서 **조난자(`person`)·저상 장애물 2개(`h=0.095m`)·유독가스 구역(`r=0.55m`)** 을 배치하고, Outbound SLAM+YOLO26n 좌표 스탬핑 후 Blackout 시점에 **2차 붕괴 3D 낙석(`box_obs_1`)** 이 퇴로를 막아 중앙 위험 회랑으로 우회하도록 강제했을 때 5개 알고리즘의 실제 Gazebo 주행 결과다([`comp5_semantic_rescue.json`](benchmark_results/phase3_semantic_v3/comp5_semantic_rescue.json), [`run_comp5_semantic_rescue.py`](scripts/host/run_comp5_semantic_rescue.py)).
+
+| `[GIF]` Semantic Rescue 동일 `/map` 위 5단계 비교 (생존자·저상장애물·가스·2차 붕괴) | `[PNG]` RViz2 `/map` + YOLO26n 실제 좌표 스탬핑 (`person (5.81, 0.34)m`) |
 | :---: | :---: |
-| <img src="docs/images/scenario_worlds_15_3d.png" width="100%" alt="15 Disaster Scenarios 3D"> | <img src="docs/images/scenario_routes_15_atlas.png" width="100%" alt="15 Disaster Scenarios 2D Routes Atlas"> |
+| <img src="docs/images/evidence/comp5_semantic_rescue_map.gif" width="100%" alt="[GIF] 5-Stage Semantic Rescue Arena Comparison"> | <img src="docs/images/evidence/comp5_semantic_rviz_coords.png" width="100%" alt="[PNG] RViz2 and YOLO26n Stamped Semantic Map Coordinates"> |
 
-### 2. 4-Way 비교 GIF · 3D 주행 영상 · 아카이브
+- **`comp5_semantic_rescue_map.gif` `[GIF]` 판독**: `Phase 1`/`Phase 2-A`는 2차 낙석 뒤에서 정체 실패(`TIMEOUT`), `Baseline`/`Phase 2-B`는 3D 낙석은 피했으나 Blind 상태라 저상 장애물을 그대로 밟고 충돌(`LOW-OBS HIT`), **`Phase 3`만 Outbound 중 RViz2 `/map`에 스탬핑·캐싱한 `low(2.45,0.22)`·`low(3.65,0.12)`·`GAS(3.60,0.58)`·`person(5.81,0.34)` 좌표를 3채널 RL로 읽어 `11.3s` 만에 무충돌 복귀(`PASS`)** 했다.
 
-| `#14 dynamic_crossfire_alley` 4-Way 비교 | `#15 smoke_lidar_corruption` 4-Way 비교 | `#11 u_pocket_trap` 4-Way 비교 |
+### 3. 극한 3대 시나리오 5-Way `[GIF]` & 15종 아카이브
+
+동일 시드(Seed) 조건에서 **연막 LiDAR 오염(`#15`)**, **교차 이동 기둥(`#14`)**, **U자 함정(`#11`)** 에 대해 5개 알고리즘이 각각 어떻게 대처하는지 한눈에 비교한 `[GIF]` 다.
+
+| `[GIF]` `#15 smoke_lidar_corruption` 5-Way (Seed 2127) | `[GIF]` `#14 dynamic_crossfire_alley` 5-Way (Seed 2127) | `[GIF]` `#11 u_pocket_trap` 5-Way (Seed 3036) |
 | :---: | :---: | :---: |
-| <img src="docs/images/evidence/comp4_dynamic_crossfire_alley.gif" width="100%" alt="4-Way dynamic_crossfire_alley"> | <img src="docs/images/evidence/comp4_smoke_lidar_corruption.gif" width="100%" alt="4-Way smoke_lidar_corruption"> | <img src="docs/images/evidence/comp4_u_pocket_trap.gif" width="100%" alt="4-Way u_pocket_trap"> |
+| <img src="docs/images/evidence/comp5_smoke_lidar_corruption.gif" width="100%" alt="[GIF] 5-Way smoke_lidar_corruption"> | <img src="docs/images/evidence/comp5_dynamic_crossfire_alley.gif" width="100%" alt="[GIF] 5-Way dynamic_crossfire_alley"> | <img src="docs/images/evidence/comp5_u_pocket_trap.gif" width="100%" alt="[GIF] 5-Way u_pocket_trap"> |
 
-| `#14 dynamic_crossfire_alley` 3D Dual-View | `#15 smoke_lidar_corruption` 3D Dual-View | Phase 2-B V100 학습 곡선 (`44.24M` steps/track) |
+<details>
+<summary><strong>[PNG] · [GIF] 15대 시나리오 맵 · 3D 주행 · Phase 2-B 학습곡선 아카이브 펼쳐보기</strong></summary>
+
+| `[PNG]` 15대 재난 시나리오 3D Gazebo 월드 | `[PNG]` 15대 시나리오 구조 단면 & 궤적 지도 | `[PNG]` Phase 2-B V100 학습 곡선 (`44.24M` steps/track) |
 | :---: | :---: | :---: |
-| <img src="docs/images/evidence/p2b_dynamic_crossfire_alley.gif" width="100%" alt="3D dynamic_crossfire_alley"> | <img src="docs/images/evidence/p2b_smoke_lidar_corruption.gif" width="100%" alt="3D smoke_lidar_corruption"> | <img src="docs/images/evidence/phase2b_learning_curves_sim.png" width="100%" alt="Phase 2-B Learning Curves"> |
+| <img src="docs/images/scenario_worlds_15_3d.png" width="100%" alt="[PNG] 15 Disaster Scenarios 3D"> | <img src="docs/images/scenario_routes_15_atlas.png" width="100%" alt="[PNG] 15 Disaster Scenarios 2D Routes Atlas"> | <img src="docs/images/evidence/phase2b_learning_curves_sim.png" width="100%" alt="[PNG] Phase 2-B Learning Curves"> |
 
-- **이전 단계 아카이브**: [초기 15회 분석](docs/붕괴건물_15회_자율복귀_벤치마크_분석보고서.md) · [5대/15대 알고리즘 원리 해설](docs/재난환경_자율복귀_알고리즘_원리_해설_및_보고서.md) · [Phase 2-B Legacy 집계표](docs/phase2b_comparison_summary.txt) · [`benchmark_results/`](benchmark_results/)
+| `[GIF]` `#14 dynamic_crossfire_alley` 3D Dual-View | `[GIF]` `#15 smoke_lidar_corruption` 3D Dual-View | 아카이브 문서 |
+| :---: | :---: | :--- |
+| <img src="docs/images/evidence/p2b_dynamic_crossfire_alley.gif" width="100%" alt="[GIF] 3D dynamic_crossfire_alley"> | <img src="docs/images/evidence/p2b_smoke_lidar_corruption.gif" width="100%" alt="[GIF] 3D smoke_lidar_corruption"> | [초기 15회 분석](docs/붕괴건물_15회_자율복귀_벤치마크_분석보고서.md) · [원리 해설](docs/재난환경_자율복귀_알고리즘_원리_해설_및_보고서.md) · [Phase 2-B 요약](docs/phase2b_comparison_summary.txt) · [`benchmark_results/`](benchmark_results/) |
+
+</details>
+
+---
+
+## Phase 3: 2D 시맨틱 SLAM · 3채널 Context-RL · 통신 단절 아키텍처
+
+> 📄 **상세 설계 및 트러블슈팅**: [`docs/차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md`](docs/차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md) · [트러블슈팅 백서 #42](docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md#420-42-phase-3-2d-lidar-단안-rgb-투영-시맨틱-slam-e2e-및-3채널-context-rl-회피-정책-통합-검증)
+
+### 1. 단안 RGB-2D LiDAR 투영 퓨전 & 3패널 E2E `[GIF]`
+
+- **선행 논문 수식 3 오타 정정 & 270° CCW 역변환**: 이은원·김진현(2025) 수식 (3)의 $X \cdot f_y$ 오타를 $Y \cdot f_y$ ($v = (Y \cdot f_y)/Z + c_y$)로 바로잡고, 실차 카메라 90° 시계방향 장착에 맞춘 $270^\circ$ CCW 역변환(`unrotate_point`, `unrotate_bbox_xyxy`)을 정합했다([`semantic_mapper_core.py`](src/disaster_recovery/disaster_recovery/semantic_mapper_core.py)).
+- **배경 벽면 오인 차단 (`+0.25m` 전경 클러스터링)**: 바운딩 박스 가로 중앙 70% 영역 내 2D LaserScan 투영 포인트 중 최소 깊이 기준 $Z \le \min(Z) + 0.25\,\text{m}$ 전경 클러스터 중앙값을 $P_{\text{camera}}$로 채택한다.
+- **실시간 `/map` 마커 스탬핑 & 4종 영구 저장 (`semantic_map_node.py`)**: `slam_toolbox` `/map` 위에 조난자(`person`)·저상 장애물·가스(`GAS_HAZARD`)·음성 경보를 실시간 표시하고 `/semantic_map/save_map` 호출 시 `raw_map.png`, `raw_map.yaml`, `semantic_objects.json`, `semantic_map_overlay.png`를 원자적으로 저장한다.
+
+> **Gazebo 3D 색상 범례 (아래 E2E · A/B 영상 공통)**:
+> **분홍 사각/원반** = 저상 장애물(`h=0.095m`, 2D LiDAR 사각지대) · **노란 원반** = 유독가스 구역(`r=0.55m`) · **하늘색 링/리본** = Base Camp `(0,0)` & 탐색 경로 · **파란 부채꼴** = 2D LiDAR 스캔 평면(`z=0.171m`) · **서 있는 사람** = 조난자(`person`, `(5.85, 0.45)m`)
+
+| `[GIF]` 3패널 E2E 시맨틱 SLAM (Gazebo 색상범례 + HUD 포함) | `[PNG]` E2E 3패널 실시간 스냅샷 | `[PNG]` 2D `/map` 시맨틱 좌표 오버레이 |
+| :---: | :---: | :---: |
+| <img src="docs/images/evidence/phase3_semantic_slam_e2e.gif" width="100%" alt="[GIF] Phase 3 Semantic SLAM E2E"> | <img src="docs/images/evidence/phase3_semantic_slam_live.png" width="100%" alt="[PNG] Phase 3 Semantic SLAM Live"> | <img src="docs/images/evidence/phase3_gazebo_semantic_map_overlay.png" width="100%" alt="[PNG] Phase 3 Semantic Map Overlay"> |
+
+---
+
+### 2. 통신 연결 ↔ 단절 시 시맨틱(조난자) 인지 원리 및 한계
+
+> **"통신이 단절되어 복귀할 때는 Host PC의 YOLO가 안 되는데, 사람과 저상 장애물을 어떻게 인식·회피하는가?"**
+
+실제 코드([`host_station.launch.py`](src/disaster_recovery/launch/host_station.launch.py#L112-L140), [`semantic_map_node.py`](src/disaster_recovery/disaster_recovery/semantic_map_node.py#L592-L643), [`recovery_controller.py`](src/disaster_recovery/disaster_recovery/recovery_controller.py#L190-L270))상 **YOLO26n(`host_ai_pipeline`)은 RPi 4 온보드가 아니라 Host PC에서 동작**한다. 따라서 **통신 단절 도중 시야에 새로 나타나는 사람을 실시간 YOLO로 추가 탐지할 수는 없으며**, 다음 2단계 기억·영속 캐시 구조로 동작한다.
+
+```mermaid
+sequenceDiagram
+    participant Robot as RPi 4 (recovery_controller)
+    participant Host as Host PC (YOLO26n + semantic_map_node)
+    Note over Robot,Host: 1단계: 통신 연결 중 (탐사 · Outbound)
+    Robot->>Host: /camera/image_raw + /scan + /odom
+    Host->>Host: YOLO26n person/chair 탐지 + /map 좌표 스탬핑
+    Host-->>Robot: /semantic_map/cached_objects (사전 백업 동기화)
+    Note over Robot,Host: 2단계: 통신 단절 발생 (Blackout · Return)
+    Host--xRobot: Heartbeat & YOLO26n 링크 중단 (신규 YOLO 탐지 불가)
+    Robot->>Robot: SemanticObjectCache 영속 유지 + 온보드 MQ-2(/gas/level) 실시간 추가
+    Robot->>Robot: 3-Ch Context-RL ONNX (0.089ms)로 캐싱된 조난자·저상·가스 우회 복귀
+```
+
+1. **통신 연결 중 (전진 탐사)**: Host PC의 `YOLO26n` + `semantic_map_node`가 `/map`에 좌표를 찍는 동시에 **`/semantic_map/cached_objects` 토픽으로 로봇 RPi 4의 `SemanticObjectCache` 메모리에 계속 백업**한다.
+2. **통신 단절 후 (자율 복귀)**: Host YOLO 링크가 끊겨도 로봇 메모리의 **`SemanticObjectCache`에 백업된 조난자(`person`, 보호반경 `r=0.55m`)·저상 장애물(`Ch1`)·가스(`Ch2`) 좌표가 그대로 유지**되며, 복귀 중 새로 만나는 **유독가스만 온보드 MQ-2(`/gas/level`)가 [`cb_gas()`](src/disaster_recovery/disaster_recovery/recovery_controller.py#L886-L894) 로 실시간 추가 기록**한다. (단절 중 심부에서 **처음 발견하는 사람**까지 인식하려면 추후 RPi 4 온보드 경량 비전 가속기 탑재가 필요하다.)
+
+---
+
+### 3. V100 Warm-Start 3채널 Context-RL 재학습 & 진화 `[GIF]`
+
+Phase 2-B 1채널 격자를 **3채널 ($12\times 12\times 3 = 432$셀 + 544차원 스칼라 = `976`차원)** 로 확장해 Tesla V100 32GB Dual-Track 재학습을 수행했다([`train_phase2_v100.py`](scripts/host/train_phase2_v100.py), [`rl_procedural_env.py`](scripts/host/rl_procedural_env.py)).
+
+| 채널 | 규격 | 입력 소스 | 인지 목적 |
+| :---: | :---: | :--- | :--- |
+| **Ch 0** | $12\times 12$ ($0.15\,\text{m}$) | 2D LiDAR LDS-01 점유 격자 ($1.8\times 1.8\,\text{m}$) | 수평 평면 벽면 및 고상 낙석 회피 |
+| **Ch 1** | $12\times 12$ ($0.15\,\text{m}$) | 단안 RGB-LiDAR 투영 저상 장애물 캐시 | LDS-01 스캔 평면(`z=0.171m`) 아래 저상 장애물 회피 |
+| **Ch 2** | $12\times 12$ ($0.15\,\text{m}$) | 유해 가스 반경(`0.55m`) 및 조난자 구역 | 유해 가스 플룸·조난자 안전 이격 유지 |
+
+- **왜 Phase 2-B(`44.24M` steps/track) 대비 Phase 3(`5.31M` steps/track)는 스텝이 적으며, Early(`upd 12`)·Mid(`upd 24`)가 왜 비슷한가?**
+  - **Phase 2-B**는 백지상태(From Scratch, `lr=3.5e-4`)에서 학습해 `44,236,800` steps/track가 필요했다.
+  - **Phase 3**는 이미 수렴된 Phase 2-B 가중치를 **Warm-Start(`1ch → 3ch`)** 으로 불러와 Ch0 conv gradient를 `0.0` 동결하고 백본(`0.05×`)만 낮은 학습률(`2.0e-5 → 5.0e-6`)로 미세조정해 `5,308,416` steps/track(48 updates)만으로 수렴했다([`train_phase2_v100.py`](scripts/host/train_phase2_v100.py#L952-L962)). 따라서 `upd=12` 시점부터 벽 회피/주행 자체는 이미 능숙하지만, **새로 열린 Ch1 시맨틱 채널이 아직 수렴하기 전(`upd=12~24`)에는 저상 장애물을 정면으로 밟고 지나가며(`LowHit x11`), `upd=24→48` 구간에서 완전 회피로 수렴**한다.
+- **V100 증류 ONNX 실측 성능** ([`phase3_semantic_training_summary.json`](benchmark_results/phase3_semantic_training_summary.json)):
+  - **`sim_policy_student_semantic_v3.onnx`** (`289.2 KB`, CPU `0.089 ms`): Unseen **`98.3%`**, `Base6 100.0%`, `Dropout Fallback 100.0%`, `Semantic-2 93.3%`, `LowObsCF 100.0%`, `gas_victim_corridor 86.7%`.
+  - **`real_tb3_policy_student_semantic_v3.onnx`** (`289.2 KB`, CPU `0.089 ms`): Unseen **`96.7%`**, `Base6 98.9%`, `Dropout Fallback 98.3%`, `Semantic-2 90.0%`.
+
+| `[PNG]` Sim 트랙 학습 곡선 | `[PNG]` Real-TB3 트랙 학습 곡선 |
+| :---: | :---: |
+| <img src="docs/images/evidence_v3/phase3_learning_curves_sim.png" width="100%" alt="[PNG] Phase 3 Sim Learning Curves"> | <img src="docs/images/evidence_v3/phase3_learning_curves_real_tb3.png" width="100%" alt="[PNG] Phase 3 Real TB3 Learning Curves"> |
+
+| `[GIF]` Early (`upd 12` · `LOW-OBS HIT x11` · 128스텝) | `[GIF]` Mid (`upd 24` · `LOW-OBS HIT x11` · 126스텝) | `[GIF]` Final Student ONNX (`PASS · LowHit 0` · 225스텝) |
+| :---: | :---: | :---: |
+| <img src="docs/images/evidence_v3/phase3_sim_early_upd12.gif" width="100%" alt="[GIF] Phase 3 Early Rollout"> | <img src="docs/images/evidence_v3/phase3_sim_mid_upd24.gif" width="100%" alt="[GIF] Phase 3 Mid Rollout"> | <img src="docs/images/evidence_v3/phase3_sim_final_student.gif" width="100%" alt="[GIF] Phase 3 Final Student Rollout"> |
+
+---
+
+### 4. Gazebo 시맨틱 구조·회피 10-Trial A/B `[GIF]`
+
+[`disaster_semantic_rescue_world.world`](src/disaster_recovery/worlds/disaster_semantic_rescue_world.world) 에서 저상 장애물(`h=0.095m`) 2개와 유해 가스(`r=0.55m`)를 복귀 경로에 배치하고 10회 A/B 비교를 수행했다([`semantic_avoidance_ab_10trials.json`](benchmark_results/phase3_semantic_v3/semantic_avoidance_ab_10trials.json)).
+
+| 평가 지표 (`10 Trials`) | Phase 2-B Blind (`use_semantic_rl_policy:=false`) | Phase 3 Semantic-Aware (`use_semantic_rl_policy:=true`) | 개선 폭 |
+| :--- | :---: | :---: | :---: |
+| **도착 성공률 (Arrival)** | `7/10` (`70.0%`) | **`10/10` (`100.0%`)** | **`+30.0%p`** |
+| **무충돌 복귀 성공률 (Collision-Free)** | `3/10` (`30.0%`) | **`9/10` (`90.0%`)** | **`+60.0%p` (`3.0×`)** |
+| **엄격 위험무관통 성공률 (Strict Hazard-Free)** | `2/10` (`20.0%`) | **`9/10` (`90.0%`)** | **`+70.0%p` (`4.5×`)** |
+| **저상 장애물 · 가스 회피율** | 저상 `50%` (`5/10` 충돌) · 가스 `60%` | **저상 `90%` (`1/10`) · 가스 `100%` (`0/10`)** | **가스 침범 0회** |
+| **평균 최소 이격 (저상 / 가스 중심)** | `0.3977 m` / `0.5914 m` | **`0.5148 m` / `0.7676 m`** | **`+11.71 cm` / `+17.62 cm`** |
+| **평균 복귀 소요 시간** | `51.33 s` | **`13.36 s`** | **`3.84×` 단축** |
+
+<p align="center">
+  <img src="docs/images/evidence_v3/phase3_semantic_ab_comparison.png" alt="[PNG] Phase 3 10-Trial Semantic A/B Comparison" width="88%">
+</p>
+
+| `[GIF]` Blind vs Semantic-Aware A/B (HUD + 색상범례) | `[PNG]` Blind 정지화면 (`low=0.289m` 충돌) | `[PNG]` Semantic-Aware (`low=0.575m` 우회) |
+| :---: | :---: | :---: |
+| <img src="docs/images/evidence/phase3_semantic_avoidance_ab.gif" width="100%" alt="[GIF] Phase 3 Semantic Avoidance AB"> | <img src="docs/images/evidence/phase3_semantic_avoidance_blind.png" width="100%" alt="[PNG] Phase 3 Blind Snapshot"> | <img src="docs/images/evidence/phase3_semantic_avoidance_aware.png" width="100%" alt="[PNG] Phase 3 Aware Snapshot"> |
+
+---
+
+### 5. 15대 시나리오 150회 엄격 무충돌 비퇴행 벤치마크
+
+도착 여부만 보던 기존(Legacy) 기준 대신 **물리 충돌 없음(`debris_collision == False`, `min_debris_dist >= 0.265 m`) 및 벽/장애물 스침 허용 한도(`lidar_collision_steps < 4`)** 로 통일한 엄격 무충돌(Strict Collision-Free) 150-Trial 재검증 결과다([`phase2b_strict/`](benchmark_results/phase2b_strict/), [`phase3_semantic_v3/`](benchmark_results/phase3_semantic_v3/)).
+
+| # | 시나리오 ID | Baseline<br>(엄격 무충돌) | Phase 2-B Strict<br>(도착 / 엄격 무충돌) | Phase 3 Strict<br>(도착 / 엄격 무충돌) | Phase 3<br>무충돌 평균시간 · 오차 |
+| :-: | :--- | :---: | :---: | :---: | :---: |
+| **1** | `collapsed` | `5/10` | `10/10` / `7/10` | `10/10` / **`9/10`** | `97.2 s` · `8.3 cm` |
+| **2** | `collapsed_hard` | `1/10` | `10/10` / **`8/10`** | `9/10` / `7/10` | `117.8 s` · `8.5 cm` |
+| **3** | `collapsed_heavy` | `2/10` | `10/10` / `7/10` | `10/10` / **`8/10`** | `105.2 s` · `8.3 cm` |
+| **4** | `collapsed_heavy_hard` | `1/10` | `10/10` / `4/10` | `10/10` / **`6/10`** | `133.7 s` · `8.6 cm` |
+| **5** | `dynamic_crossfire_alley` | `3/10` | `10/10` / `2/10` | `10/10` / `2/10` | `49.6 s` · `8.0 cm` |
+| **6** | `dynamic_gauntlet` | `0/10` | `10/10` / `2/10` | `10/10` / **`3/10`** | `98.3 s` · `8.0 cm` |
+| **7** | `house` | `9/10` | `10/10` / **`6/10`** | `8/10` / `1/10` | `89.9 s` · `8.3 cm` |
+| **8** | `house_hard` | `0/10` | `10/10` / **`9/10`** | `7/10` / `2/10` | `113.0 s` · `8.5 cm` |
+| **9** | `maze` | `9/10` | `10/10` / `10/10` | `10/10` / **`10/10`** | `24.4 s` · `8.3 cm` |
+| **10** | `maze_hard` | `7/10` | `6/10` / **`6/10`** | `9/10` / `4/10` | `24.9 s` · `4.6 cm` |
+| **11** | `slip_chicane` | `2/10` | `10/10` / **`4/10`** | `10/10` / `3/10` | `135.0 s` · `8.5 cm` |
+| **12** | `smoke_lidar_corruption` | `0/10` | `10/10` / **`10/10`** | `10/10` / `9/10` | `77.6 s` · `8.4 cm` |
+| **13** | `tunnel` | `9/10` | `10/10` / `10/10` | `10/10` / **`10/10`** | `83.8 s` · `8.3 cm` |
+| **14** | `tunnel_hard` | `8/10` | `10/10` / **`10/10`** | `10/10` / `9/10` | `108.6 s` · `8.2 cm` |
+| **15** | `u_pocket_trap` | `1/10` | `10/10` / `9/10` | `10/10` / **`10/10`** | `91.6 s` · `8.0 cm` |
+| **합계** | **150 Trials** | **`57/150 (38.0%)`** | **`146/150 (97.3%)` / `104/150 (69.3%)`** | **`143/150 (95.3%)` / `93/150 (62.0%)`** | **`88.49 s` · `8.13 cm`** *(전체 `107.87 s`)* |
+
+> *주: 초기 12개 시나리오 JSON은 더 엄격한 2-step 접촉 기준으로 저장되어 파일 자체의 `collision_free` 합계는 `87/150 (58.0%)`이며, 위 표는 `Phase 2-B Strict`와 공정하게 1:1 비교하기 위해 동일한 `lidar_collision_steps < 4` 기준으로 통일 집계한 수치(`93/150 = 62.0%`)다.*
+
+| `[GIF]` Non-Regression `dynamic_gauntlet #01` (`49.7s`, 오차 `8.0cm`) | `[PNG]` 장애물 조우 (`encounter`) | `[PNG]` 기지 복귀 완주 (`outcome`) |
+| :---: | :---: | :---: |
+| <img src="docs/images/evidence/phase3_nonreg_dynamic_gauntlet_t01.gif" width="100%" alt="[GIF] Phase 3 Dynamic Gauntlet"> | <img src="docs/images/evidence/phase3_nonreg_dynamic_gauntlet_t01_encounter.png" width="100%" alt="[PNG] Phase 3 Dynamic Gauntlet Encounter"> | <img src="docs/images/evidence/phase3_nonreg_dynamic_gauntlet_t01_outcome.png" width="100%" alt="[PNG] Phase 3 Dynamic Gauntlet Outcome"> |
 
 ---
 
@@ -815,8 +861,9 @@ Host AI 파라미터 (`host_ai_pipeline` 코드 기본값): `yolo_max_fps=15.0`,
 1. **도킹 기하 가정**: 마커가 출발 위치 정면 벽에 있다고 가정한다. 출발 자세와 마커의 상대 위치는 현장에서 실측해 `target_dock_dist_m`을 조정해야 한다.
 2. **가스 센서 미결선**: 회로 설계와 드라이버는 완료되었으나 실물 결선 전이므로 `gas_stale_triggers_recovery: false`로 둔다.
 3. **블랙박스 Wi-Fi 스트리밍 차단 미구현**: 현재는 로컬 기록만 시작한다.
-4. **실물 TurtleBot3 Burger Track B 필드 실증 예정**: V100 서버 Phase 2-B 150회(`149/150 = 99.33%`) 및 Phase 3 3채널 Context-RL 150회 비퇴행(`144/150 = 96.00%`)·시맨틱 A/B 시뮬레이션 검증을 완료했으며, 실물 RPi 4 온보드 환경에서의 Track B(`real_tb3_policy_student.onnx` / `real_tb3_policy_student_semantic_v3.onnx`) 추론 지연 실측 및 슬립·낙석 현장 주행 검증은 실물 결합 시험에서 수행 예정이다.
-5. **Phase 3 가스 위험 구역 외곽 완전 이탈 튜닝 여지**: Gazebo 시맨틱 A/B 시험에서 저상 장애물 충돌은 0회(`0.3799 m` 마진)로 해소했고 가스 중심 이격도 `2.97배`(`0.0869 m → 0.2577 m`) 넓혔으나, `0.55 m` 위험 반경 경계 내부에 일부 진입(`gas_zone_violated: true`, Holdout `gas_hazard_free_rate = 46.7%`)하는 한계가 남아 있어 Ch2 페널티 가중치 후속 튜닝이 필요하다.
+4. **통신 단절 중 신규 조난자 비전 탐지 불가 (YOLO Host 의존성)**: `host_ai_pipeline`(YOLO26n)은 Host PC에서 실행되므로, 통신 단절 이후(Return 단계) 시야에 새로 등장한 조난자를 실시간 탐지할 수 없다. 단절 직전까지 `/semantic_map/cached_objects`로 백업된 조난자·저상 장애물 좌표 유지 및 온보드 MQ-2(`/gas/level`) 실시간 가스 감지만 수행하며, 완전 단절 심부 탐지 확장을 위해서는 RPi 4 온보드 경량 비전 가속기(예: NPU/Hailo) 탑재가 필요하다.
+5. **실물 TurtleBot3 Burger Track B 필드 실증 예정**: V100 Phase 2-B(`150회 엄격 69.3% / 도착 97.3%`) 및 Phase 3(`150회 엄격 62.0% / 도착 95.3%`, 10-Trial 시맨틱 A/B `90%`) 검증을 완료했으며, 실물 RPi 4 온보드 환경에서의 Track B(`real_tb3_policy_student_semantic_v3.onnx`) 추론 지연 실측 및 현장 주행은 실물 결합 시험에서 수행 예정이다.
+6. **Phase 3 가스 경계 근접 잔여 리스크**: `Semantic-2` Gazebo 10-Trial A/B에서는 가스 침범 `0/10 (0%)`을 달성했으나, V100 Holdout `gas_victim_corridor` 성공률은 `86.7%`로 일반 구간(`Base6 = 100.0%`) 대비 후속 Ch2 보상 정교화 여지가 남아 있다.
 
 **해결된 이슈**
 
