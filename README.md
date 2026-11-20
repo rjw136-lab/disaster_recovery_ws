@@ -288,30 +288,55 @@ flowchart TD
 
 [`disaster_semantic_rescue_world.world`](src/disaster_recovery/worlds/disaster_semantic_rescue_world.world) 에서 **조난자(`person`)·저상 장애물 2개(`h=0.095m`)·유독가스 구역(`r=0.55m`)** 을 배치하고, Outbound SLAM+YOLO26n 좌표 스탬핑 후 Blackout 시점에 **2차 붕괴 3D 낙석(`box_obs_1`)** 이 퇴로를 막아 중앙 위험 회랑으로 우회하도록 강제했을 때 5개 알고리즘의 실제 Gazebo 주행 결과다([`comp5_semantic_rescue.json`](benchmark_results/phase3_semantic_v3/comp5_semantic_rescue.json), [`run_comp5_semantic_rescue.py`](scripts/host/run_comp5_semantic_rescue.py)).
 
-| `[GIF]` Semantic Rescue 동일 `/map` 위 5단계 비교 (생존자·저상장애물·가스·2차 붕괴) | `[PNG]` RViz2 `/map` + YOLO26n 실제 좌표 스탬핑 (`person (5.81, 0.34)m`) |
-| :---: | :---: |
-| <img src="docs/images/evidence/comp5_semantic_rescue_map.gif" width="100%" alt="[GIF] 5-Stage Semantic Rescue Arena Comparison"> | <img src="docs/images/evidence/comp5_semantic_rviz_coords.png" width="100%" alt="[PNG] RViz2 and YOLO26n Stamped Semantic Map Coordinates"> |
+#### `[GIF]` Semantic Rescue 동일 `/map` 위 5단계 비교 (생존자 · 저상 장애물 · 가스 · 2차 붕괴)
 
-- **`comp5_semantic_rescue_map.gif` `[GIF]` 판독**: `Phase 1`/`Phase 2-A`는 2차 낙석 뒤에서 정체 실패(`TIMEOUT`), `Baseline`/`Phase 2-B`는 3D 낙석은 피했으나 Blind 상태라 저상 장애물을 그대로 밟고 충돌(`LOW-OBS HIT`), **`Phase 3`만 Outbound 중 RViz2 `/map`에 스탬핑·캐싱한 `low(2.45,0.22)`·`low(3.65,0.12)`·`GAS(3.60,0.58)`·`person(5.81,0.34)` 좌표를 3채널 RL로 읽어 `11.3s` 만에 무충돌 복귀(`PASS`)** 했다.
+<p align="center">
+  <img src="docs/images/evidence/comp5_semantic_rescue_map.gif" width="100%" alt="[GIF] 5-Stage Semantic Rescue Arena Comparison">
+</p>
+
+- **결과 판독**: `Phase 1`/`Phase 2-A`는 2차 낙석 뒤에서 정체 실패(`TIMEOUT`), `Baseline`/`Phase 2-B`는 3D 낙석은 피했으나 Blind 상태라 저상 장애물을 그대로 밟고 충돌(`LOW-OBS HIT`), **`Phase 3`만 Outbound 중 RViz2 `/map`에 스탬핑·캐싱한 `low(2.45,0.22)`·`low(3.65,0.12)`·`GAS(3.60,0.58)`·`person(5.81,0.34)` 좌표를 3채널 RL로 읽어 `11.3s` 만에 무충돌 복귀(`PASS`)** 했다.
+
+#### `[PNG]` 관련 정지 스냅샷 — RViz2 `/map` + YOLO26n 실제 좌표 스탬핑 (`person (5.81, 0.34)m`)
+
+<p align="center">
+  <img src="docs/images/evidence/comp5_semantic_rviz_coords.png" width="84%" alt="[PNG] RViz2 and YOLO26n Stamped Semantic Map Coordinates">
+</p>
 
 ### 3. 극한 3대 시나리오 5-Way `[GIF]` & 15종 아카이브
 
-동일 시드(Seed) 조건에서 **연막 LiDAR 오염(`#15`)**, **교차 이동 기둥(`#14`)**, **U자 함정(`#11`)** 에 대해 5개 알고리즘이 각각 어떻게 대처하는지 한눈에 비교한 `[GIF]` 다.
+동일 시드(Seed) 조건에서 **연막 LiDAR 오염(`#15`)**, **교차 이동 기둥(`#14`)**, **U자 함정(`#11`)** 에 대해 5개 알고리즘이 각각 어떻게 대처하는지 풀-와이드 `[GIF]`로 비교한다.
 
-| `[GIF]` `#15 smoke_lidar_corruption` 5-Way (Seed 2127) | `[GIF]` `#14 dynamic_crossfire_alley` 5-Way (Seed 2127) | `[GIF]` `#11 u_pocket_trap` 5-Way (Seed 3036) |
-| :---: | :---: | :---: |
-| <img src="docs/images/evidence/comp5_smoke_lidar_corruption.gif" width="100%" alt="[GIF] 5-Way smoke_lidar_corruption"> | <img src="docs/images/evidence/comp5_dynamic_crossfire_alley.gif" width="100%" alt="[GIF] 5-Way dynamic_crossfire_alley"> | <img src="docs/images/evidence/comp5_u_pocket_trap.gif" width="100%" alt="[GIF] 5-Way u_pocket_trap"> |
+#### `[GIF]` `#15 smoke_lidar_corruption` 5-Way (Seed 2127)
+<p align="center">
+  <img src="docs/images/evidence/comp5_smoke_lidar_corruption.gif" width="100%" alt="[GIF] 5-Way smoke_lidar_corruption">
+</p>
+
+#### `[GIF]` `#14 dynamic_crossfire_alley` 5-Way (Seed 2127)
+<p align="center">
+  <img src="docs/images/evidence/comp5_dynamic_crossfire_alley.gif" width="100%" alt="[GIF] 5-Way dynamic_crossfire_alley">
+</p>
+
+#### `[GIF]` `#11 u_pocket_trap` 5-Way (Seed 3036)
+<p align="center">
+  <img src="docs/images/evidence/comp5_u_pocket_trap.gif" width="100%" alt="[GIF] 5-Way u_pocket_trap">
+</p>
 
 <details>
-<summary><strong>[PNG] · [GIF] 15대 시나리오 맵 · 3D 주행 · Phase 2-B 학습곡선 아카이브 펼쳐보기</strong></summary>
+<summary><strong>[GIF] · [PNG] 15대 시나리오 맵 · 3D 주행 · Phase 2-B 학습곡선 아카이브 펼쳐보기</strong></summary>
+
+#### `[GIF]` 3D Gazebo Dual-View (Phase 2-B)
+
+| `[GIF]` `#14 dynamic_crossfire_alley` 3D Dual-View | `[GIF]` `#15 smoke_lidar_corruption` 3D Dual-View |
+| :---: | :---: |
+| <img src="docs/images/evidence/p2b_dynamic_crossfire_alley.gif" width="100%" alt="[GIF] 3D dynamic_crossfire_alley"> | <img src="docs/images/evidence/p2b_smoke_lidar_corruption.gif" width="100%" alt="[GIF] 3D smoke_lidar_corruption"> |
+
+#### `[PNG]` 15대 시나리오 구조 지도 & Phase 2-B 학습 곡선
 
 | `[PNG]` 15대 재난 시나리오 3D Gazebo 월드 | `[PNG]` 15대 시나리오 구조 단면 & 궤적 지도 | `[PNG]` Phase 2-B V100 학습 곡선 (`44.24M` steps/track) |
 | :---: | :---: | :---: |
 | <img src="docs/images/scenario_worlds_15_3d.png" width="100%" alt="[PNG] 15 Disaster Scenarios 3D"> | <img src="docs/images/scenario_routes_15_atlas.png" width="100%" alt="[PNG] 15 Disaster Scenarios 2D Routes Atlas"> | <img src="docs/images/evidence/phase2b_learning_curves_sim.png" width="100%" alt="[PNG] Phase 2-B Learning Curves"> |
 
-| `[GIF]` `#14 dynamic_crossfire_alley` 3D Dual-View | `[GIF]` `#15 smoke_lidar_corruption` 3D Dual-View | 아카이브 문서 |
-| :---: | :---: | :--- |
-| <img src="docs/images/evidence/p2b_dynamic_crossfire_alley.gif" width="100%" alt="[GIF] 3D dynamic_crossfire_alley"> | <img src="docs/images/evidence/p2b_smoke_lidar_corruption.gif" width="100%" alt="[GIF] 3D smoke_lidar_corruption"> | [초기 15회 분석](docs/붕괴건물_15회_자율복귀_벤치마크_분석보고서.md) · [원리 해설](docs/재난환경_자율복귀_알고리즘_원리_해설_및_보고서.md) · [Phase 2-B 요약](docs/phase2b_comparison_summary.txt) · [`benchmark_results/`](benchmark_results/) |
+- 아카이브 문서: [초기 15회 분석](docs/붕괴건물_15회_자율복귀_벤치마크_분석보고서.md) · [원리 해설](docs/재난환경_자율복귀_알고리즘_원리_해설_및_보고서.md) · [Phase 2-B 요약](docs/phase2b_comparison_summary.txt) · [`benchmark_results/`](benchmark_results/)
 
 </details>
 
@@ -330,9 +355,17 @@ flowchart TD
 > **Gazebo 3D 색상 범례 (아래 E2E · A/B 영상 공통)**:
 > **분홍 사각/원반** = 저상 장애물(`h=0.095m`, 2D LiDAR 사각지대) · **노란 원반** = 유독가스 구역(`r=0.55m`) · **하늘색 링/리본** = Base Camp `(0,0)` & 탐색 경로 · **파란 부채꼴** = 2D LiDAR 스캔 평면(`z=0.171m`) · **서 있는 사람** = 조난자(`person`, `(5.85, 0.45)m`)
 
-| `[GIF]` 3패널 E2E 시맨틱 SLAM (Gazebo 색상범례 + HUD 포함) | `[PNG]` E2E 3패널 실시간 스냅샷 | `[PNG]` 2D `/map` 시맨틱 좌표 오버레이 |
-| :---: | :---: | :---: |
-| <img src="docs/images/evidence/phase3_semantic_slam_e2e.gif" width="100%" alt="[GIF] Phase 3 Semantic SLAM E2E"> | <img src="docs/images/evidence/phase3_semantic_slam_live.png" width="100%" alt="[PNG] Phase 3 Semantic SLAM Live"> | <img src="docs/images/evidence/phase3_gazebo_semantic_map_overlay.png" width="100%" alt="[PNG] Phase 3 Semantic Map Overlay"> |
+#### `[GIF]` 3패널 E2E 시맨틱 SLAM (Gazebo 색상 범례 + 실시간 HUD 포함)
+
+<p align="center">
+  <img src="docs/images/evidence/phase3_semantic_slam_e2e.gif" width="92%" alt="[GIF] Phase 3 Semantic SLAM E2E">
+</p>
+
+#### `[PNG]` 관련 정지 스냅샷 & 2D `/map` 시맨틱 좌표 오버레이
+
+| `[PNG]` E2E 3패널 실시간 스냅샷 (`t=87.8s`) | `[PNG]` 2D `/map` 시맨틱 좌표 영구 오버레이 |
+| :---: | :---: |
+| <img src="docs/images/evidence/phase3_semantic_slam_live.png" width="100%" alt="[PNG] Phase 3 Semantic SLAM Live"> | <img src="docs/images/evidence/phase3_gazebo_semantic_map_overlay.png" width="100%" alt="[PNG] Phase 3 Semantic Map Overlay"> |
 
 ---
 
@@ -378,13 +411,17 @@ Phase 2-B 1채널 격자를 **3채널 ($12\times 12\times 3 = 432$셀 + 544차�
   - **`sim_policy_student_semantic_v3.onnx`** (`289.2 KB`, CPU `0.089 ms`): Unseen **`98.3%`**, `Base6 100.0%`, `Dropout Fallback 100.0%`, `Semantic-2 93.3%`, `LowObsCF 100.0%`, `gas_victim_corridor 86.7%`.
   - **`real_tb3_policy_student_semantic_v3.onnx`** (`289.2 KB`, CPU `0.089 ms`): Unseen **`96.7%`**, `Base6 98.9%`, `Dropout Fallback 98.3%`, `Semantic-2 90.0%`.
 
-| `[PNG]` Sim 트랙 학습 곡선 | `[PNG]` Real-TB3 트랙 학습 곡선 |
-| :---: | :---: |
-| <img src="docs/images/evidence_v3/phase3_learning_curves_sim.png" width="100%" alt="[PNG] Phase 3 Sim Learning Curves"> | <img src="docs/images/evidence_v3/phase3_learning_curves_real_tb3.png" width="100%" alt="[PNG] Phase 3 Real TB3 Learning Curves"> |
+#### `[GIF]` 학습 단계별 3D 주행 진화 비교 (`seed=10918`)
 
 | `[GIF]` Early (`upd 12` · `LOW-OBS HIT x11` · 128스텝) | `[GIF]` Mid (`upd 24` · `LOW-OBS HIT x11` · 126스텝) | `[GIF]` Final Student ONNX (`PASS · LowHit 0` · 225스텝) |
 | :---: | :---: | :---: |
 | <img src="docs/images/evidence_v3/phase3_sim_early_upd12.gif" width="100%" alt="[GIF] Phase 3 Early Rollout"> | <img src="docs/images/evidence_v3/phase3_sim_mid_upd24.gif" width="100%" alt="[GIF] Phase 3 Mid Rollout"> | <img src="docs/images/evidence_v3/phase3_sim_final_student.gif" width="100%" alt="[GIF] Phase 3 Final Student Rollout"> |
+
+#### `[PNG]` V100 Dual-Track 학습 곡선
+
+| `[PNG]` Sim 트랙 학습 곡선 | `[PNG]` Real-TB3 트랙 학습 곡선 |
+| :---: | :---: |
+| <img src="docs/images/evidence_v3/phase3_learning_curves_sim.png" width="100%" alt="[PNG] Phase 3 Sim Learning Curves"> | <img src="docs/images/evidence_v3/phase3_learning_curves_real_tb3.png" width="100%" alt="[PNG] Phase 3 Real TB3 Learning Curves"> |
 
 ---
 
@@ -401,13 +438,21 @@ Phase 2-B 1채널 격자를 **3채널 ($12\times 12\times 3 = 432$셀 + 544차�
 | **평균 최소 이격 (저상 / 가스 중심)** | `0.3977 m` / `0.5914 m` | **`0.5148 m` / `0.7676 m`** | **`+11.71 cm` / `+17.62 cm`** |
 | **평균 복귀 소요 시간** | `51.33 s` | **`13.36 s`** | **`3.84×` 단축** |
 
+#### `[GIF]` Blind vs Semantic-Aware A/B 실주행 비교 (Gazebo 색상 범례 + Telemetry HUD 포함)
+
 <p align="center">
-  <img src="docs/images/evidence_v3/phase3_semantic_ab_comparison.png" alt="[PNG] Phase 3 10-Trial Semantic A/B Comparison" width="88%">
+  <img src="docs/images/evidence/phase3_semantic_avoidance_ab.gif" width="92%" alt="[GIF] Phase 3 Semantic Avoidance AB">
 </p>
 
-| `[GIF]` Blind vs Semantic-Aware A/B (HUD + 색상범례) | `[PNG]` Blind 정지화면 (`low=0.289m` 충돌) | `[PNG]` Semantic-Aware (`low=0.575m` 우회) |
-| :---: | :---: | :---: |
-| <img src="docs/images/evidence/phase3_semantic_avoidance_ab.gif" width="100%" alt="[GIF] Phase 3 Semantic Avoidance AB"> | <img src="docs/images/evidence/phase3_semantic_avoidance_blind.png" width="100%" alt="[PNG] Phase 3 Blind Snapshot"> | <img src="docs/images/evidence/phase3_semantic_avoidance_aware.png" width="100%" alt="[PNG] Phase 3 Aware Snapshot"> |
+#### `[PNG]` 관련 정지 스냅샷 & 10-Trial 정량 비교 그래프
+
+<p align="center">
+  <img src="docs/images/evidence_v3/phase3_semantic_ab_comparison.png" alt="[PNG] Phase 3 10-Trial Semantic A/B Comparison" width="84%">
+</p>
+
+| `[PNG]` Blind 정지화면 (`low=0.289m` 충돌) | `[PNG]` Semantic-Aware (`low=0.575m` 우회) |
+| :---: | :---: |
+| <img src="docs/images/evidence/phase3_semantic_avoidance_blind.png" width="100%" alt="[PNG] Phase 3 Blind Snapshot"> | <img src="docs/images/evidence/phase3_semantic_avoidance_aware.png" width="100%" alt="[PNG] Phase 3 Aware Snapshot"> |
 
 ---
 
@@ -436,9 +481,17 @@ Phase 2-B 1채널 격자를 **3채널 ($12\times 12\times 3 = 432$셀 + 544차�
 
 > *주: 초기 12개 시나리오 JSON은 더 엄격한 2-step 접촉 기준으로 저장되어 파일 자체의 `collision_free` 합계는 `87/150 (58.0%)`이며, 위 표는 `Phase 2-B Strict`와 공정하게 1:1 비교하기 위해 동일한 `lidar_collision_steps < 4` 기준으로 통일 집계한 수치(`93/150 = 62.0%`)다.*
 
-| `[GIF]` Non-Regression `dynamic_gauntlet #01` (`49.7s`, 오차 `8.0cm`) | `[PNG]` 장애물 조우 (`encounter`) | `[PNG]` 기지 복귀 완주 (`outcome`) |
-| :---: | :---: | :---: |
-| <img src="docs/images/evidence/phase3_nonreg_dynamic_gauntlet_t01.gif" width="100%" alt="[GIF] Phase 3 Dynamic Gauntlet"> | <img src="docs/images/evidence/phase3_nonreg_dynamic_gauntlet_t01_encounter.png" width="100%" alt="[PNG] Phase 3 Dynamic Gauntlet Encounter"> | <img src="docs/images/evidence/phase3_nonreg_dynamic_gauntlet_t01_outcome.png" width="100%" alt="[PNG] Phase 3 Dynamic Gauntlet Outcome"> |
+#### `[GIF]` Non-Regression `dynamic_gauntlet #01` (`49.7s`, 오차 `8.0cm`)
+
+<p align="center">
+  <img src="docs/images/evidence/phase3_nonreg_dynamic_gauntlet_t01.gif" width="92%" alt="[GIF] Phase 3 Dynamic Gauntlet">
+</p>
+
+#### `[PNG]` 관련 키프레임 스냅샷
+
+| `[PNG]` 장애물 조우 (`encounter`) | `[PNG]` 기지 복귀 완주 (`outcome`) |
+| :---: | :---: |
+| <img src="docs/images/evidence/phase3_nonreg_dynamic_gauntlet_t01_encounter.png" width="100%" alt="[PNG] Phase 3 Dynamic Gauntlet Encounter"> | <img src="docs/images/evidence/phase3_nonreg_dynamic_gauntlet_t01_outcome.png" width="100%" alt="[PNG] Phase 3 Dynamic Gauntlet Outcome"> |
 
 ---
 
