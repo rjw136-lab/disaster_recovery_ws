@@ -24,8 +24,8 @@ Phase 3 실제 코드와 최신 벤치마크 원본을 직접 대조한 결과, 
 | :--- | :--- | :---: | :--- |
 | **Phase 4-B** | 딥러닝 World Model 전에 시맨틱 A\* 비용 반영 및 KF 선형 예측부터 검증 | **부분 채택** (엔지니어링 선행 순서는 타당, 단독 연구 기여 불가 및 비선형 진동 한계 존재) | **Stage 0~1**에서 시맨틱 A\* + 정적 맵 차분 기반 감쇠-KF/분산 예측기를 **강건 베이스라인 및 `Ch3` 생성기**로 구현한다. |
 | **Phase 4-D** | `SemanticCorridorSafetyHead`와 독립 CBF-QP의 역할 구분 및 충돌 검토 | **강화 채택** (단순 공존 시 이중 간섭 불가피) | 공존이 아니라 ONNX 내장 헤드 비활성화(`scale_gate=0`) 및 외부 4중 가드를 **전방 오프셋 2D Soft-CBF-QP 하나로 통폐합**한다. |
-| **Phase 4-C** | CVaR RL과 CBF-QP 결합 검토 및 RL 고유 기여의 실험적 입증 | **전면 채택** (시야 병목 해소 조건 추가) | `No-RL(A*+CBF)` 대비 RL의 존재 이유를 **고슬립 꼬리 위험($\text{CVaR}_{0.1}$) 및 CBF 개입량 억제**로 입증하며, 근접 시맨틱 극좌표 특징을 보강한다. |
-| **Phase 4-A** | 단순 GRU 재도입 대신 온라인 잠재 동역학 추정으로 재정의 | **조건부 축소 통합** (독립 주제 불가, 휠 오도메트리 비관측 문제 선결 필수) | 독립 4-A 대신 **Stage 0.3(LiDAR-Wheel 슬립 잔차 관측) + `NORMAL_TELEOP` 상시 워밍업 + Stage 3 보조 특징**으로 흡수 통합한다. |
+| **Phase 4-C** | CVaR RL과 CBF-QP 결합 검토 및 RL 고유 기여의 실험적 입증 | **전면 채택** (시야 병목 해소 조건 추가) | `No-RL(A*+CBF)` 대비 RL의 존재 이유를 **`Ch1/Ch2/Ch3` 복합 고슬립 꼬리 위험($\text{CVaR}_{0.1}$) 및 CBF 개입량 억제**로 입증하며, `1120`차원 고정 구조 내 `Ch2/Ch3` 외곽 클램핑 투영과 시맨틱 A\* `subgoal`로 시야 병목을 보완한다. |
+| **Phase 4-A** | 단순 GRU 재도입 대신 온라인 잠재 동역학 추정으로 재정의 | **조건부 축소 통합** (독립 주제 불가, 휠 오도메트리 비관측 문제 선결 필수) | 독립 4-A 대신 **Stage 0.3(비퇴화 LiDAR ICP 속도를 기존 `act_v, act_w` 슬롯에 공급 + 자이로 교차 검증) + `NORMAL_TELEOP` 상시 워밍업**으로 흡수 통합한다. |
 
 ---
 
@@ -54,12 +54,12 @@ flowchart TB
 
     subgraph RL["Layer-2 (Phase 4-C): 4-Ch 비퇴행 CVaR-Lagrangian Residual RL (ONNX)"]
         P2B["Frozen Phase 2-B 1-Ch 백본<br/>z_P2B(hist, Ch0)"]
-        RES["Zero-Gated Residual 어댑터<br/>(Ch1 + Ch2 + Ch3 + 슬립 잔차 + 최근접 시맨틱 극좌표)<br/>※ 내장 SemanticCorridorSafetyHead 비활성화(scale_gate=0)"]
+        RES["Zero-Gated Residual 어댑터<br/>(Ch1 + Ch2 + Ch3, 외곽 클램핑 힌트 포함 / 총 1120 dim 고정)<br/>※ 내장 SemanticCorridorSafetyHead 비활성화(scale_gate=0)"]
         BLEND["u_nom = Blend(u_base, scale(tanh(z_P2B + g_res · Δ)))"]
     end
 
     subgraph SHIELD["Layer-3 (Phase 4-D): 독립 2변수 이산시간 Soft-CBF-QP"]
-        CBF["min ||u - u_nom||_Q^2 + p_δ Σ δ_i^2<br/>s.t. LiDAR + Ch1/Ch2 + 동적 속도/분산 마진 불변 제약<br/>(전방 오프셋 l=0.08m, RPi 4 < 0.25ms)"]
+        CBF["min ||u - u_nom||_Q^2 + p_δ Σ δ_i^2<br/>s.t. LiDAR + Ch1/Ch2 + 동적 속도/분산 마진 Soft-CBF 제약<br/>(전방 오프셋 l=0.08m, RPi 4 < 0.25ms)"]
     end
 
     SCAN --> SUB
@@ -73,7 +73,7 @@ flowchart TB
     GRID --> ASTAR
 
     SCAN --> P2B
-    ODOM --> RES
+    ODOM --> P2B
     CACHE --> RES
     CH3 --> RES
     P2B --> BLEND
@@ -92,8 +92,8 @@ flowchart TB
 | 계층 | 담당 모듈 | 작동 시공간 지평 | 핵심 역할 | 보장 성질 |
 | :--- | :--- | :---: | :--- | :--- |
 | **Layer-1** | 시맨틱·동적 통합 2D A\* + LIFO | $1.5 \sim 8.0\,\text{m}$ | 전역/중거리 우회 경로 및 위상 지름길 탐색 (`subgoal_xy` 생성) | `Ch1/Ch2` 구역 관통 경로 원천 차단 |
-| **Layer-2** | 4-Ch CVaR-Lagrangian Residual RL | $0.5 \sim 2.0\,\text{s}$ | 고슬립·비선형 동적 교차·연기 노이즈 하에서 꼬리 위험과 CBF 급개입을 예방하는 선제적 궤적 제어 | `Ch1=Ch2=Ch3=0` 시 Phase 2-B와 **`max_abs_diff = 0.0`** 비퇴행 보장 |
-| **Layer-3** | 전방 오프셋 2D Soft-CBF-QP | $0.0 \sim 0.3\,\text{s}$ | LiDAR·시맨틱·동적 장애물 경계 불변성 보장 (최소 개입 필터) | 안전 집합 내부 개입량 `0`, 협소 문틀 시 $\delta_i \ge 0$로 교착 방지 |
+| **Layer-2** | 4-Ch CVaR-Lagrangian Residual RL | $0.5 \sim 2.0\,\text{s}$ | `Ch1/Ch2/Ch3` 활성 복합 고슬립·비선형 동적 교차 하에서 꼬리 위험과 CBF 급개입을 예방하는 선제적 궤적 제어 | `Ch1=Ch2=Ch3=0` 시 Phase 2-B와 **`max_abs_diff = 0.0`** 비퇴행 보장 |
+| **Layer-3** | 전방 오프셋 2D Soft-CBF-QP | $0.0 \sim 0.3\,\text{s}$ | LiDAR·시맨틱·동적 장애물 통합 최소 개입 Soft-CBF 안전 필터 | Feasible 영역 안전 집합 유지 및 내부 개입량 `0`, 협소 문틀 교착 시 $\delta_i \ge 0$로 Graceful Degradation |
 
 ---
 
@@ -125,7 +125,7 @@ flowchart TB
   - [`scripts/host/rl_procedural_env.py`](../scripts/host/rl_procedural_env.py)
 - **구현 명세**:
   1. **런타임 연속 스캔 속도 추정 및 퇴화 감지**: `recovery_controller.py`에 직전 스캔 점군(`_prev_scan_pts`)과 현재 스캔 점군(`latest_scan_pts`) 간의 경량 2D ICP(최대 4회 반복, 초기 추정치로 휠 오도메트리 증분 제공)를 수행해 **실제 차체 이동 속도 추정치 $(\hat{v}_{\text{scan}}, \hat{\omega}_{\text{scan}})$** 를 산출한다. 단, 평행 직선 벽면(`tunnel` 등)에서의 **기하학적 퇴화(Geometric Degeneracy)** 시 휠 오도메트리 초기값에 고착되는 함정을 막기 위해, 대응점 공분산/헤시안의 최소 고유값 비율 기반 퇴화 플래그(`icp_degenerate`)를 산출하여 퇴화 구간에서는 슬립 잔차 갱신을 보류한다.
-  2. **관측 정합 및 자이로 교차 검증**: 비퇴화 구간에서 `ContextRLStudentPolicy`의 `act_v, act_w`에 $(\hat{v}_{\text{scan}}, \hat{\omega}_{\text{scan}})$을 공급하고 슬립 잔차 $e_{\text{slip}} = (v_{\text{odom}} - \hat{v}_{\text{scan}})/v_{\max}$를 추적한다. 실물 로봇에서는 온보드 `/imu` 자이로 각속도($\omega_{\text{imu}}$)와의 잔차로 회전 슬립을 교차 검증한다(저가 MEMS 가속도계 적분은 저속 진동·중력 누설로 배제).
+  2. **관측 정합 및 자이로 교차 검증**: 비퇴화 구간(`icp_degenerate == False`)에서는 기존 `STEP_FEAT_DIM = 34`의 `act_v, act_w` 슬롯에 $(\hat{v}_{\text{scan}}, \hat{\omega}_{\text{scan}})$을 공급하고 슬립 잔차 $e_{\text{slip}} = (v_{\text{odom}} - \hat{v}_{\text{scan}})/v_{\max}$를 진단·로깅한다. 퇴화 구간(`icp_degenerate == True`)에서는 `act_v = v_odom`, `act_w = \omega_{\text{imu}}` (실물 `/imu` 미가용 시 `\omega_{\text{odom}}`)로 안전 폴백한다. 실물 로봇에서는 온보드 `/imu` 자이로 각속도($\omega_{\text{imu}}$)와의 잔차로 회전 슬립을 교차 검증한다(저가 MEMS 가속도계 적분은 저속 진동·중력 누설로 배제).
   3. **시뮬레이터 정합**: `rl_procedural_env.py` L1393-1400의 `v_meas, w_meas`에 현실적인 ICP 추정 노이즈($\sigma_v \approx 0.015\,\text{m/s}, \sigma_\omega \approx 0.03\,\text{rad/s}$)를 추가하여 학습-배포 간 관측 분포를 일치시킨다.
 
 ---
@@ -144,7 +144,7 @@ flowchart TB
    - `RollingLocalGrid`에서 정적 점유 누적도 `static_occ` (감쇠율 `0.992`의 별도 장기 정적 버퍼 또는 `occ >= 0.75`의 3x3 팽창 마스크)에 걸리는 점들을 정적 벽면/낙석으로 제거한다.
    - 추가 가드: 로봇 회전 속도 $\lvert\omega\rvert > 0.45\,\text{rad/s}$ 구간에서는 팽창 반경을 1셀(`0.04 m`) 넓혀 회전 오차에 의한 벽면 끝단 오탐을 억제한다.
 2. **유클리드 클러스터링 (1D 각도 순차 분할)**:
-   - 남은 동적 후보 점군에 대해 인접 점 거리 $\lVert p_i - p_{i-1}\rVert < 0.18\,\text{m}$ 기준으로 $O(N)$ 순차 클러스터링을 수행한다.
+   - 남은 동적 후보 점군에 대해 인접 유효 점 거리 $\lVert p_i - p_{\text{prev}}\rVert < 0.18\,\text{m}$ 기준으로 $O(N)$ 순차 클러스터링을 수행한다. 이때 `6%` beam dropout에 의한 클러스터 분할을 막기 위해 **최대 1~2개 연속 결측(invalid range) 광선을 건너뛰는 각도 갭 허용(Gap Tolerance)**을 적용하고, 분할 완료 후 첫 클러스터와 마지막 클러스터의 끝점 거리가 임계치 이내이면 하나로 합치는 **$0^\circ / 359^\circ$ 랩어라운드 병합(Wrap-around Merge)**을 수행한다.
    - 점 개수 $3 \le n_c \le 35$, 외접 반경 $0.05 \le r_c \le 0.45\,\text{m}$ 조건을 만족하는 클러스터만 유효 동적 객체 후보로 채택한다 (긴 벽면 파편 배제).
 3. **데이터 연관 (Data Association) 및 감쇠-속도 Kalman Filter**:
    - 기존 트랙 예측 위치와 신규 클러스터 중심 간 Mahalanobis 거리(게이팅 임계치 `0.45 m`) 기반 최소 비용 일대일 매칭을 수행한다 (트랙 수 $\le 8$이므로 $O(M^3)$ 경량 매칭으로 `< 0.05 ms`).
@@ -184,9 +184,9 @@ flowchart TB
    - 동적 장애물: 불확실성 패딩 $m_{\text{pad}, i} = 0.04 + 1.2\sqrt{\lambda_{\max}(\Sigma_{p,i})}$ 적용.
    - `Ch1` 저상 장애물 / `Ch2` 가스 구역: 각각 캐시된 반경 $r_{o,i}$ + 안전 마진 $0.05\,\text{m}$ 적용.
 3. **동적 속도·이산시간·슬립 마진이 포함된 강인 이산 CBF 부등식**:
-   $\Delta t = 0.1\,\text{s}$ 이산 제어기의 Inter-sampling violation과 휠 슬립 외란 상한을 흡수하는 보수적 마진 $\epsilon_{\text{dt,slip}} > 0$을 포함하여, $h_i(x_{k+1}) \ge (1 - \gamma_i \Delta t) h_i(x_k) - \delta_i$ 근사 부등식을 구성한다:
-   $$-2 (p_l - p_{o,i})^T J(\theta)\, u - \delta_i \le \gamma_i h_i - 2 (p_l - p_{o,i})^T \hat{v}_{o,i} - \epsilon_{\text{dt,slip}}$$
-   여기서 $\hat{v}_{o,i}$는 정적 장애물일 때 $0$, 동적 장애물일 때 Stage 1 KF가 추정한 속도 벡터다.
+   무차원 이산 감쇠율 $\alpha_i \in (0, 1]$ ($h_i(x_{k+1}) \ge (1 - \alpha_i) h_i(x_k) - \delta_i \Delta t$)을 제어 주기 $\Delta t$로 나누어 시간 변화율 단위($[\text{m}^2/\text{s}]$)로 통일한 부등식을 구성한다:
+   $$-2 (p_l - p_{o,i})^T J(\theta)\, u - \delta_i \le \frac{\alpha_i}{\Delta t} h_i(x_k) - 2 (p_l - p_{o,i})^T \hat{v}_{o,i} - \epsilon_{\text{dt,slip}}$$
+   여기서 $\hat{v}_{o,i}$는 정적 장애물일 때 $0$, 동적 장애물일 때 Stage 1 KF가 추정한 속도 벡터이며, 슬랙 $\delta_i \ge 0$과 보수적 마진 $\epsilon_{\text{dt,slip}} = 2\lVert p_l - p_{o,i}\rVert \Delta v_{\text{slip}} + \epsilon_{\text{inter}} > 0$은 모두 $[\text{m}^2/\text{s}]$ 단위로 통일한다(2차 변위 항 $+\lVert \Delta p_{\text{rel}}\rVert^2 \ge 0$은 양수 항이며, 실제 위험 요인은 슬립 속도 외란 상한 $\Delta v_{\text{slip}}$과 스텝 간 현 침범 오차 $\epsilon_{\text{inter}}$다).
    *(주: 슬랙 $\delta_i > 0$이 활성화되는 협소 문틀 등에서는 엄밀한 전방 불변성이 완화되므로, 본 모듈의 학술적 역할은 "Feasible 영역 내 안전 집합 유지 및 교착 시 Graceful Degradation을 제공하는 최소 개입 Soft-CBF-QP 안전 필터"로 정의한다.)*
 4. **Soft-Constrained 2변수 QP (협소 문틀 교착 방지)**:
    $$\min_{u \in \mathcal{U},\; \delta \ge 0} \; \frac{1}{2} (u - u_{\text{nom}})^T Q (u - u_{\text{nom}}) + \frac{1}{2} \sum_{i} p_{\delta, i}\, \delta_i^2$$
@@ -216,7 +216,7 @@ flowchart TB
    - `dynamic_crossing` 레짐의 50% 에피소드에서 동적 원기둥이 등속 바운스 대신 Gazebo `ab_disaster_benchmark.py`와 동일한 **정현파 왕복 가감속($v(t) = V_{\max}\cos(\omega t + \phi)$)** 및 양방향 교차 협공(Crossfire)으로 움직이도록 확장한다.
 4. **별도 안전 비용(Cost) 채널 반환**:
    - `env.step()`의 `info` 딕셔너리에 스텝별 비음수 안전 비용 $c_t \ge 0$을 명시적으로 산출해 반환한다:
-     $$c_t = w_{\text{col}}\mathbb{I}(\text{collision}) + w_{\text{low}}\mathbb{I}(\text{hit\_low}) + w_{\text{gas}}\,\text{pen\_depth}_{\text{gas}} + w_{\text{dyn}}\max(0, 0.28 - d_{\text{dyn}}) + w_{\text{cbf}}\lVert u_{\text{cbf}} - u_{\text{rl}} \rVert_W^2$$
+     $$c_t = w_{\text{col}}\mathbb{I}(\text{collision}) + w_{\text{low}}\mathbb{I}(\text{hit\_low}) + w_{\text{gas}}\,\text{pen\_depth}_{\text{gas}} + w_{\text{dyn}}\max(0, 0.28 - d_{\text{dyn}}) + w_{\text{cbf}}\lVert u_{\text{cbf}} - u_{\text{rl}} \rVert_W^2 + w_{\text{slack}}\sum_i \delta_i^2$$
 
 #### 3.2 4채널 비퇴행 아키텍처 확장 (`train_phase2_v100.py`, `rl_context_policy.py`)
 1. `FrozenBackboneSemanticTeacher` 및 `FrozenBackboneSemanticStudent`의 `patch_channels`를 `4`까지 지원하도록 확장한다 (`self.sem_channels = patch_channels - 1 = 3`: `Ch1, Ch2, Ch3`).
@@ -258,9 +258,9 @@ flowchart TB
     dynamic_predict_horizons_s: [0.5, 1.0, 1.5]
     enable_cbf_safety_shield: false       # Stage 2: 2-var discrete Soft-CBF-QP (replaces heuristics)
     cbf_control_point_offset_m: 0.08      # Forward offset l for non-holonomic relative degree 1
-    cbf_gamma_static: 0.65                # Discrete barrier decay rate (static/Ch1)
-    cbf_gamma_dynamic: 0.85               # Discrete barrier decay rate (dynamic obstacles)
-    cbf_gamma_gas: 0.45                   # Discrete barrier decay rate (Ch2 gas zones)
+    cbf_alpha_static: 0.65                # Dimensionless discrete decay rate α ∈ (0,1] (converted via α/Δt)
+    cbf_alpha_dynamic: 0.85               # Dimensionless discrete decay rate α ∈ (0,1] (dynamic obstacles)
+    cbf_alpha_gas: 0.45                   # Dimensionless discrete decay rate α ∈ (0,1] (Ch2 gas zones)
     phase4_rl_onnx_path: ""               # Stage 3: 4-ch CVaR-Lagrangian student ONNX
 ```
 
@@ -324,7 +324,7 @@ flowchart TB
 
 | 리스크 | 발생 징후 | 사전 대응 설계 |
 | :--- | :--- | :--- |
-| **회전 시 정적 벽면의 동적 오인** | 로봇 제자리 회전 중 `Ch3`에 허위 장애물이 생성되어 급정지 | Static Background Subtraction 팽창 반경을 $\lvert\omega\rvert$에 비례 확장하고, 3틱 연속 매칭 + 최소 변위 임계치 통과 트랙만 확정한다. |
+| **회전 시 정적 벽면의 동적 오인** | 로봇 제자리 회전 중 `Ch3`에 허위 장애물이 생성되어 급정지 | Static Background Subtraction 팽창 반경을 $\lvert\omega\rvert$에 비례 확장하고, 2틱 연속 매칭(및 2틱 유예 Coasting) + 최소 속력($\ge 0.08\,\text{m/s}$) 임계치 통과 트랙만 확정한다. |
 | **협소 문틀 CBF 교착 (Freezing)** | `#7 house`, `#8 house_hard` 문틀 앞에서 $v \to 0$ 정지 | 슬랙 변수 $\delta_i \ge 0$ 기반 Soft-CBF-QP와 차체 최소 여유 반경($0.15\,\text{m}$)을 적용하고, 양측 벽 대칭 제약 시 선속도 하한 유지 가중치 $Q$를 튜닝한다. |
 | **CVaR-Lagrangian $\lambda$ 발산** | 학습 중반 $\lambda \to \lambda_{\max}$로 치솟아 로봇이 제자리 정지(과보수화) | $\lambda$ 상한 클리핑($\lambda_{\max} = 5.0$), 초기 25% 업데이트 $d_{\text{thresh}}$ 선형 커리큘럼, 정체 페널티(`stall_pen`) 유지를 병행한다. |
 | **RPi 4 제어 루프 지연 초과** | 2D ICP + 동적 추적 + ONNX + QP 합산 지연이 `10 Hz` 예산을 압박 | 모든 모듈은 순수 NumPy 벡터화 연산 및 1-thread ONNX Runtime(`ORT_ENABLE_ALL`)을 사용하며, CBF-QP는 무위반 시 조기 종료(Early Exit) 경로를 둔다. |
