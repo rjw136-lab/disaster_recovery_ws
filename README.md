@@ -79,7 +79,7 @@
 
 | 일자 | 요약 |
 | :--- | :--- |
-| 2026-11-21 (`최신`) | 4대 구조 개선(PPO 쉴드 개입 페널티, `hard_sem` 하드 배리어, `VAL_SEEDS`/`TEST_SEEDS` 독립 분리, 제어기 연속 `sem_prox` 램프) · V100 재학습(`real_tb3` TEST Gas-Free `73.3%`, `ab10` 엄격 `9/10` · 위반 `0회`) · Phase 4 후속 연구 설계 문서화 |
+| 2026-11-21 (`최신`) | 4대 구조 개선(PPO 쉴드 개입 페널티, `hard_sem` 하드 배리어, `VAL_SEEDS`/`TEST_SEEDS` 독립 분리, 제어기 연속 `sem_prox` 램프) · V100 재학습(`real_tb3` TEST Gas-Free `73.3%`, `ab10` 엄격 `9/10` · 위반 `0회`) · Clean 150-trial 무결성 검증(`AUD-01~AUD-05` 이상 `0건`, Phase 2-B/Option 2 Strict Pass `96/150 = 64.0%` 비퇴행 동기화 및 `lidar_collision` 53건 병목 분석) · Phase 4 후속 연구 설계 문서화 |
 | 2026-11-21 (`cf8f7e2`) | Option 2 구조 통일(Pre-Tanh 잔차 + 후단 Safety Shield, `Ch1/Ch2` 기울기 격리, `scale_gate` 영속화) · V100 재학습(`real_tb3` Gas-Free `26.7%→60.0%`) · Gazebo 재검증 |
 | 2026-11-20 (`6bd2bbf`) | Phase 3 **Option 2 (`frozen_residual`)** 채택 · V100 Dual-Track 학습 · 150회 비퇴행 벤치마크 |
 | 2026-11-20 (`2eea2e4`) | 15종 궤적 아틀라스 5-Stage 확장 · `house_hard` 퇴행 분석 |
@@ -328,10 +328,10 @@ flowchart LR
 | **15** | `u_pocket_trap` | `8/10` / `0/10` | `10/10` / **`10/10`** | `10/10` / `10/10` | `10/10` / `9/10` | `90.0 s` (`89.3 s`) · `8.1 cm` |
 | **합계** | **150 Trials (`same_debris=150/150`)** | **`89/150 (59.3%)` / `3/150 (2.0%)`** | **`140/150 (93.3%)` / `96/150 (64.0%)`** | **`143/150 (95.3%)` / `87/150 (58.0%)`** | **`141/150 (94.0%)` / `96/150 (64.0%)`** | **`81.57 s` (`106.97 s`) · `9.08 cm`** |
 
-> **Baseline 열 기준 안내:** 위 표의 `Baseline (도착 / 엄격 무충돌)` 열(`89/150 = 59.3%` / `3/150 = 2.0%`, `coll=136 [debris=69, lidar=136]`)은 [`phase2b_strict_clean/`](benchmark_results/phase2b_strict_clean/) 및 [`phase3_option2_clean/`](benchmark_results/phase3_option2_clean/) 원본 JSON 기준이다(두 디렉터리 간 Baseline `150/150` 완전 일치; 별도 실행된 아카이브 [`phase3_semantic_v3/`](benchmark_results/phase3_semantic_v3/) 폴더 내 baseline은 `57/150 = 38.0%`).
+> **Baseline 열 기준 안내:** 위 표의 `Baseline (도착 / 엄격 무충돌)` 열(`89/150 = 59.3%` / `3/150 = 2.0%`, `coll=136 [debris=69, lidar=136]`)은 [`phase2b_strict_clean/`](benchmark_results/phase2b_strict_clean/) 및 [`phase3_option2_clean/`](benchmark_results/phase3_option2_clean/) 원본 JSON 기준이다(두 디렉터리 간 Baseline `150/150` 완전 일치; 별도 실행된 아카이브 [`phase3_semantic_v3/`](benchmark_results/phase3_semantic_v3/) 폴더 내 baseline 엄격 무충돌 성공률은 `57/150 = 38.0%`).
 
 - **핵심 분석 및 결과 해석 (Known Bottlenecks)**:
-  1. **비시맨틱 퇴행 방지를 위한 구조적 보존 및 완전 비퇴행 실증**: Option 2는 Phase 2-B 백본을 동결하고 `Ch1=Ch2=0`에서 잔차·쉴드를 소거해 기준 정책 출력을 보존한다(`max_abs_diff = 0.0`). Clean 150회 동일 잔해 시드(`same_debris=150/150`) 실행에서도 Phase 2-B Strict(`96/150 = 64.0%`, 도착 `140/150 = 93.3%`)와 Phase 3 Option 2(`96/150 = 64.0%`, 도착 `141/150 = 94.0%`)가 정확히 동일한 Strict Pass를 기록해 비시맨틱 환경 비퇴행이 입증되었으며, 시나리오별 미세 차이는 동일 정책에 대한 Gazebo 물리 비결정성 분산 범위다.
+  1. **비시맨틱 퇴행 방지를 위한 구조적 보존 및 완전 비퇴행 실증**: Option 2는 Phase 2-B 백본을 동결하고 `Ch1=Ch2=0`에서 잔차·쉴드를 소거해 기준 정책 출력을 보존한다(`max_abs_diff = 0.0`). Clean 150회 동일 잔해 시드(`same_debris=150/150`) 실행에서도 Phase 2-B Strict(`96/150 = 64.0%`, 도착 `140/150 = 93.3%`)와 Phase 3 Option 2(`96/150 = 64.0%`, 도착 `141/150 = 94.0%`)가 정확히 동일한 Strict Pass를 기록해 비시맨틱 환경 비퇴행이 입증되었으며, 시나리오별 소폭 차이는 Gazebo 물리 시뮬레이션의 비결정성으로 인한 변동으로 볼 수 있다.
   2. **도착률(`93.3%~94.0%`) 대비 Strict Pass(`64.0%`) 격차의 주원인**: Option 2 기준 전체 실패 54건 중 미도착은 9건이며, 나머지 **45건은 기지 도착(`<= 25 cm`)에 성공했으나 복귀 중 스침 충돌 판정**을 받았다. 전체 충돌 54건 중 **53건이 `lidar_collision`(`min_scan_m = 0.120 m`, `scan_all_min <= 0.121 m` 4스텝 이상)** 이며(`debris_collision`은 8건), 협소 문틀·코너·잔해 통과 시 차체 측면/대각선이 장애물에 `0.120 m`까지 근접해 스치는 현상이 주원인이다.
   3. **근접 구간 RL 게이팅(`alpha_rl = 0.0`)으로 인한 공통 로컬 플래너 수렴**: `recovery_controller.py`의 `compute_rl_blend_weight` 및 안전 포락선 가드는 `used_tight_pass == True`, `front_min < 0.24 m`, `side_clearance < 0.62 m`, `min_side < 0.17 m` 구간에서 `alpha_rl = 0.0`으로 강제해 제어를 `local_grid_planner.py`(`step()`)에 일임한다. 이로 인해 두 모델의 근접 회피 성능은 공통 로컬 플래너 한계(`tight_radius_m = min(inflation, 0.058 m)` 및 측면 반발 조향 부재)에 수렴한다.
   4. **교차 동적 장애물에 대한 측면 회피 부재**: `DYNAMIC_HOLD`(1.2초 정지)는 정면 급접근(`|ω| < 0.35`, `df_dt < -0.25 m/s`, `0.20 <= front_min <= 0.55 m`)에만 반응하므로, `dynamic_crossfire_alley`(횡단 동적 기둥, 두 모델 모두 Strict Pass `0/10` · `lidar_collision` `10/10`) 및 `dynamic_gauntlet`(`2/10`, `4/10`)에서 측면으로 접근·교차하는 동적 장애물 회피가 부재하다.
@@ -805,17 +805,14 @@ Host AI 파라미터 (`host_ai_pipeline` 코드 기본값): `yolo_max_fps=15.0`,
 
 본 저장소는 실차 검증 및 고도화가 진행 중인 프로토타입이다.
 
-**현재 남아 있는 한계 및 진행 중인 서버 작업**
+**현재 남아 있는 한계 및 향후 과제**
 
 1. **도킹 기하 가정**: 마커가 출발 위치 정면 벽에 있다고 가정한다. 출발 자세와 마커의 상대 위치는 현장에서 실측해 `target_dock_dist_m`을 조정해야 한다.
 2. **가스 센서 미결선**: 회로 설계와 드라이버는 완료되었으나 실물 결선 전이므로 `gas_stale_triggers_recovery: false`로 둔다.
 3. **블랙박스 Wi-Fi 스트리밍 차단 미구현**: 현재는 로컬 기록만 시작한다.
 4. **통신 단절 중 신규 조난자 비전 탐지 불가 (YOLO Host 의존성)**: `host_ai_pipeline`(YOLO26n)은 Host PC에서 실행되므로, 통신 단절 이후(Return 단계) 시야에 새로 등장한 조난자를 실시간 탐지할 수 없다. 단절 직전까지 `/semantic_map/cached_objects`로 백업된 조난자·저상 장애물 좌표 유지 및 온보드 MQ-2(`/gas/level`) 실시간 가스 감지만 수행하며, 완전 단절 심부 탐지 확장을 위해서는 RPi 4 온보드 경량 비전 가속기(예: NPU/Hailo) 탑재가 필요하다.
 5. **실물 TurtleBot3 Burger Track B 필드 실증 예정**: V100 Clean Phase 2-B(`150회 엄격 96/150 = 64.0% / 도착 140/150 = 93.3%`) 및 Phase 3 Option 2(`150회 엄격 96/150 = 64.0% / 도착 141/150 = 94.0%`, 현 `415.0 KB` ONNX `Ch1=Ch2=0` `max_abs_diff = 0.0`, 10-Trial 시맨틱 A/B 엄격 무위험 `9/10` · 위반 `0회`) 검증을 완료했다. 실물 RPi 4 온보드 환경에서의 Track B(`real_tb3_policy_student_semantic_v3.onnx`, `415.0 KB`, x86 CPU `0.124 ms`) 추론 지연 실측 및 현장 주행은 실물 결합 시험에서 수행 예정이다.
-6. **150-Trial 클린 벤치마크 잔여 충돌 병목 (Known Bottlenecks)**:
-   - **도착률(`93.3%~94.0%`) 대비 Strict Pass(`64.0%`) 격차**: Phase 3 Option 2 기준 54건의 실패 중 미도착은 9건이며, 45건은 기지 도착(`<= 25 cm`)에는 성공했으나 복귀 중 스침 충돌 판정을 받았다. 전체 충돌 54건 중 **53건이 `lidar_collision`(`min_scan_m = 0.120 m`, `scan_all_min <= 0.121 m` 4스텝 이상)** 이다(`debris_collision` 8건).
-   - **근접 구간 RL 게이팅(`alpha_rl = 0.0`)으로 인한 로컬 플래너 한계 수렴**: `used_tight_pass == True`, `front_min < 0.24 m`, `side_clearance < 0.62 m`, `min_side < 0.17 m` 등 근접·협소 조건에서 `alpha_rl = 0.0`으로 게이팅되어 두 모델 모두 `local_grid_planner.py`의 단독 제어로 수렴한다.
-   - **교차 동적 장애물 측면 회피 부재**: `DYNAMIC_HOLD`(1.2초 정지)는 정면 급접근 조건에서만 작동하므로, 횡단 동적 장애물(`dynamic_crossfire_alley` `0/10`, `dynamic_gauntlet` `2~4/10`)에 대한 측면 회피가 부재하다.
+6. **150-Trial 클린 벤치마크 잔여 충돌 병목 (Known Bottlenecks)**: Option 2 기준 실패 54건 중 45건이 기지 도착 후 복귀 중 `lidar_collision`(총 53건, `min_scan_m = 0.120 m`)으로 판정되었으며, 근접 구간 `alpha_rl = 0.0` 게이팅으로 인한 `local_grid_planner.py` 한계 수렴 및 교차 동적 장애물(`dynamic_crossfire_alley` `0/10`) 측면 회피 부재가 주원인이다(세부 수치·원인 분석은 §6.2 핵심 분석 및 결과 해석 참조).
 7. **절차적 환경 잔여 가스 침범률(`real_tb3` TEST 26.7%)**: PPO 쉴드 페널티·`hard_sem` 하드 배리어·`VAL/TEST` 분리·연속 `sem_prox` 적용으로 `real_tb3` `gas_hazard_free_rate`가 `60.0% → 73.3%`(Gazebo `ab10` `9/10` · 가스 위반 `0회`)로 개선되었으나, `1.8×1.8 m` 로컬 패치 시야 한계와 고정 16스텝(1.6초) 단기 윈도우 1D-TCN 문맥으로 인해 절차적 가스 회랑 테스트의 `26.7%`에서는 경계 진입이 남는다.
 8. **향후 과제 (Next Steps — 미검증 개선안)**:
    - `local_grid_planner.py`의 협소 폴백 팽창 반경(`tight_radius_m`) 상향, `_sector_clearances` 사각지대(`±18°~24°`, `±95°~145°`) 보완, `step()` 내 측면/대각선 근접 반발 가드 추가는 현재 미검증 상태이며 향후 로컬 플래너 고도화 과제로 분리한다.
@@ -891,7 +888,7 @@ disaster_recovery_ws/
 │   │   ├── stop.py                      # 호스트 + 로봇 프로세스 일괄 종료
 │   │   ├── sim.py                       # Gazebo + SLAM + 복귀 제어기 + 랜덤 낙석([O]키) 시뮬레이터
 │   │   ├── wasd_teleop.py               # WASD 텔레옵 (/cmd_vel_remote 발행)
-│   │   ├── ab_disaster_benchmark.py     # 5대 재난환경 고정 시드 A/B·RL S2S 하네스 (--gz-port, --ros-domain-id)
+│   │   ├── ab_disaster_benchmark.py     # 15대 재난 시나리오 고정 시드 A/B·RL S2S 하네스 (--gz-port, --ros-domain-id)
 │   │   ├── plot_ab_comparison.py        # 5대 환경 맵·KPI·10회 궤적 비교 시각화 생성기
 │   │   ├── record_3d_evidence.py        # Gazebo 3D + RViz2(slam_toolbox /map) 30 FPS .mp4/.png 증거 캡처기
 │   │   ├── refresh_visual_evidence.sh   # 대표 10편 3D 증거 영상 일괄 재녹화
