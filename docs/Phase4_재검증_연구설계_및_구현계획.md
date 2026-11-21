@@ -124,15 +124,15 @@ flowchart TB
   - [`src/disaster_recovery/disaster_recovery/recovery_controller.py`](../src/disaster_recovery/disaster_recovery/recovery_controller.py)
   - [`scripts/host/rl_procedural_env.py`](../scripts/host/rl_procedural_env.py)
 - **구현 명세**:
-  1. **런타임 연속 스캔 속도 추정**: `recovery_controller.py`에 직전 스캔 점군(`_prev_scan_pts`)과 현재 스캔 점군(`latest_scan_pts`) 간의 경량 2D ICP(최대 4회 반복, 초기 추정치로 휠 오도메트리 증분 $(\Delta x_{\text{odom}}, \Delta y_{\text{odom}}, \Delta\theta_{\text{odom}})$ 제공)를 수행해 **실제 차체 이동 속도 추정치 $(\hat{v}_{\text{scan}}, \hat{\omega}_{\text{scan}})$** 를 산출한다 (인라이어 비율 부족 시 휠 오도메트리로 안전 폴백).
-  2. **관측 정합**: `ContextRLStudentPolicy`의 `act_v, act_w`에 휠 엔코더 속도가 아닌 $(\hat{v}_{\text{scan}}, \hat{\omega}_{\text{scan}})$을 공급하고, 휠 오도메트리와의 불일치 잔차 $e_{\text{slip}} = (v_{\text{odom}} - \hat{v}_{\text{scan}})/v_{\max}$를 추적한다.
+  1. **런타임 연속 스캔 속도 추정 및 퇴화 감지**: `recovery_controller.py`에 직전 스캔 점군(`_prev_scan_pts`)과 현재 스캔 점군(`latest_scan_pts`) 간의 경량 2D ICP(최대 4회 반복, 초기 추정치로 휠 오도메트리 증분 제공)를 수행해 **실제 차체 이동 속도 추정치 $(\hat{v}_{\text{scan}}, \hat{\omega}_{\text{scan}})$** 를 산출한다. 단, 평행 직선 벽면(`tunnel` 등)에서의 **기하학적 퇴화(Geometric Degeneracy)** 시 휠 오도메트리 초기값에 고착되는 함정을 막기 위해, 대응점 공분산/헤시안의 최소 고유값 비율 기반 퇴화 플래그(`icp_degenerate`)를 산출하여 퇴화 구간에서는 슬립 잔차 갱신을 보류한다.
+  2. **관측 정합 및 자이로 교차 검증**: 비퇴화 구간에서 `ContextRLStudentPolicy`의 `act_v, act_w`에 $(\hat{v}_{\text{scan}}, \hat{\omega}_{\text{scan}})$을 공급하고 슬립 잔차 $e_{\text{slip}} = (v_{\text{odom}} - \hat{v}_{\text{scan}})/v_{\max}$를 추적한다. 실물 로봇에서는 온보드 `/imu` 자이로 각속도($\omega_{\text{imu}}$)와의 잔차로 회전 슬립을 교차 검증한다(저가 MEMS 가속도계 적분은 저속 진동·중력 누설로 배제).
   3. **시뮬레이터 정합**: `rl_procedural_env.py` L1393-1400의 `v_meas, w_meas`에 현실적인 ICP 추정 노이즈($\sigma_v \approx 0.015\,\text{m/s}, \sigma_\omega \approx 0.03\,\text{rad/s}$)를 추가하여 학습-배포 간 관측 분포를 일치시킨다.
 
 ---
 
 ### Stage 1 (Phase 4-B): 정적 맵 차분 기반 동적 장애물 추적 및 불확실성 예측기
 
-**목적**: $5\sim 10\,\text{Hz}$ 저해상도 2D LiDAR(약 180포인트)만으로 정적 벽면 오탐 없이 동적 장애물을 분리·추적하고, 조화 진동/방향 전환을 고려한 미래 점유 확률 격자(`Ch3`)와 속도·공분산 벡터를 실시간(`< 0.3 ms` RPi 4) 산출한다.
+**목적**: $5\sim 10\,\text{Hz}$ 원본 2D LiDAR(360포인트, $1^\circ$ 분해능 — ICP용 다운샘플링 `180`포인트 미사용)만으로 정적 벽면 오탐 없이 동적 장애물을 분리·추적하고, 조화 진동/방향 전환을 고려한 미래 점유 확률 격자(`Ch3`)와 속도·공분산 벡터를 실시간(`< 0.3 ms` RPi 4) 산출한다.
 
 #### 1.1 신규 모듈 생성
 - **신규 파일**: `src/disaster_recovery/disaster_recovery/dynamic_tracker.py`
@@ -151,7 +151,7 @@ flowchart TB
    - 상태 벡터 $s_k = [x, y, v_x, v_y]^T$에 대해 감쇠 계수 $\gamma_v \in (0.92, 0.98)$를 포함한 선형 전이 모델 $F(\Delta t)$를 적용한다:
      $$s_{k|k-1} = \begin{bmatrix} I_2 & \Delta t\, I_2 \\ 0 & \gamma_v I_2 \end{bmatrix} s_{k-1}, \quad P_{k|k-1} = F P_{k-1} F^T + Q(\Delta t)$$
    - **비선형 왕복 운동 대응**: 최근 3틱 속도 내적($\hat{v}_{k-1} \cdot \hat{v}_k < 0$) 또는 잔차 혁신(Innovation) 급증 감지 시 프로세스 잡음 $Q_v$를 3배 팽창(Adaptive Process Noise)하여 조화 진동 장애물의 방향 전환 지점에서 오버슈트를 즉시 억제한다.
-   - 연속 3틱 이상 매칭되고 추정 속력 $\lVert \hat{v} \rVert \ge 0.08\,\text{m/s}$인 트랙만 `is_confirmed = True`로 승격한다.
+   - **저주파($5\,\text{Hz}$) 확정 지연 및 단절 대응**: 연속 2틱 매칭 및 추정 속력 $\lVert \hat{v} \rVert \ge 0.08\,\text{m/s}$ 통과 시 `is_confirmed = True`로 조기 승격하며, 일시적 빔 결측(dropout) 시 최대 2틱 유예(Coasting)를 두어 트랙 단절을 방지한다.
 4. **미래 점유 예측 및 `Ch3` (12×12) 투영**:
    - 확정된 각 동적 트랙에 대해 지평 $\tau \in \{0.5\,\text{s}, 1.0\,\text{s}, 1.5\,\text{s}\}$의 예측 중심 및 공분산을 계산한다:
      $$\hat{p}(\tau) = \hat{p}_0 + \frac{1 - \gamma_v^{\tau/\Delta t}}{1 - \gamma_v} \Delta t\,\hat{v}_0, \quad \Sigma(\tau) = \Sigma_{p,0} + \tau^2 \Sigma_{v,0} + q_{\text{acc}} \frac{\tau^3}{3} I_2$$
@@ -183,10 +183,11 @@ flowchart TB
    - 정적 LiDAR 점: $r_{o,i} = 0.02\,\text{m}$, $m_{\text{pad}} = 0.025\,\text{m}$ (차체 반경 $r_{\text{robot}} = 0.105\,\text{m}$ 기준, 총 안전 반경 $0.15\,\text{m}$ — 협소 문틀 $0.28\sim 0.35\,\text{m}$ 통과 가능).
    - 동적 장애물: 불확실성 패딩 $m_{\text{pad}, i} = 0.04 + 1.2\sqrt{\lambda_{\max}(\Sigma_{p,i})}$ 적용.
    - `Ch1` 저상 장애물 / `Ch2` 가스 구역: 각각 캐시된 반경 $r_{o,i}$ + 안전 마진 $0.05\,\text{m}$ 적용.
-3. **동적 속도 항이 포함된 1차 선형 부등식 제약**:
-   $\dot{h}_i + \gamma_i h_i \ge -\delta_i$ 조건을 전개하면 $u = [v, \omega]^T$에 대한 선형 부등식이 얻어진다:
-   $$-2 (p_l - p_{o,i})^T J(\theta)\, u - \delta_i \le \gamma_i h_i - 2 (p_l - p_{o,i})^T \hat{v}_{o,i}$$
+3. **동적 속도·이산시간·슬립 마진이 포함된 강인 이산 CBF 부등식**:
+   $\Delta t = 0.1\,\text{s}$ 이산 제어기의 Inter-sampling violation과 휠 슬립 외란 상한을 흡수하는 보수적 마진 $\epsilon_{\text{dt,slip}} > 0$을 포함하여, $h_i(x_{k+1}) \ge (1 - \gamma_i \Delta t) h_i(x_k) - \delta_i$ 근사 부등식을 구성한다:
+   $$-2 (p_l - p_{o,i})^T J(\theta)\, u - \delta_i \le \gamma_i h_i - 2 (p_l - p_{o,i})^T \hat{v}_{o,i} - \epsilon_{\text{dt,slip}}$$
    여기서 $\hat{v}_{o,i}$는 정적 장애물일 때 $0$, 동적 장애물일 때 Stage 1 KF가 추정한 속도 벡터다.
+   *(주: 슬랙 $\delta_i > 0$이 활성화되는 협소 문틀 등에서는 엄밀한 전방 불변성이 완화되므로, 본 모듈의 학술적 역할은 "Feasible 영역 내 안전 집합 유지 및 교착 시 Graceful Degradation을 제공하는 최소 개입 Soft-CBF-QP 안전 필터"로 정의한다.)*
 4. **Soft-Constrained 2변수 QP (협소 문틀 교착 방지)**:
    $$\min_{u \in \mathcal{U},\; \delta \ge 0} \; \frac{1}{2} (u - u_{\text{nom}})^T Q (u - u_{\text{nom}}) + \frac{1}{2} \sum_{i} p_{\delta, i}\, \delta_i^2$$
    - $\mathcal{U} = \{ (v, \omega) \mid v_{\min} \le v \le v_{\max},\; -\omega_{\max} \le \omega \le \omega_{\max} \}$, 가중 행렬 $Q = \text{diag}(w_v, w_\omega)$ (조향 수정보다 선속도 감속 선호도를 조절 가능).
@@ -221,8 +222,9 @@ flowchart TB
 1. `FrozenBackboneSemanticTeacher` 및 `FrozenBackboneSemanticStudent`의 `patch_channels`를 `4`까지 지원하도록 확장한다 (`self.sem_channels = patch_channels - 1 = 3`: `Ch1, Ch2, Ch3`).
 2. **수학적 비퇴행 불변식 유지**:
    - `ch123_peak = aligned_patch[:, 1:, :, :].abs().max()`로부터 `res_gate = clip((ch123_peak - 1e-4) / 0.04, 0.0, 1.0)`을 계산한다.
-   - `Ch1 = Ch2 = Ch3 = 0`인 순수 LiDAR 환경에서는 `res_gate = 0`이 되어 **Phase 2-B 1-Ch ONNX와 `max_abs_diff = 0.0` (비트 수준 동일)** 을 유지한다.
+   - `Ch1 = Ch2 = Ch3 = 0`인 순수 LiDAR 환경(Phase 3에서 이미 `90~100%` 달성한 `slip_chicane`, `smoke_lidar_corruption` 등)에서는 `res_gate = 0`이 되어 **Phase 2-B 1-Ch ONNX와 `max_abs_diff = 0.0` (비트 수준 동일)** 을 유지한다. 따라서 4-C CVaR-RL의 적용 범위는 **`Ch1/Ch2/Ch3`가 활성화된 복합 고슬립·동적 교차 구간**으로 한정한다.
    - `sem_safety_head`는 Phase 4 Student ONNX 그래프에서 제거(`scale_gate = 0.0`)하고 런타임 Stage 2 Soft-CBF-QP에 전담시킨다.
+   - **CBF 신용 할당 왜곡 방지**: 학습 초기 업데이트에서는 CBF를 비활성화해 실제 충돌/침범 비용에 직접 노출시킨 뒤, 후반부 CBF-in-the-loop 파인튜닝 시 개입량 $\lVert u_{\text{cbf}} - u_{\text{rl}} \rVert_W^2$과 슬랙 $\sum \delta_i^2$을 대리 안전 비용으로 결합한다.
 
 #### 3.3 Quantile CVaR-Lagrangian PPO 학습 알고리즘 (`train_phase2_v100.py`)
 1. **분포형 비용 Critic (Quantile Cost Critic)**:
@@ -264,7 +266,7 @@ flowchart TB
 
 #### 4.2 단위 테스트 계획 (`src/disaster_recovery/test/`)
 기존 6개 단위 테스트(`test_local_grid_planner.py`, `test_semantic_controller.py`, `test_semantic_rl_env.py`, `test_semantic_mapper.py`, `test_hybrid_recovery.py`, `test_ads1115_mq2.py`)의 100% 회귀 통과를 유지하면서 다음 3개 테스트 파일을 신규 작성한다:
-1. `test_dynamic_tracker.py`: 정적 벽면 회전 시 오탐률 `0%` 검증, 정현파 왕복 장애물 추적 오차(ADE/FDE) 및 방향 전환 시 분산 팽창 검증, 처리 지연 `< 0.5 ms` 검증.
+1. `test_dynamic_tracker.py`: 정적 벽면 회전 시 오탐률 `0%` 검증, 정현파 왕복 장애물 추적 오차(ADE/FDE) 및 방향 전환 시 분산 팽창 검증, **$5\,\text{Hz}$ 저주파 구동 시 2틱 확정 지연 및 빔 결측(dropout) 트랙 단절 스트레스 테스트**, 처리 지연 `< 0.5 ms` 검증.
 2. `test_cbf_safety_shield.py`: 안전 집합 내부 개입량 `||u* - u_nom|| == 0` 검증, 접근 장애물 앞 감속/회피 불변성 검증, `0.28 m` 협소 문틀 양측 제약 동시 활성 시 해 존재(Feasibility) 검증, 1틱 풀이 시간 `< 0.3 ms` 검증.
 3. `test_phase4_cvar_env.py`: 4채널 패치(`1120` dim) 형상 및 `Ch1=Ch2=Ch3=0` 시 Phase 2-B 1-Ch ONNX 대비 **`max_abs_diff == 0.0`** 수학적 비퇴행 검증, Quantile CVaR 손실 및 $\lambda$ 단조 갱신 단위 검증.
 
@@ -285,7 +287,7 @@ flowchart TB
 | **M4** | **Full Phase 4**: 4-Ch `CVaR-Lagrangian PPO` + 동적 예측(`Ch3`) + Soft-CBF-QP | **최종 제안 아키텍처** |
 
 ### 4.2 핵심 증명 가설 (M4 vs M2, M3)
-- **M4 vs M2 (`No RL`)**: 정적/단순 환경에서는 M2도 높은 성공률을 보일 수 있으나, **고슬립(`real_tb3`, `slip_chicane`) + 비선형 동적 교차(`crossfire`, `gauntlet`) + 연기 노이즈** 조건에서 근시안적 M2는 CBF 급개입 횟수(`intervention_rate`)와 꼬리 충돌률/타임아웃이 급증하는 반면, 다단계 선제 제어를 수행하는 M4가 **더 낮은 CBF 개입량 $\lVert u_{\text{cbf}} - u_{\text{nom}}\rVert$**, **더 짧은 복귀 시간**, **더 높은 무충돌 성공률**을 달성함을 입증한다.
+- **M4 vs M2 (`No RL`)**: 정적/단순 환경에서는 M2도 높은 성공률을 보일 수 있으나, **`Ch1/Ch2/Ch3`가 활성화된 복합 고슬립(`real_tb3` 가스+고슬립) + 비선형 동적 교차(`crossfire`, `gauntlet`)** 조건에서 근시안적 M2는 CBF 급개입 횟수(`intervention_rate`)와 꼬리 충돌률/타임아웃이 급증하는 반면, 다단계 선제 제어를 수행하는 M4가 **더 낮은 CBF 개입량 $\lVert u_{\text{cbf}} - u_{\text{nom}}\rVert$**, **더 짧은 복귀 시간**, **더 높은 무충돌 성공률**을 달성함을 입증한다.
 - **M4 vs M3 (`Std PPO`)**: 평균 성공률이 유사하더라도 **최악 하위 10% 꼬리 지표(Worst-10% CVaR 비용 및 `real_tb3` 가스 침범률)** 에서 M4가 통계적으로 유의미한 우위를 가짐을 입증한다.
 
 ### 4.3 단계별 정량 합격 기준 (Go / No-Go Gate)
