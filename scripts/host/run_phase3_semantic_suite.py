@@ -971,7 +971,7 @@ def run_ab10(args) -> int:
 
 
 def _yolo_viewer_thread(node: SemanticSuiteNode, stop_ev: threading.Event, title: str, status_fn):
-    """Display /detection/image with live YOLO detections & Victim (x,y) coordinate HUD inside Xvfb."""
+    """Display /detection/image with live YOLO detections, comm-link state, & Victim (x,y) coordinate HUD inside Xvfb."""
     cv2.namedWindow(title, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(title, 700, 440)
     while not stop_ev.is_set():
@@ -981,10 +981,17 @@ def _yolo_viewer_thread(node: SemanticSuiteNode, stop_ev: threading.Event, title
         if img is not None:
             resized = cv2.resize(img, (560, 420), interpolation=cv2.INTER_AREA)
             canvas[10:430, 10:570] = resized
+            if not node.hb_enabled:
+                overlay = canvas[10:430, 10:570].copy()
+                cv2.rectangle(overlay, (0, 0), (560, 420), (15, 23, 42), -1)
+                canvas[10:430, 10:570] = cv2.addWeighted(overlay, 0.55, canvas[10:430, 10:570], 0.45, 0)
+                cv2.rectangle(canvas, (30, 180), (550, 260), (153, 27, 27), -1)
+                cv2.putText(canvas, "COMM LOST - HOST YOLO OFFLINE", (48, 214), cv2.FONT_HERSHEY_SIMPLEX, 0.72, (255, 255, 255), 2)
+                cv2.putText(canvas, "Using Onboard Semantic Cache + 3-Ch RL", (62, 244), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (253, 224, 71), 1)
         else:
             cv2.putText(canvas, "Waiting for /detection/image ...", (120, 220), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (180, 190, 200), 2)
 
-        # Right telemetry strip for detected semantic coordinates
+        # Right telemetry strip for detected semantic coordinates + clear mode badge
         cv2.rectangle(canvas, (576, 10), (692, 430), (30, 37, 48), -1)
         cv2.putText(canvas, "SEMANTIC", (584, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (56, 189, 248), 2)
         cv2.putText(canvas, "MAP COORDS", (584, 56), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (148, 163, 184), 1)
@@ -996,11 +1003,35 @@ def _yolo_viewer_thread(node: SemanticSuiteNode, stop_ev: threading.Event, title
             cv2.putText(canvas, f"{cname}", (584, y_off), cv2.FONT_HERSHEY_SIMPLEX, 0.44, col, 1)
             cv2.putText(canvas, f"({ox:.2f},{oy:.2f})", (584, y_off + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (230, 235, 240), 1)
             y_off += 46
+
         st_txt = status_fn()
-        cv2.putText(canvas, st_txt[:14], (584, 412), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (74, 222, 128), 1)
+        if st_txt == "MISSION_COMPLETE":
+            pill_bg, mode_l1, mode_l2 = (21, 128, 61), "COMPLETE", "BASE CAMP"
+        elif st_txt.startswith("BACKTRACK") or st_txt in ("EMERGENCY_STOP", "LOCAL_TD3_AVOIDANCE", "OBSTACLE_HOLD"):
+            pill_bg, mode_l1, mode_l2 = (185, 28, 28), "RECOVERY", "COMM LOST"
+        elif not node.hb_enabled:
+            pill_bg, mode_l1, mode_l2 = (180, 83, 9), "COMM LOST", "HB CUT..."
+        else:
+            pill_bg, mode_l1, mode_l2 = (15, 76, 129), "DRIVING", "COMM: ON"
+        cv2.rectangle(canvas, (580, 368), (688, 424), pill_bg, -1)
+        cv2.putText(canvas, mode_l1, (586, 392), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (255, 255, 255), 2)
+        cv2.putText(canvas, mode_l2, (586, 414), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (226, 232, 240), 1)
         cv2.imshow(title, canvas)
         cv2.waitKey(30)
     cv2.destroyAllWindows()
+
+
+def _render_hud_banner(path: str, title_text: str, bg_rgba: Tuple[int, int, int, int] = (15, 23, 42, 232), height: int = 48) -> None:
+    font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    im = PILImage.new("RGBA", (1920, height), bg_rgba)
+    draw = ImageDraw.Draw(im)
+    try:
+        font = ImageFont.truetype(font_path, 22 if height >= 44 else 19)
+    except Exception:
+        font = ImageFont.load_default()
+    draw.rectangle([(0, height - 3), (1920, height)], fill=(255, 255, 255, 75))
+    draw.text((18, max(4, (height - 26) // 2)), title_text, fill=(248, 250, 252, 255), font=font)
+    im.save(path)
 
 
 def _annotate_mp4_and_gif(
@@ -1011,30 +1042,51 @@ def _annotate_mp4_and_gif(
     fps: int = 20,
     gif_fps: int = 10,
     gif_width: int = 960,
+    phase_segments: Optional[List[Tuple[float, Optional[float], str, Tuple[int, int, int, int]]]] = None,
 ):
-    """Re-encode raw x11grab MP4 with crisp top title banner and optional compressed GIF (<7.5MB)."""
-    font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-    tmp_banner = out_mp4 + ".banner.png"
-    im = PILImage.new("RGBA", (1920, 34), (15, 23, 42, 225))
-    draw = ImageDraw.Draw(im)
-    try:
-        font = ImageFont.truetype(font_path, 19)
-    except Exception:
-        font = ImageFont.load_default()
-    draw.text((16, 6), title_text, fill=(248, 250, 252, 255), font=font)
-    im.save(tmp_banner)
+    """Re-encode raw x11grab MP4 with crisp static or dynamic time-synced HUD banners and optional compressed GIF."""
+    tmp_banners: List[str] = []
+    if phase_segments:
+        valid_segs = [s for s in phase_segments if s[1] is None or s[1] > s[0] + 0.05]
+    else:
+        valid_segs = []
 
-    subprocess.run(
-        [
-            "ffmpeg", "-y", "-i", raw_mp4, "-i", tmp_banner,
-            "-filter_complex", "[0:v][1:v]overlay=0:0[v]", "-map", "[v]",
-            "-c:v", "libx264", "-preset", "medium", "-crf", "22", "-pix_fmt", "yuv420p",
-            out_mp4,
-        ],
-        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
-    if os.path.exists(tmp_banner):
-        os.remove(tmp_banner)
+    if valid_segs:
+        cmd = ["ffmpeg", "-y", "-i", raw_mp4]
+        for idx, (_, _, seg_txt, seg_bg) in enumerate(valid_segs):
+            b_path = f"{out_mp4}.seg{idx}.banner.png"
+            _render_hud_banner(b_path, seg_txt, bg_rgba=seg_bg, height=48)
+            tmp_banners.append(b_path)
+            cmd.extend(["-i", b_path])
+        filters = []
+        prev = "0:v"
+        for idx, (s_t0, s_t1, _, _) in enumerate(valid_segs):
+            out_tag = "v" if idx == len(valid_segs) - 1 else f"v{idx + 1}"
+            en = f"gte(t,{s_t0:.3f})" if s_t1 is None else f"between(t,{s_t0:.3f},{s_t1:.3f})"
+            filters.append(f"[{prev}][{idx + 1}:v]overlay=0:0:enable='{en}'[{out_tag}]")
+            prev = out_tag
+        cmd.extend([
+            "-filter_complex", ";".join(filters), "-map", "[v]",
+            "-c:v", "libx264", "-preset", "medium", "-crf", "22", "-pix_fmt", "yuv420p", out_mp4,
+        ])
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        tmp_banner = out_mp4 + ".banner.png"
+        _render_hud_banner(tmp_banner, title_text, bg_rgba=(15, 23, 42, 225), height=38)
+        tmp_banners.append(tmp_banner)
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", raw_mp4, "-i", tmp_banner,
+                "-filter_complex", "[0:v][1:v]overlay=0:0[v]", "-map", "[v]",
+                "-c:v", "libx264", "-preset", "medium", "-crf", "22", "-pix_fmt", "yuv420p",
+                out_mp4,
+            ],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+
+    for b_p in tmp_banners:
+        if os.path.exists(b_p):
+            os.remove(b_p)
     if os.path.exists(raw_mp4):
         os.remove(raw_mp4)
 
@@ -1108,7 +1160,7 @@ def run_record_e2e(args) -> int:
         procs.append(p_slam)
 
         p_ai = subprocess.Popen(
-            ["bash", "-c", env_prefix + f"ros2 run disaster_recovery host_ai_pipeline --ros-args -p enable_heartbeat:=false -p yolo_model_path:={YOLO_WEIGHTS} -p image_topic:=/camera/image_raw -p use_compressed:=false -p rotation_angle:=0 -p show_window:=false -p only_person_detection:=false -p confidence_threshold:=0.30 -p person_conf_threshold:=0.35 -p whisper_device:=cpu"],
+            ["bash", "-c", env_prefix + f"ros2 run disaster_recovery host_ai_pipeline --ros-args -p enable_heartbeat:=true -p yolo_model_path:={YOLO_WEIGHTS} -p image_topic:=/camera/image_raw -p use_compressed:=false -p rotation_angle:=0 -p show_window:=false -p only_person_detection:=false -p confidence_threshold:=0.30 -p person_conf_threshold:=0.35 -p whisper_device:=cpu"],
             stdout=open("/tmp/disaster_recovery/p3_e2e_ai.log", "w"), stderr=subprocess.STDOUT, preexec_fn=os.setsid,
         )
         procs.append(p_ai)
@@ -1236,11 +1288,12 @@ def run_record_e2e(args) -> int:
             while not fut.done() and time.time() - t_sv < 4.0:
                 rclpy.spin_once(node, timeout_sec=0.02)
 
-        # Stop Host semantic_map_node at blackout & ensure Ch1 low_obs + Ch2 semantic hazards remain cached onboard
-        try:
-            os.killpg(os.getpgid(p_sem.pid), signal.SIGTERM)
-        except Exception:
-            pass
+        # Stop Host AI & semantic_map_node at blackout so /heartbeat & YOLO genuinely disconnect
+        for p_host in (p_ai, p_sem):
+            try:
+                os.killpg(os.getpgid(p_host.pid), signal.SIGTERM)
+            except Exception:
+                pass
         merged_cache = [obj for obj in node.latest_cached_objects if str(obj.get("class_name", "")).upper() != "GAS_HAZARD"]
         for i_l, (lx, ly) in enumerate(low_list, start=1):
             merged_cache.append({
@@ -1259,14 +1312,20 @@ def run_record_e2e(args) -> int:
         node.pub_cached.publish(String(data=cache_payload))
         node.sim_sleep(0.15)
 
+        t_cut_wall = max(0.2, time.time() - t_rec_start)
+        t_rec_wall: Optional[float] = None
+        t_done_wall: Optional[float] = None
         node.hb_enabled = False
         t_ret0 = node.sim_now()
         while node.sim_now() - t_ret0 < 85.0:
             rclpy.spin_once(node, timeout_sec=0.02)
+            if t_rec_wall is None and node.ctrl_state in ("EMERGENCY_STOP", "BACKTRACKING_ROTATE", "BACKTRACKING_HYBRID", "BACKTRACKING_TRANSLATE", "LOCAL_TD3_AVOIDANCE"):
+                t_rec_wall = max(t_cut_wall + 0.1, time.time() - t_rec_start)
             if math.hypot(node.cur_x - (ret_pts[-1][0] if ret_pts else node.cur_x), node.cur_y - (ret_pts[-1][1] if ret_pts else node.cur_y)) >= 0.10 or not ret_pts:
                 ret_pts.append((node.cur_x, node.cur_y))
             _tick_markers()
             if node.ctrl_state == "MISSION_COMPLETE":
+                t_done_wall = max((t_rec_wall or t_cut_wall) + 0.1, time.time() - t_rec_start)
                 break
             node.sim_sleep(0.10)
         node.sim_sleep(1.5)
@@ -1293,10 +1352,26 @@ def run_record_e2e(args) -> int:
         )
         shutil.copy2(overlay_repo, os.path.join(e2e_bundle_dir, "semantic_map_overlay.png"))
 
+        e2e_segments: List[Tuple[float, Optional[float], str, Tuple[int, int, int, int]]] = []
+        if t_rec_wall is not None and t_done_wall is not None:
+            e2e_segments = [
+                (0.0, t_cut_wall, "[DRIVING MODE]  COMM: ON (10 Hz HB)  |  Outbound Exploration & Live YOLO26n Semantic SLAM", (15, 76, 129, 238)),
+                (t_cut_wall, t_rec_wall, "[COMM LOST!]  COMM: LOST (0 Hz HB)  |  Host Disconnected — Watchdog Detecting Timeout (3.0 s)...", (180, 83, 9, 242)),
+                (t_rec_wall, t_done_wall, "[RECOVERY MODE]  COMM: LOST  |  Autonomous Return via Onboard LIFO + A* + 3-Ch RL + Safety Shield", (185, 28, 28, 242)),
+                (t_done_wall, None, "[MISSION COMPLETE]  COMM: LOST  |  Safely Returned to Base Camp (0, 0) via Onboard Intelligence", (21, 128, 61, 242)),
+            ]
+        elif t_rec_wall is not None:
+            e2e_segments = [
+                (0.0, t_cut_wall, "[DRIVING MODE]  COMM: ON (10 Hz HB)  |  Outbound Exploration & Live YOLO26n Semantic SLAM", (15, 76, 129, 238)),
+                (t_cut_wall, t_rec_wall, "[COMM LOST!]  COMM: LOST (0 Hz HB)  |  Host Disconnected — Watchdog Detecting Timeout (3.0 s)...", (180, 83, 9, 242)),
+                (t_rec_wall, None, "[RECOVERY MODE]  COMM: LOST  |  Autonomous Return via Onboard LIFO + A* + 3-Ch RL + Safety Shield", (185, 28, 28, 242)),
+            ]
+
         _annotate_mp4_and_gif(
             raw_mp4, out_mp4, out_gif,
             "Phase 3 E2E: Gazebo 3D + RViz2 /map Semantic SLAM + Live YOLO26n RGB-LiDAR Fusion",
             gif_fps=8, gif_width=840,
+            phase_segments=e2e_segments,
         )
         subprocess.run(
             ["ffmpeg", "-y", "-ss", f"{live_snap_ts:.2f}", "-i", out_mp4, "-vframes", "1", live_png],
