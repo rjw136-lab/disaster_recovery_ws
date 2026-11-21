@@ -409,11 +409,9 @@ sequenceDiagram
     Robot->>Robot: Option 2 3-Ch Context-RL ONNX (0.12ms)로 캐싱된 조난자·저상·가스 우회 복귀
 ```
 
-<p align="center">
-  <img src="docs/images/evidence/phase3_semantic_slam_e2e.gif" width="95%" alt="[GIF] Phase 3 Semantic SLAM E2E">
-  <br>
-  <em>▲ [GIF] 3패널 E2E 시맨틱 SLAM (Gazebo 3D + YOLO26n + RViz2 /map · 동적 HUD: DRIVING → COMM LOST → RECOVERY → MISSION COMPLETE)</em>
-</p>
+| `[GIF]` 3패널 E2E 시맨틱 SLAM (Gazebo 3D + YOLO26n + RViz2 `/map` · `DRIVING → COMM LOST → RECOVERY → COMPLETE`) |
+| :---: |
+| <img src="docs/images/evidence/phase3_semantic_slam_e2e.gif" width="72%" alt="[GIF] Phase 3 Semantic SLAM E2E"> |
 
 | `[PNG]` E2E 3패널 실시간 스냅샷 (YOLO26n 조난자 검출) | `[PNG]` 2D `/map` 시맨틱 좌표 영구 오버레이 |
 | :---: | :---: |
