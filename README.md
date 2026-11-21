@@ -59,7 +59,7 @@
 | # | 목표 | 핵심 기술 (최신 패치 반영) | 상태 |
 | :-: | :--- | :--- | :-: |
 | 1 | **2D 시맨틱 SLAM & Option 2 3채널 Context-RL** | 단안 RGB(YOLO26n) + 2D LiDAR 투영 퓨전(`/map` 조난자·장애물·가스·음성 영구 마커) + **Frozen Phase 2-B 백본 + Zero-Gated Residual 시맨틱 어댑터** (`max_abs_diff = 0.0`, 10-Trial A/B 엄격 무위험 `80.0%` vs Blind `0.0%`, 저상 충돌 `0회`) | ✅ 시뮬 완료 |
-| 2 | **통신 단절 시 비퇴행 온보드 자율 복귀** | Heartbeat 워치독 + LIFO 역추적 + 계층형 제어(`RollingLocalGrid 2D A*` · `Option 2 Context-RL ONNX` · Clearance-Gate, **150회 엄격 무충돌 관측치 `119/150 = 79.3%` / 도착 `95.3%`** (비시맨틱 구간은 Phase 2-B와 정책 출력 일치; 별도 실행 점수로 성능 향상을 주장하지 않음)) | ✅ 완료 |
+| 2 | **통신 단절 시 비퇴행 온보드 자율 복귀** | Heartbeat 워치독 + LIFO 역추적 + 계층형 제어(`RollingLocalGrid 2D A*` · `Option 2 Context-RL ONNX` · Clearance-Gate, **150회 엄격 무충돌 관측치 `119/150 = 79.3%` / 도착 `95.3%`** (비시맨틱 구간은 Phase 2-B와 정책 출력 일치; 별도 실행 점수로 성능 향상을 주장하지 않음) | ✅ 완료 |
 | 3 | **극한 재난 환경 강인성 확보** | LiDAR 이웃 각도 잡음 필터(연기·분진 대응) + 개방 광선 잔상 빠른 소거(동적 장애물 대응) + 2D LiDAR SVD ICP 슬립 보정(3.5 ms) | ✅ 완료 |
 | 4 | **베이스캠프 정밀 도킹** | ArUco + `solvePnP` 비주얼 서보잉, 10초 타임아웃 세이프티 가드 | ✅ 완료 |
 | 5 | **저지연 AI 재난 관제** | YOLO26n (GPU FP16 · 최대 15 FPS) + Faster-Whisper (CUDA INT8 · CPU 자동 폴백) GPU 통합 가속 | ✅ 완료 |
@@ -757,7 +757,7 @@ Host AI 파라미터 (`host_ai_pipeline` 코드 기본값): `yolo_max_fps=15.0`,
 2. **가스 센서 미결선**: 회로 설계와 드라이버는 완료되었으나 실물 결선 전이므로 `gas_stale_triggers_recovery: false`로 둔다.
 3. **블랙박스 Wi-Fi 스트리밍 차단 미구현**: 현재는 로컬 기록만 시작한다.
 4. **통신 단절 중 신규 조난자 비전 탐지 불가 (YOLO Host 의존성)**: `host_ai_pipeline`(YOLO26n)은 Host PC에서 실행되므로, 통신 단절 이후(Return 단계) 시야에 새로 등장한 조난자를 실시간 탐지할 수 없다. 단절 직전까지 `/semantic_map/cached_objects`로 백업된 조난자·저상 장애물 좌표 유지 및 온보드 MQ-2(`/gas/level`) 실시간 가스 감지만 수행하며, 완전 단절 심부 탐지 확장을 위해서는 RPi 4 온보드 경량 비전 가속기(예: NPU/Hailo) 탑재가 필요하다.
-5. **실물 TurtleBot3 Burger Track B 필드 실증 예정**: V100 Phase 2-B(`150회 엄격 69.3% / 도착 97.3%`) 및 Phase 3 Option 2(`150회 엄격 79.3% / 도착 95.3%`, 10-Trial 시맨틱 A/B 엄격 무위험 `80.0%`) 검증을 완료했으며, 실물 RPi 4 온보드 환경에서의 Track B(`real_tb3_policy_student_semantic_v3.onnx`, `412.7 KB`, x86 CPU `0.117 ms`) 추론 지연 실측 및 현장 주행은 실물 결합 시험에서 수행 예정이다.
+5. **실물 TurtleBot3 Burger Track B 필드 실증 예정**: V100 Phase 2-B(`150회 엄격 69.3% / 도착 97.3%`) 및 Phase 3 Option 2(`150회 엄격 79.3% / 도착 95.3%`, 10-Trial 시맨틱 A/B 엄격 무위험 `80.0%`) 검증을 완료했다. 단, Phase 2-B와 Option 2는 비시맨틱 입력에서 정책 출력이 동일하며 해당 150회 수치는 별도 실행 관측치이므로 직접적인 성능 향상 비교로 해석하지 않는다. 또한 실물 RPi 4 온보드 환경에서의 Track B(`real_tb3_policy_student_semantic_v3.onnx`, `412.7 KB`, x86 CPU `0.117 ms`) 추론 지연 실측 및 현장 주행은 실물 결합 시험에서 수행 예정이다.
 6. **Phase 3 잔여 가스 침범률(`real_tb3` 40.0%) 및 제어기 이산 분기**: 후단 Safety Shield 배치 및 복합 체크포인트 선정으로 `real_tb3` `gas_hazard_free_rate`가 `26.7% → 60.0%`로 개선되었으나, 로컬 패치($1.8 \times 1.8\,\text{m}$) 시야 한계, `0.88` 소프트 블렌딩 잔존(12%), 쉴드 개입 페널티 부재로 40.0% 가스 경계 침범이 남는다. 또한 상위 제어기 `recovery_controller.py`의 `has_nearby_sem` 불리언 분기(`eff_max_alpha: 0.70→0.82`, 슬루율 `0.15→0.25`, 반대 조향 가드 해제)는 별도 이산 전환으로 남아 있다.
 
 <details>
