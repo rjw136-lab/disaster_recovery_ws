@@ -70,6 +70,9 @@ class TrackedObstacle:
     missed_ticks: int = 0
     q_acc_scale: float = 1.0
     vel_history: Tuple[Tuple[float, float], ...] = ()
+    birth_x: float = 0.0
+    birth_y: float = 0.0
+    max_speed_seen: float = 0.0
 
     @property
     def speed(self) -> float:
@@ -414,6 +417,8 @@ class DynamicObstacleTracker:
         max_coast_ticks: int = 2,
         lidar_min_range_m: float = 0.12,
         lidar_max_range_m: float = 3.50,
+        lidar_offset_x_m: float = 0.0,
+        confirm_min_disp_m: float = 0.045,
         ch3_horizons: Sequence[float] = (0.5, 1.0, 1.5),
         ch3_weights: Sequence[float] = (1.0, 0.75, 0.50),
         ch3_eps: float = 1e-3,
@@ -446,6 +451,8 @@ class DynamicObstacleTracker:
         self.max_coast_ticks = int(max_coast_ticks)
         self.lidar_min_range_m = float(lidar_min_range_m)
         self.lidar_max_range_m = float(lidar_max_range_m)
+        self.lidar_offset_x_m = float(lidar_offset_x_m)
+        self.confirm_min_disp_m = float(confirm_min_disp_m)
         self.ch3_horizons = tuple(float(h) for h in ch3_horizons)
         self.ch3_weights = tuple(float(w) for w in ch3_weights)
         self.ch3_eps = float(ch3_eps)
@@ -959,12 +966,25 @@ class DynamicObstacleTracker:
                     trk.missed_ticks = 0
                     trk.q_acc_scale = next_scale
                     trk.vel_history = new_hist
+                    cur_spd = trk.speed
+                    if cur_spd > trk.max_speed_seen:
+                        trk.max_speed_seen = cur_spd
+                    net_disp = math.hypot(trk.x - trk.birth_x, trk.y - trk.birth_y)
                     if (
                         not trk.is_confirmed
                         and trk.consecutive_hits >= self.confirm_min_hits
-                        and trk.speed >= self.confirm_min_speed_mps
+                        and cur_spd >= self.confirm_min_speed_mps
+                        and net_disp >= self.confirm_min_disp_m
                     ):
                         trk.is_confirmed = True
+                    elif (
+                        trk.is_confirmed
+                        and trk.hits >= 6
+                        and net_disp < 0.08
+                        and trk.max_speed_seen < 0.16
+                    ):
+                        # Demote stationary debris/furniture mis-confirmed by transient sensor noise
+                        trk.is_confirmed = False
 
         # 3. Coast unmatched tracks up to max_coast_ticks (2 ticks)
         to_remove: List[int] = []
@@ -1014,6 +1034,9 @@ class DynamicObstacleTracker:
                 missed_ticks=0,
                 q_acc_scale=1.0,
                 vel_history=(),
+                birth_x=float(zx),
+                birth_y=float(zy),
+                max_speed_seen=0.0,
             )
 
     def update(
@@ -1098,7 +1121,7 @@ class DynamicObstacleTracker:
             return list(self.tracks.values())
 
         r_val = ranges[valid_idx]
-        lx = r_val * cos_lut[valid_idx]
+        lx = r_val * cos_lut[valid_idx] + np.float32(self.lidar_offset_x_m)
         ly = r_val * sin_lut[valid_idx]
         c = np.float32(math.cos(rth))
         s = np.float32(math.sin(rth))
@@ -1287,6 +1310,10 @@ class DynamicObstacleTracker:
             trk.y = float(ny)
             trk.vx = float(nvx)
             trk.vy = float(nvy)
+            nbx = d_tx + c * trk.birth_x - s * trk.birth_y
+            nby = d_ty + s * trk.birth_x + c * trk.birth_y
+            trk.birth_x = float(nbx)
+            trk.birth_y = float(nby)
             P_rot = M4 @ trk.P_4x4 @ M4.T
             trk.P_4x4 = 0.5 * (P_rot + P_rot.T)
             if trk.vel_history:

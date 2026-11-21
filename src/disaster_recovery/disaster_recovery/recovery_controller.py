@@ -60,6 +60,7 @@ from disaster_recovery.td3_policy import (
 from disaster_recovery.local_grid_planner import ProposedRecoveryPlanner
 from disaster_recovery.rl_context_policy import ContextRLStudentPolicy
 from disaster_recovery.dynamic_tracker import DynamicObstacleTracker
+from disaster_recovery.cbf_safety_shield import DiscreteSoftCBFShield
 
 
 class SystemState:
@@ -506,6 +507,21 @@ class RecoveryController(Node):
         self.declare_parameter('min_effective_linear_vel', 0.0)
         self.declare_parameter('min_effective_angular_vel', 0.0)
         self.declare_parameter('enable_dynamic_tracker', False)
+        self.declare_parameter('enable_cbf_safety_shield', False)
+        self.declare_parameter('cbf_inner_loop_hz', 10.0)
+        self.declare_parameter('cbf_front_offset_m', 0.020)
+        self.declare_parameter('cbf_rear_offset_m', 0.060)
+        self.declare_parameter('cbf_circle_radius_m', 0.098)
+        self.declare_parameter('cbf_v_min', -0.10)
+        self.declare_parameter('cbf_gamma_dynamic_s', 3.0)
+        self.declare_parameter('cbf_gamma_static_s', 6.0)
+        self.declare_parameter('cbf_gamma_gas_s', 8.0)
+        self.declare_parameter('cbf_w_v', 1.0)
+        self.declare_parameter('cbf_w_w', 0.05)
+        self.declare_parameter('cbf_slip_margin_mps', 0.005)
+        self.declare_parameter('cbf_lidar_voxel_m', 0.10)
+        self.declare_parameter('cbf_lidar_max_points', 16)
+        self.declare_parameter('cbf_enable_mq2_lifo_escape', True)
 
         # Retrieve parameters
         self.heartbeat_timeout = self.get_parameter('heartbeat_timeout_sec').value
@@ -550,6 +566,21 @@ class RecoveryController(Node):
         self.min_effective_linear_vel = float(self.get_parameter('min_effective_linear_vel').value)
         self.min_effective_angular_vel = float(self.get_parameter('min_effective_angular_vel').value)
         self.enable_dynamic_tracker = bool(self.get_parameter('enable_dynamic_tracker').value)
+        self.enable_cbf_safety_shield = bool(self.get_parameter('enable_cbf_safety_shield').value)
+        self.cbf_inner_loop_hz = float(self.get_parameter('cbf_inner_loop_hz').value)
+        self.cbf_front_offset_m = float(self.get_parameter('cbf_front_offset_m').value)
+        self.cbf_rear_offset_m = float(self.get_parameter('cbf_rear_offset_m').value)
+        self.cbf_circle_radius_m = float(self.get_parameter('cbf_circle_radius_m').value)
+        self.cbf_v_min = float(self.get_parameter('cbf_v_min').value)
+        self.cbf_gamma_dynamic_s = float(self.get_parameter('cbf_gamma_dynamic_s').value)
+        self.cbf_gamma_static_s = float(self.get_parameter('cbf_gamma_static_s').value)
+        self.cbf_gamma_gas_s = float(self.get_parameter('cbf_gamma_gas_s').value)
+        self.cbf_w_v = float(self.get_parameter('cbf_w_v').value)
+        self.cbf_w_w = float(self.get_parameter('cbf_w_w').value)
+        self.cbf_slip_margin_mps = float(self.get_parameter('cbf_slip_margin_mps').value)
+        self.cbf_lidar_voxel_m = float(self.get_parameter('cbf_lidar_voxel_m').value)
+        self.cbf_lidar_max_points = int(self.get_parameter('cbf_lidar_max_points').value)
+        self.cbf_enable_mq2_lifo_escape = bool(self.get_parameter('cbf_enable_mq2_lifo_escape').value)
         self.is_phase2b = (self.recovery_strategy == 'proposed_rl') and self.enable_phase2b_envelope
         self.semantic_cache = SemanticObjectCache()
         self._scan_tick_seq = 0
@@ -676,11 +707,44 @@ class RecoveryController(Node):
                 grid_size_m=self.local_grid_size_m,
                 grid_res_m=self.local_grid_res_m,
                 lidar_min_range_m=self.lidar_min_dist,
+                lidar_offset_x_m=-0.032,
             )
             if self.enable_dynamic_tracker
             else None
         )
+        self.cbf_shield = (
+            DiscreteSoftCBFShield(
+                l_f=self.cbf_front_offset_m,
+                l_r=self.cbf_rear_offset_m,
+                r_circle=self.cbf_circle_radius_m,
+                v_min=self.cbf_v_min,
+                v_max=self.v_max,
+                w_max=self.w_max,
+                gamma_dynamic=self.cbf_gamma_dynamic_s,
+                gamma_static=self.cbf_gamma_static_s,
+                gamma_gas=self.cbf_gamma_gas_s,
+                w_v=self.cbf_w_v,
+                w_w=self.cbf_w_w,
+                slip_margin_mps=self.cbf_slip_margin_mps,
+                lidar_voxel_m=self.cbf_lidar_voxel_m,
+                lidar_max_points=self.cbf_lidar_max_points,
+                lidar_min_range_m=self.lidar_min_dist,
+                enable_mq2_lifo_escape=self.cbf_enable_mq2_lifo_escape,
+                dt_default=1.0 / max(1.0, self.cbf_inner_loop_hz),
+            )
+            if self.enable_cbf_safety_shield
+            else None
+        )
+        self.latest_cbf_result = None
+        if self.cbf_shield is not None:
+            self.get_logger().info(
+                f"[STAGE2 CBF] 2-Circle Soft-CBF-QP Shield active "
+                f"(l_f={self.cbf_front_offset_m:.3f}, l_r={self.cbf_rear_offset_m:.3f}, "
+                f"r={self.cbf_circle_radius_m:.3f}, v_min={self.cbf_v_min:.2f}, "
+                f"Q=diag({self.cbf_w_v:.2f},{self.cbf_w_w:.3f}))"
+            )
         self.latest_scan_stamp_sec = None
+        self.latest_scan_pose = None
         self.latest_scan_angle_min = 0.0
         self.latest_scan_angle_increment = None
         self.latest_dynamic_tracks = []
@@ -814,10 +878,15 @@ class RecoveryController(Node):
             ext_ox = self.local_planner.grid.origin_ix
             ext_oy = self.local_planner.grid.origin_iy
             ext_res = self.local_planner.grid.res
+        srx, sry, srth = (
+            self.latest_scan_pose
+            if self.latest_scan_pose is not None
+            else (self.current_x, self.current_y, self.current_theta)
+        )
         self.latest_dynamic_tracks = self.dynamic_tracker.update(
-            rx=self.current_x,
-            ry=self.current_y,
-            rth=self.current_theta,
+            rx=srx,
+            ry=sry,
+            rth=srth,
             raw_ranges=self.latest_raw_ranges,
             scan_stamp_sec=stamp_sec,
             now_sec=now_sec,
@@ -835,6 +904,35 @@ class RecoveryController(Node):
             rth=self.current_theta,
             now_sec=now_sec,
         )
+
+    def _apply_cbf_safety_shield(
+        self, v_nom: float, w_nom: float, now_sec: Optional[float] = None
+    ) -> Tuple[float, float]:
+        """Filter nominal control (v_nom, w_nom) through Stage 2 2-Circle Soft-CBF-QP."""
+        if self.cbf_shield is None or not self.odom_initialized:
+            return float(v_nom), float(w_nom)
+        ch1_obs, ch2_haz = self.semantic_cache.get_channel_tuples()
+        dt_step = 1.0 / max(1.0, self.cbf_inner_loop_hz)
+        has_ranges = bool(self.latest_raw_ranges)
+        res = self.cbf_shield.filter(
+            v_nom=float(v_nom),
+            w_nom=float(w_nom),
+            rx=self.current_x,
+            ry=self.current_y,
+            rth=self.current_theta,
+            dt=dt_step,
+            scan_ranges=(self.latest_raw_ranges if has_ranges else None),
+            angle_min=self.latest_scan_angle_min,
+            angle_increment=self.latest_scan_angle_increment,
+            scan_pts_sensor=(None if has_ranges else self.latest_scan_pts),
+            scan_pose=self.latest_scan_pose,
+            dynamic_obstacles=(self.latest_dynamic_tracks if self.latest_dynamic_tracks else None),
+            ch1_obstacles=(ch1_obs if ch1_obs else None),
+            ch2_hazards=(ch2_haz if ch2_haz else None),
+            lifo_waypoints=self.waypoint_stack,
+        )
+        self.latest_cbf_result = res
+        return res.v, res.w
 
     def _compute_semantic_proximity(
         self,
@@ -913,7 +1011,11 @@ class RecoveryController(Node):
             self.context_rl_policy.reset()
         if self.dynamic_tracker is not None:
             self.dynamic_tracker.reset()
+        if self.cbf_shield is not None:
+            self.cbf_shield.reset()
+        self.latest_cbf_result = None
         self.latest_scan_stamp_sec = None
+        self.latest_scan_pose = None
         self.latest_dynamic_tracks = []
         self.latest_dynamic_ch3 = None
         self.state = (
@@ -1039,6 +1141,8 @@ class RecoveryController(Node):
             ranges = self._despike_lidar_ranges(ranges)
 
         self.latest_raw_ranges = list(ranges)
+        if self.odom_initialized:
+            self.latest_scan_pose = (self.current_x, self.current_y, self.current_theta)
         stamp = getattr(getattr(msg, 'header', None), 'stamp', None)
         if stamp is not None and (int(getattr(stamp, 'sec', 0)) != 0 or int(getattr(stamp, 'nanosec', 0)) != 0):
             self.latest_scan_stamp_sec = float(stamp.sec) + float(stamp.nanosec) * 1e-9
@@ -1100,7 +1204,18 @@ class RecoveryController(Node):
 
         # Publish Diagnostic Status String with ICP Corrected Pose
         status_msg = String()
-        status_msg.data = f"STATE:{self.state}|FAULTS:{self.fault_reason}|STACK:{len(self.waypoint_stack)}|POSE:{self.current_x:.3f},{self.current_y:.3f},{self.current_theta:.3f}"
+        status_data = (
+            f"STATE:{self.state}|FAULTS:{self.fault_reason}|STACK:{len(self.waypoint_stack)}"
+            f"|POSE:{self.current_x:.3f},{self.current_y:.3f},{self.current_theta:.3f}"
+        )
+        if self.cbf_shield is not None:
+            st = self.cbf_shield.get_stats()
+            status_data += (
+                f"|CBF:{int(st['total_steps'])},{int(st['intervention_steps'])},"
+                f"{int(st['v_sign_reversals'])},{int(st['v_stall_toggles'])},"
+                f"{int(st['reverse_steps'])},{st['max_slack_seen']:.4f},{st['mean_solve_ms']:.3f}"
+            )
+        status_msg.data = status_data
         self.pub_system_status.publish(status_msg)
 
         # 0. Global Link Restoration Check
@@ -1136,6 +1251,10 @@ class RecoveryController(Node):
                         self.context_rl_policy.reset()
                     if self.dynamic_tracker is not None:
                         self.dynamic_tracker.reset()
+                    if self.cbf_shield is not None:
+                        self.cbf_shield.reset()
+                    self.latest_cbf_result = None
+                    self.latest_scan_pose = None
                     self.latest_dynamic_tracks = []
                     self.latest_dynamic_ch3 = None
                     self.get_logger().info(">>> Heartbeat link restored! Controller reset to NORMAL_TELEOP mode. <<<")
@@ -1278,7 +1397,9 @@ class RecoveryController(Node):
                         if 0.03 <= dt_f <= 0.50:
                             df_dt = (front_min - self._prev_front_min) / dt_f
 
-                    if self.is_phase2b:
+                    use_legacy_guards = self.is_phase2b and (not self.enable_cbf_safety_shield)
+
+                    if use_legacy_guards:
                         cur_esc = self.local_planner.escape_count
                         if cur_esc > self._prev_escape_count:
                             self._rl_cooldown_until = now_sec + 4.5
@@ -1307,7 +1428,7 @@ class RecoveryController(Node):
                             self._dynamic_hold_until = now_sec + 1.2
                             self._dynamic_hold_cooldown_until = now_sec + 4.0
 
-                    if self.is_phase2b and now_sec < self._dynamic_hold_until and 0.20 <= front_min <= 0.60:
+                    if use_legacy_guards and now_sec < self._dynamic_hold_until and 0.20 <= front_min <= 0.60:
                         v_cmd = 0.0
                         w_cmd = 0.0
                         self._prev_alpha_rl = 0.0
@@ -1327,9 +1448,9 @@ class RecoveryController(Node):
                             semantic_hazards=sem_haz,
                         )
                     elif status_tag == "ASTAR_TRACK" and subgoal_xy is not None:
-                        if self.is_phase2b and front_min < 0.20:
+                        if use_legacy_guards and front_min < 0.20:
                             self._dynamic_hold_until = 0.0
-                        if self.is_phase2b and (
+                        if use_legacy_guards and (
                             now_sec < self._rl_cooldown_until
                             or self._rl_lockout_anchor is not None
                         ):
@@ -1339,18 +1460,18 @@ class RecoveryController(Node):
                                 front_min=front_min,
                                 side_clearance=left_min + right_min,
                                 used_tight_pass=self.local_planner.last_used_tight_pass,
-                                min_side=(min(left_min, right_min) if self.is_phase2b else None),
+                                min_side=(min(left_min, right_min) if use_legacy_guards else None),
                                 semantic_proximity=sem_prox,
                             )
                             if (
-                                self.is_phase2b
+                                use_legacy_guards
                                 and alpha_rl > 0.0
                                 and max(abs(self.last_cmd_w), abs(self.actual_w)) < 0.35
                                 and df_dt < -0.25
                             ):
                                 alpha_rl *= max(0.0, 1.0 + df_dt / 0.50)
 
-                        if self.is_phase2b:
+                        if use_legacy_guards:
                             if front_min < 0.24 or min(left_min, right_min) < 0.17:
                                 alpha_rl = 0.0
                             else:
@@ -1358,6 +1479,8 @@ class RecoveryController(Node):
                                 max_step_a = 0.15 + 0.10 * sem_prox
                                 if abs(delta_a) > max_step_a:
                                     alpha_rl = self._prev_alpha_rl + (max_step_a if delta_a > 0.0 else -max_step_a)
+                            self._prev_alpha_rl = alpha_rl
+                        elif self.enable_cbf_safety_shield:
                             self._prev_alpha_rl = alpha_rl
 
                         if alpha_rl > 0.0:
@@ -1377,21 +1500,40 @@ class RecoveryController(Node):
                                 semantic_hazards=sem_haz,
                             )
                             alpha_astar = 1.0 - alpha_rl
-                            v_blend = max(-0.10, min(self.v_max, alpha_rl * v_rl + alpha_astar * v_cmd))
+                            v_min_blend = self.cbf_v_min if self.enable_cbf_safety_shield else -0.10
+                            v_blend = max(v_min_blend, min(self.v_max, alpha_rl * v_rl + alpha_astar * v_cmd))
                             w_blend = max(-self.w_max, min(self.w_max, alpha_rl * w_rl + alpha_astar * w_cmd))
-                            wall_push_guard = (
-                                (left_min < 0.32 and w_rl > w_cmd + 0.05)
-                                or (right_min < 0.32 and w_rl < w_cmd - 0.05)
-                            )
-                            opp_steer_conflict = (w_rl * w_cmd < -0.04) and (abs(w_rl - w_cmd) > 0.50)
-                            if self.is_phase2b and wall_push_guard:
-                                v_cmd = min(v_blend, v_cmd)
-                            elif self.is_phase2b and opp_steer_conflict:
-                                v_cmd = (1.0 - sem_prox) * min(v_blend, v_cmd) + sem_prox * v_blend
-                                w_cmd = (1.0 - sem_prox) * w_cmd + sem_prox * w_blend
+                            if self.enable_cbf_safety_shield:
+                                # Continuous homotopy unification when multi-channel RL sees Ch1/2/3
+                                g_res = 0.0
+                                if self.context_rl_policy.patch_channels >= 3 and (sem_obs or sem_haz):
+                                    ch1_g, ch2_g = ContextRLStudentPolicy.project_semantic_channels(
+                                        rx=self.current_x,
+                                        ry=self.current_y,
+                                        rth=self.current_theta,
+                                        semantic_obstacles=sem_obs,
+                                        semantic_hazards=sem_haz,
+                                    )
+                                    ch123_peak = max(float(ch1_g.max()), float(ch2_g.max()))
+                                    if self.context_rl_policy.patch_channels >= 4 and self.latest_dynamic_ch3 is not None:
+                                        ch123_peak = max(ch123_peak, float(self.latest_dynamic_ch3.max()))
+                                    g_res = max(0.0, min(1.0, (ch123_peak - 1e-4) / 0.04))
+                                v_cmd = (1.0 - g_res) * v_blend + g_res * v_rl
+                                w_cmd = (1.0 - g_res) * w_blend + g_res * w_rl
                             else:
-                                v_cmd = v_blend
-                                w_cmd = w_blend
+                                wall_push_guard = (
+                                    (left_min < 0.32 and w_rl > w_cmd + 0.05)
+                                    or (right_min < 0.32 and w_rl < w_cmd - 0.05)
+                                )
+                                opp_steer_conflict = (w_rl * w_cmd < -0.04) and (abs(w_rl - w_cmd) > 0.50)
+                                if self.is_phase2b and wall_push_guard:
+                                    v_cmd = min(v_blend, v_cmd)
+                                elif self.is_phase2b and opp_steer_conflict:
+                                    v_cmd = (1.0 - sem_prox) * min(v_blend, v_cmd) + sem_prox * v_blend
+                                    w_cmd = (1.0 - sem_prox) * w_cmd + sem_prox * w_blend
+                                else:
+                                    v_cmd = v_blend
+                                    w_cmd = w_blend
                         else:
                             self.context_rl_policy.observe(
                                 scan_ranges=self.latest_raw_ranges,
@@ -1431,6 +1573,8 @@ class RecoveryController(Node):
                 self.active_target_wp = (
                     self.waypoint_stack[-1] if len(self.waypoint_stack) > 0 else self.start_pose
                 )
+                if self.cbf_shield is not None:
+                    v_cmd, w_cmd = self._apply_cbf_safety_shield(v_cmd, w_cmd, now_sec)
                 v_cmd, w_cmd = apply_motor_deadzone(
                     v_cmd,
                     w_cmd,
@@ -1438,6 +1582,7 @@ class RecoveryController(Node):
                     min_w=self.min_effective_angular_vel,
                     v_max=self.v_max,
                     w_max=self.w_max,
+                    min_v_reverse=(self.cbf_v_min if self.enable_cbf_safety_shield else -0.10),
                 )
                 cmd = Twist()
                 cmd.linear.x = float(v_cmd)

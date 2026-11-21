@@ -25,7 +25,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, asdict
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 os.environ.setdefault("ROS_LOCALHOST_ONLY", "1")
 os.environ.setdefault("GAZEBO_IP", "127.0.0.1")
@@ -525,6 +525,7 @@ class SimHarnessNode(Node):
         self.sub_odom = self.create_subscription(Odometry, "/odom", self._cb_odom, sensor_qos)
         self.sub_scan = self.create_subscription(LaserScan, "/scan", self._cb_scan, sensor_qos)
         self.sub_status = self.create_subscription(String, "/recovery/status", self._cb_status, 10)
+        self.sub_cmd_vel = self.create_subscription(Twist, "/cmd_vel", self._cb_cmd_vel, 10)
         if HAS_GAZEBO_MSGS:
             self.sub_gz_models = self.create_subscription(
                 ModelStates, "/gazebo/model_states", self._cb_model_states, sensor_qos
@@ -549,6 +550,10 @@ class SimHarnessNode(Node):
         self.ctrl_stack = 0
         self.ctrl_pose = (0.0, 0.0, 0.0)
         self.last_status_ts = 0.0
+        self.cbf_status_stats: Dict[str, float] = {}
+        self.recording_cmd_telemetry = False
+        self.cmd_v_hist: List[float] = []
+        self.cmd_w_hist: List[float] = []
 
         self.scan_front_min = 10.0
         self.scan_left_min = 10.0
@@ -690,6 +695,26 @@ class SimHarnessNode(Node):
                     self.ctrl_pose = (float(xs), float(ys), float(ths))
                 except ValueError:
                     pass
+            elif part.startswith("CBF:"):
+                try:
+                    vals = part.split(":", 1)[1].split(",")
+                    if len(vals) >= 7:
+                        self.cbf_status_stats = {
+                            "total_steps": float(vals[0]),
+                            "intervention_steps": float(vals[1]),
+                            "v_sign_reversals": float(vals[2]),
+                            "v_stall_toggles": float(vals[3]),
+                            "reverse_steps": float(vals[4]),
+                            "max_slack_seen": float(vals[5]),
+                            "mean_solve_ms": float(vals[6]),
+                        }
+                except ValueError:
+                    pass
+
+    def _cb_cmd_vel(self, msg: Twist):
+        if self.recording_cmd_telemetry:
+            self.cmd_v_hist.append(float(msg.linear.x))
+            self.cmd_w_hist.append(float(msg.angular.z))
 
     def drive_raw(self, v: float, w: float):
         tw = Twist()
@@ -884,6 +909,7 @@ def launch_stack(
     kill_stale: bool = False,
     context_rl_onnx_path: str = "",
     disable_phase2b_envelope: bool = False,
+    extra_controller_params: Optional[Sequence[str]] = None,
 ):
     gz_master_uri = f"http://127.0.0.1:{gz_port}"
     if kill_stale:
@@ -935,6 +961,7 @@ def launch_stack(
     onnx_override = f" -p context_rl_onnx_path:={context_rl_onnx_path}" if context_rl_onnx_path else ""
     env_override = " -p enable_phase2b_envelope:=false" if disable_phase2b_envelope else ""
     smoke_override = f" -p smoke_lidar_noise_prob:={cfg.smoke_noise_prob}" if cfg.smoke_noise_prob > 0.0 else ""
+    extra_override = "".join(f" -p {p}" for p in (extra_controller_params or ()))
     ctrl_cmd = (
         env_prefix
         + "ros2 run disaster_recovery recovery_controller --ros-args "
@@ -943,6 +970,7 @@ def launch_stack(
         + onnx_override
         + env_override
         + smoke_override
+        + extra_override
     )
     p_ctrl = subprocess.Popen(
         ["bash", "-c", ctrl_cmd],
@@ -1057,6 +1085,7 @@ def run_strategy_suite(
     disable_phase2b_envelope: bool = False,
     strict_collision_free: bool = True,
     max_arrival_error_m: float = 0.25,
+    extra_controller_params: Optional[Sequence[str]] = None,
 ) -> dict:
     results: List[dict] = list(initial_results) if initial_results else []
     done_trials = {int(r["trial"]) for r in results}
@@ -1081,6 +1110,7 @@ def run_strategy_suite(
         kill_stale=kill_stale,
         context_rl_onnx_path=context_rl_onnx_path,
         disable_phase2b_envelope=disable_phase2b_envelope,
+        extra_controller_params=extra_controller_params,
     )
     rclpy.init()
     node = SimHarnessNode()
@@ -1388,6 +1418,10 @@ def run_strategy_suite(
             min_scan_m = 10.0
             lidar_collision_steps = 0
             min_debris_dist_m = 99.0
+            node.cmd_v_hist = []
+            node.cmd_w_hist = []
+            node.cbf_status_stats = {}
+            node.recording_cmd_telemetry = True
 
             t_wall_ret0 = time.time()
             max_wall_ret = max(180.0, max_return_wait * 1.5)
@@ -1443,6 +1477,7 @@ def run_strategy_suite(
                     break
 
             node.recording_return_path = False
+            node.recording_cmd_telemetry = False
             node._append_return_point(node.cur_x, node.cur_y)
             return_trajectory = list(node.return_trajectory)
             raw_return_duration = node.sim_now() - t_blackout
@@ -1488,6 +1523,47 @@ def run_strategy_suite(
                     return_trajectory[k][1] - return_trajectory[k - 1][1],
                 )
 
+            # Return-phase /cmd_vel velocity sign-reversal (chattering) telemetry
+            v_hist = node.cmd_v_hist
+            w_hist = node.cmd_w_hist
+            cmd_v_reversals = 0
+            cmd_v_stall_toggles = 0
+            cmd_v_reverse_steps = 0
+            prev_sign = 0
+            prev_fwd = None
+            for v_val in v_hist:
+                if v_val < -0.01:
+                    cmd_v_reverse_steps += 1
+                    sgn = -1
+                elif v_val > 0.01:
+                    sgn = 1
+                else:
+                    sgn = 0
+                if sgn != 0:
+                    if prev_sign != 0 and sgn != prev_sign:
+                        cmd_v_reversals += 1
+                    prev_sign = sgn
+                is_fwd = v_val > 0.02
+                is_stl = v_val <= 0.005
+                if prev_fwd is None:
+                    if is_fwd:
+                        prev_fwd = True
+                    elif is_stl:
+                        prev_fwd = False
+                else:
+                    if prev_fwd and is_stl:
+                        cmd_v_stall_toggles += 1
+                        prev_fwd = False
+                    elif (not prev_fwd) and is_fwd:
+                        cmd_v_stall_toggles += 1
+                        prev_fwd = True
+            cmd_mean_abs_dv = (
+                float(np.mean(np.abs(np.diff(v_hist)))) if len(v_hist) >= 2 else 0.0
+            )
+            cmd_mean_abs_dw = (
+                float(np.mean(np.abs(np.diff(w_hist)))) if len(w_hist) >= 2 else 0.0
+            )
+
             rec = {
                 "trial": t_idx,
                 "seed": spec["seed"],
@@ -1513,6 +1589,14 @@ def run_strategy_suite(
                 "return_path_len_m": round(ret_path_len, 3),
                 "final_ctrl_state": node.ctrl_state,
                 "states_visited": sorted(states_visited),
+                "cmd_steps": len(v_hist),
+                "cmd_v_sign_reversals": cmd_v_reversals,
+                "cmd_v_sign_reversal_rate_pct": round(100.0 * cmd_v_reversals / max(1, len(v_hist) - 1), 3),
+                "cmd_v_stall_toggles": cmd_v_stall_toggles,
+                "cmd_v_reverse_steps": cmd_v_reverse_steps,
+                "cmd_mean_abs_dv": round(cmd_mean_abs_dv, 5),
+                "cmd_mean_abs_dw": round(cmd_mean_abs_dw, 5),
+                "cbf_stats": dict(node.cbf_status_stats) if node.cbf_status_stats else None,
                 "outbound_path": outbound_path,
                 "return_path": return_trajectory,
             }
@@ -1615,6 +1699,12 @@ def main():
         "--allow-collision-pass",
         action="store_true",
         help="Allow arrival with debris/LiDAR collision to count as PASS (legacy mode; default is strict collision-free)",
+    )
+    parser.add_argument(
+        "--controller-param",
+        action="append",
+        default=[],
+        help="Extra ROS 2 parameter override for proposed recovery_controller (repeatable, e.g. enable_cbf_safety_shield:=true)",
     )
     args = parser.parse_args()
 
@@ -1738,6 +1828,7 @@ def main():
             disable_phase2b_envelope=args.disable_phase2b_envelope,
             strict_collision_free=(not args.allow_collision_pass),
             max_arrival_error_m=args.max_arrival_error_m,
+            extra_controller_params=args.controller_param,
         )
 
         # Save fixed specs and A/B comparison JSON
