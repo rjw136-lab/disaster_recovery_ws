@@ -409,9 +409,15 @@ sequenceDiagram
     Robot->>Robot: Option 2 3-Ch Context-RL ONNX (0.12ms)로 캐싱된 조난자·저상·가스 우회 복귀
 ```
 
-| `[GIF]` 3패널 E2E 시맨틱 SLAM (Gazebo 3D + YOLO + `/map`) | `[PNG]` E2E 3패널 실시간 스냅샷 (`t=87.8s`) | `[PNG]` 2D `/map` 시맨틱 좌표 영구 오버레이 |
-| :---: | :---: | :---: |
-| <img src="docs/images/evidence/phase3_semantic_slam_e2e.gif" width="100%" alt="[GIF] Phase 3 Semantic SLAM E2E"> | <img src="docs/images/evidence/phase3_semantic_slam_live.png" width="100%" alt="[PNG] Phase 3 Semantic SLAM Live"> | <img src="docs/images/evidence/phase3_gazebo_semantic_map_overlay.png" width="100%" alt="[PNG] Phase 3 Semantic Map Overlay"> |
+<p align="center">
+  <img src="docs/images/evidence/phase3_semantic_slam_e2e.gif" width="95%" alt="[GIF] Phase 3 Semantic SLAM E2E">
+  <br>
+  <em>▲ [GIF] 3패널 E2E 시맨틱 SLAM (Gazebo 3D + YOLO26n + RViz2 /map · 동적 HUD: DRIVING → COMM LOST → RECOVERY → MISSION COMPLETE)</em>
+</p>
+
+| `[PNG]` E2E 3패널 실시간 스냅샷 (YOLO26n 조난자 검출) | `[PNG]` 2D `/map` 시맨틱 좌표 영구 오버레이 |
+| :---: | :---: |
+| <img src="docs/images/evidence/phase3_semantic_slam_live.png" width="100%" alt="[PNG] Phase 3 Semantic SLAM Live"> | <img src="docs/images/evidence/phase3_gazebo_semantic_map_overlay.png" width="100%" alt="[PNG] Phase 3 Semantic Map Overlay"> |
 
 > **Gazebo 3D 색상 범례**: **분홍 사각/원반** = 저상 장애물(`h=0.095m`, 2D LiDAR 사각지대) · **노란 원반** = 유독가스 구역(`r=0.55m`) · **하늘색 링/리본** = Base Camp `(0,0)` & 탐색 경로 · **파란 부채꼴** = 2D LiDAR 스캔 평면(`z=0.171m`) · **서 있는 사람** = 조난자(`person`)
 
