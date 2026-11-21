@@ -22,22 +22,37 @@
   <img src="docs/images/disaster_recovery_banner_latest.png" alt="Disaster Recovery TurtleBot3 Burger Hero Banner" width="100%">
 </p>
 
-> **시스템 요약 (System Overview)**: 실내 재난 환경 탐사 중 **통신 단절(Heartbeat 3.0초 타임아웃)** 또는 **유해 가스 누출(MQ-2 임계치 초과)** 이 발생했을 때, 외부 관제 없이 온보드 연산(Raspberry Pi 4)만으로 **2D LiDAR-단안 RGB 시맨틱 SLAM + 3채널 Context-RL 자율 복귀(`LIFO 역추적 · RollingLocalGrid 2D A* · Frozen-Backbone Zero-Gated Residual 3-Ch Context-RL ONNX · 2D LiDAR ICP 보정 · 연기/동적잔상 필터 · ArUco 정밀 도킹`)** 를 수행하는 TurtleBot3 Burger 제어 시스템이다.  
-> **핵심 검증 지표**: ① **Option 2 (`frozen_residual`) 비퇴행 일치**: 시맨틱 공백(`Ch1=0, Ch2=0`) 시 Phase 2-B 1-Ch ONNX 대비 수치 오차 **`max_abs_diff = 0.0`** · ② **15대 재난 시나리오 150회 엄격 무충돌(Strict Collision-Free)**: **`119/150 (79.3%)`** (Phase 2-B `69.3%` 대비 **`+10.0%p`**, 초기 3-Ch `v3` `58.0%` 대비 **`+21.3%p`**, 도착 **`143/150 = 95.3%`**) · ③ **Gazebo 시맨틱 회피 10-Trial A/B**: 엄격 무위험 복귀 **`80.0%` (`8/10`, 저상 충돌 `0회`) vs Blind `0.0%` (`0/10`)** · [상세 보기](#phase-3-2d-시맨틱-slam--3채널-context-rl--통신-단절-아키텍처)
+---
+
+> 통신 단절(Heartbeat 3.0 s 타임아웃) 또는 유해 가스(MQ-2 임계치) 발생 시, 외부 관제 없이 Raspberry Pi 4 온보드 연산만으로
+> **LIFO 역추적 · RollingLocalGrid 2D A\* · 3채널 Context-RL ONNX · 2D LiDAR ICP · ArUco 도킹** 을 결합해 베이스캠프로 자율 복귀하는 TurtleBot3 Burger 시스템이다.
+
+### 핵심 결과 (Gazebo 시뮬레이션 기준)
+
+| 검증 항목 | 결과 | 비교 기준 |
+| :--- | :---: | :--- |
+| 15대 재난 시나리오 × 10회 **엄격 무충돌 복귀** | **`119/150` (79.3%)** · 도착 `143/150` (95.3%) | Phase 2-B `104/150` (69.3%) · Phase 3 v3 `87/150` (58.0%) · Baseline `50/150` (33.3%) |
+| 시맨틱 회피 10-Trial A/B **엄격 무위험 복귀** | **`8/10`** · 저상 충돌 `0회` · `35.27 s` | Phase 2-B Blind `0/10` · 저상 충돌 `7회` · `74.90 s` |
+| 시맨틱 공백(`Ch1=Ch2=0`) **비퇴행 일치** | `max_abs_diff = 0.0` | 검증 입력에서 Phase 2-B 1-Ch ONNX 출력과 최대 절대 오차 0 |
+| Option 2 ONNX 크기 / CPU 추론 지연 | `414.7 KB` / `0.13 ms` | x86 CPU 실측 (RPi 4 실측은 미수행) |
+| 단위 테스트 | `56 passed` | `src/disaster_recovery/test` |
+
+> [!NOTE]
+> 위 수치는 모두 Gazebo 11 시뮬레이션 결과이며, 실물 TurtleBot3 필드 실증은 아직 수행하지 않았다([알려진 한계](#15-알려진-한계-및-해결-이슈) 참조).
 
 ---
 
 ## 목차
 
-| 프로젝트 소개 | 성능 검증 & Phase 3 고도화 | 하드웨어 · 설치 · 실행 | 레퍼런스 |
+| 소개 · 설계 | 실험 결과 | 구축 · 운용 | 참고 |
 | :--- | :--- | :--- | :--- |
-| 1. [개요](#개요) ([목적](#개발-목적) · [현황](#개발-현황) · [변경사항](#최근-변경사항-patch-notes--최근-6건) · [문서](#관련-문서))<br>2. [핵심 기능](#핵심-기능)<br>3. [시스템 아키텍처](#시스템-아키텍처)<br>4. [상태 머신](#상태-머신-recovery_controller) | 5. [5단계 알고리즘 동일 맵 종합 비교](#5단계-알고리즘-동일-맵-종합-비교-baseline--phase-3)<br>6. [Phase 3: 시맨틱 SLAM · Option 2 Context-RL](#phase-3-2d-시맨틱-slam--3채널-context-rl--통신-단절-아키텍처)<br>&nbsp;&nbsp;· [6.1 단안 RGB-2D LiDAR 퓨전 & 단절 캐시](#1-단안-rgb-2d-lidar-투영-퓨전--통신-단절-캐시-아키텍처)<br>&nbsp;&nbsp;· [6.2 비퇴행 설계(Option 1 vs 2) & V100 재학습](#2-비퇴행non-regression-아키텍처-설계-결정-option-1-vs-option-2--v100-재학습)<br>&nbsp;&nbsp;· [6.3 Gazebo 시맨틱 회피 10-Trial A/B](#3-gazebo-시맨틱-구조회피-10-trial-ab-검증)<br>&nbsp;&nbsp;· [6.4 15대 시나리오 150회 엄격 무충돌 벤치마크](#4-15대-시나리오-150회-엄격-무충돌-비퇴행-벤치마크) | 7. [하드웨어 구성](#하드웨어-구성)<br>8. [저장소 구조](#저장소-구조)<br>9. [설치 및 테스트](#설치)<br>10. [실행](#실행)<br>11. [Gazebo 시뮬레이션](#gazebo-시뮬레이션) | 12. [ROS 2 인터페이스](#ros-2-인터페이스)<br>13. [주요 파라미터](#주요-파라미터)<br>14. [필드 테스트](#필드-테스트)<br>15. [알려진 한계 및 해결 이슈](#알려진-한계)<br>16. [선행 특허 및 IP 분석](#선행-특허prior-art-및-지식재산권ip-분석)<br>17. [참고 문헌](#참고-문헌) |
+| 1. [개요](#1-개요)<br>2. [핵심 기능](#2-핵심-기능)<br>3. [시스템 아키텍처](#3-시스템-아키텍처)<br>4. [상태 머신](#4-상태-머신-recovery_controller)<br>5. [알고리즘 5단계 진화](#5-알고리즘-5단계-진화-baseline--phase-3) | 6. [15대 시나리오 아틀라스 · 150회 벤치마크](#6-15대-시나리오-아틀라스--150회-엄격-무충돌-벤치마크)<br>7. [5단계 동일 맵 비교 GIF](#7-5단계-동일-맵-비교-gif)<br>8. [시맨틱 회피 10-Trial A/B](#8-gazebo-시맨틱-회피-10-trial-ab)<br>9. [Phase 3 기술 상세](#9-phase-3-기술-상세-시맨틱-slam--option-2-context-rl) | 10. [하드웨어](#10-하드웨어-구성)<br>11. [설치 · 테스트](#11-설치-및-테스트)<br>12. [실행](#12-실행)<br>13. [Gazebo 시뮬레이션](#13-gazebo-시뮬레이션)<br>14. [ROS 2 인터페이스 · 파라미터](#14-ros-2-인터페이스-및-파라미터) | 15. [알려진 한계 · 해결 이슈](#15-알려진-한계-및-해결-이슈)<br>16. [필드 테스트](#16-필드-테스트)<br>17. [저장소 구조](#17-저장소-구조)<br>18. [선행 특허](#18-선행-특허-및-ip-분석)<br>19. [참고 문헌](#19-참고-문헌) |
 
 ---
 
-## 개요
+## 1. 개요
 
-### 개발 목적
+### 1.1 개발 목적
 
 지진, 건물 붕괴, 연기·분진, 유해가스 누출 등으로 통신 인프라가 파괴된 실내 재난 환경에서 다음 목표를 달성하는 것을 목적으로 한다.
 
@@ -49,7 +64,7 @@
 | 4 | **베이스캠프 정밀 도킹** | ArUco + `solvePnP` 비주얼 서보잉, 10초 타임아웃 세이프티 가드 | ✅ 완료 |
 | 5 | **저지연 AI 재난 관제** | YOLO26n (GPU FP16 · 최대 15 FPS) + Faster-Whisper (CUDA INT8 · CPU 자동 폴백) GPU 통합 가속 | ✅ 완료 |
 
-### 개발 현황
+### 1.2 개발 현황
 
 | 구분 | 항목 | 상태 |
 | :--- | :--- | :-: |
@@ -60,20 +75,19 @@
 | 시뮬레이션 · 벤치마크 | `sim.py` (`slam_toolbox` / Cartographer `/map`, `--yolo`), 엄격 무충돌 `ab_disaster_benchmark.py` (15종), `run_phase3_semantic_suite.py` | ✅ 구현 |
 | 센서 | MQ-2 + ADS1115 가스 센서 | ⏳ 드라이버 완료, 결선 예정 |
 
-### 최근 변경사항 (Patch Notes · 최근 6건)
+### 1.3 최근 변경사항
 
-| 일자 (커밋) | 핵심 변경 요약 |
+| 일자 | 요약 |
 | :--- | :--- |
-| **2026-11-20** (최신) | **Phase 3 Option 2 (`frozen_residual`) 비퇴행 아키텍처 채택 · V100 재학습 · 150회 엄격 무충돌 `79.3%` (`+21.3%p`) 달성** — 시맨틱 공백(`Ch1=0, Ch2=0`) 구간에서 발생하던 3채널 미세조정 퇴행(`58.0%`)을 해결하기 위해 **Option 1(Hard Channel Gating)** 과 **Option 2(Frozen Phase 2-B 백본 + Zero-Gated Residual 시맨틱 어댑터)** 를 비교 검토하고, 모드 스위칭 경계 불연속이 없는 **Option 2**를 채택했다. V100 Dual-Track 재학습(`10.62M` steps/track)으로 추출한 `sim`/`real_tb3_policy_student_semantic_v3.onnx`(`414.7 KB`, `0.13 ms`)는 `Ch1=0, Ch2=0`에서 Phase 2-B와 **`max_abs_diff = 0.0`** 완전 일치를 보장하며, Gazebo 시맨틱 10-Trial A/B 엄격 무위험 **`80.0%` (`8/10`, 저상 충돌 `0회`) vs Blind `0.0%`**, 5단계 동일 맵 비교 **`11.76s` 최단시간 무충돌 복귀**, 15대 시나리오 150회 엄격 무충돌 **`119/150 (79.3%)`** (Phase 2-B `69.3%` 대비 **`+10.0%p`**) 및 단위 테스트 **`56 passed`** 를 달성했다. |
-| **2026-11-20** (`08833e1`) | **Phase 3 V100 Warm-Start(`v3`) · 엄격 무충돌 150회 평가 기준 정립 · 3패널 `/map` E2E 시맨틱 SLAM 실증** — Gazebo 카메라 마운트·조난자 메시(`stand.dae`) 교정으로 YOLO26n `person` `/map` 좌표 융합 및 3패널 E2E를 실증하고, `ab_disaster_benchmark.py`에 물리/LiDAR 엄격 무충돌(`collision_free`) 판정을 도입했다. |
-| **2026-11-20** (`3849fce`) | **Phase 3 2D LiDAR-단안 RGB 투영 시맨틱 SLAM & 3채널 Context-RL 초기 통합** — 선행 논문(이은원·김진현, 2025) 수식 3 Y 오타 정정, 270° CCW 역변환, `+0.25m` 전경 클러스터링 기반 `semantic_map_node` 및 3채널 ONNX 파이프라인 구축. |
-| **2026-11-19** (`e4e211d`~`be558d1`) | **논문 기반 2D 재난 시맨틱 맵핑 & Phase 3 Semantic-Aware RL 재학습 계획 수립** ([상세 계획서](docs/차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md)). |
-| **2026-11-15** | **15대 재난 시나리오 × 10회(150회) 확장 벤치마크 & `#14`·`#15` 난제 검증** — 동적 잔상 빠른 소거(`carve_decay=0.25`) 및 LiDAR 이웃 각도 필터(`_despike_lidar_ranges`) 도입, 15종 경로 지도 및 비교 GIF 추가. |
-| **2026-11-15** (`0560e21`~`2b5dfce`) | **Phase 2-A Clearance-Gated Blending (`48/50 = 96.0%`) · `/map` 30 FPS 3D 증거 재녹화** (`24 passed`). |
+| 2026-11-20 (`6bd2bbf`) | Phase 3 **Option 2 (`frozen_residual`)** 채택 · V100 재학습 · 150회 엄격 무충돌 `79.3%` · README 재구성 |
+| 2026-11-20 (`2eea2e4`) | 15종 궤적 아틀라스 5-Stage 확장 · `house_hard` 퇴행 분석 |
+| 2026-11-20 (`08833e1`) | Phase 3 v3 Warm-Start · 엄격 무충돌 판정(`collision_free`) 도입 · 3패널 E2E 시맨틱 SLAM |
+| 2026-11-20 (`3849fce`) | 2D LiDAR-단안 RGB 투영 시맨틱 SLAM & 3채널 Context-RL 초기 통합 |
+| 2026-11-15 | 15대 시나리오 150회 확장 벤치마크 · 연기/동적 잔상 필터 · Clearance-Gated Blending |
 
-> 📜 **전체 누적 변경 이력 (`2026-11-05` ~ 최신):** 나머지 과거 패치 및 커밋별 전체 내역은 [`CHANGELOG.md`](CHANGELOG.md)에서 한눈에 확인할 수 있다.
+전체 이력: [`CHANGELOG.md`](CHANGELOG.md)
 
-### 관련 문서
+### 1.4 관련 문서
 
 > 처음 보는 경우 **① 설계 → ② 알고리즘·결과 → ③ 차세대 고도화** 순서로 읽는 것을 권장한다.
 
@@ -97,7 +111,7 @@
 
 ---
 
-## 핵심 기능
+## 2. 핵심 기능
 
 | 기능 | 설명 | 실행 위치 |
 | :--- | :--- | :--- |
@@ -120,7 +134,7 @@
 
 ---
 
-## 시스템 아키텍처
+## 3. 시스템 아키텍처
 
 ```mermaid
 flowchart LR
@@ -174,7 +188,7 @@ flowchart LR
     RC -- "/blackbox/trigger" --> BB
 ```
 
-### 네트워크 (Dual NIC)
+### 3.1 네트워크 (Dual NIC)
 
 ```
  [학교 벽면 LAN] ── 유선 NIC ──┐
@@ -192,7 +206,7 @@ flowchart LR
 
 ---
 
-## 상태 머신 (`recovery_controller`)
+## 4. 상태 머신 (`recovery_controller`)
 
 ```mermaid
 stateDiagram-v2
@@ -229,12 +243,9 @@ stateDiagram-v2
 
 ---
 
-## 5단계 알고리즘 동일 맵 종합 비교 (Baseline → Phase 3)
+## 5. 알고리즘 5단계 진화 (Baseline → Phase 3)
 
-> 모든 시각 자료는 움직이는 실험 영상(**`[GIF]`**)과 정적 분석 도표·스냅샷(**`[PNG]`**)으로 구분해 표기했다.  
-> 5단계 계층 제어 파이프라인은 **Baseline(`LIFO + 4-Tier Reactive`)** → **Phase 1(`2D Grid A* + 지름길`)** → **Phase 2-A(`1-Ch RL 단순 혼합`)** → **Phase 2-B(`연기/잔상 필터 + 안전 포락선 + 1-Ch RL`)** → **Phase 3 Option 2(`2D 시맨틱 SLAM 캐시 + Frozen-Backbone Zero-Gated Residual 3-Ch RL`)** 순으로 발전했다.
-
-### 1. 5개 알고리즘 차이점 · 장점 · 단점 비교표
+**Baseline**(`LIFO + 4-Tier Reactive`) → **Phase 1**(`2D Grid A* + 지름길`) → **Phase 2-A**(`1-Ch RL 단순 혼합`) → **Phase 2-B**(`연기/잔상 필터 + 안전 포락선 + 1-Ch RL`) → **Phase 3 Option 2**(`시맨틱 SLAM 캐시 + Frozen-Backbone Zero-Gated Residual 3-Ch RL`) 순으로 발전했다. 마지막 열은 [7.1 Semantic Rescue](#71-semantic-rescue-동일-맵-5단계-비교) 동일 맵 결과다.
 
 | 단계 | 핵심 제어 구조 | 장점 (Strengths) | 단점 · 한계 (Limitations) | 동일 복합 맵(`Semantic Rescue`) 결과 |
 | :--- | :--- | :--- | :--- | :--- |
@@ -253,138 +264,28 @@ flowchart LR
     G -->|"기지 0.5m 진입"| T["종말 도킹 계층 (Terminal)<br/>ArUco 2cm 도킹 (+10s 가드)"]
 ```
 
-### 2. Semantic Rescue 5-Way `[GIF]` & RViz2 좌표 스탬핑 `[PNG]`
+---
 
-[`disaster_semantic_rescue_world.world`](src/disaster_recovery/worlds/disaster_semantic_rescue_world.world) 에서 **조난자(`person`)·저상 장애물 2개(`h=0.095m`)·유독가스 구역(`r=0.55m`)** 을 배치하고, Outbound SLAM+YOLO26n 좌표 스탬핑 후 Blackout 시점에 **2차 붕괴 3D 낙석(`box_obs_1`)** 이 퇴로를 막았을 때 5개 알고리즘의 주행 비교다([`comp5_semantic_rescue.json`](benchmark_results/phase3_semantic_v3/comp5_semantic_rescue.json), [`run_comp5_semantic_rescue.py`](scripts/host/run_comp5_semantic_rescue.py)).
+## 6. 15대 시나리오 아틀라스 · 150회 엄격 무충돌 벤치마크
 
-| `[GIF]` Semantic Rescue 동일 `/map` 위 5단계 비교 (`BAS` ~ `P3 Option 2`) | `[PNG]` RViz2 `/map` + YOLO26n 실제 좌표 스탬핑 (`person`, `chair`, `GAS_HAZARD`) |
-| :---: | :---: |
-| <img src="docs/images/evidence/comp5_semantic_rescue_map.gif" width="100%" alt="[GIF] 5-Stage Semantic Rescue Arena Comparison"> | <img src="docs/images/evidence/comp5_semantic_rviz_coords.png" width="100%" alt="[PNG] RViz2 and YOLO26n Stamped Semantic Map Coordinates"> |
+### 6.1 15종 재난 시나리오 2D 궤적 아틀라스 (5-Stage)
 
-- **결과 판독**: `Baseline`(`low=0.222m`, `gas=0.197m`)과 `Phase 1`(`low=0.201m`)은 저상 장애물에 충돌하고, `Phase 2-A`는 2차 낙석 뒤에서 정체 타임아웃(`135.54s`, `low=0.213m`)된다. `Phase 2-B`는 3D 낙석을 크게 돌며 `60.61s` 만에 귀환(`low=0.340m`, `gas=0.591m`)한 반면, **`Phase 3 (Option 2)`는 `/map`에 캐싱된 저상·가스 좌표를 3채널 잔차 어댑터로 반영해 충분한 안전 마진(`low=0.471m`, `gas=1.002m`)을 유지하며 `11.76s`(`5.15×` 단축) 만에 복귀(`PASS`)** 했다.
+각 패널은 Gazebo 월드에서 추출한 벽·장애물 단면 위에 Outbound 경로, 낙하 잔해, 5단계(`BAS`·`P1`·`P2A`·`P2B`·`P3`) 복귀 궤적을 겹쳐 그린 것이다. 패널 제목의 `T#`는 대표 Trial 번호, `O`/`X`는 해당 Trial의 단계별 성공/실패다.
 
-### 3. 극한 3대 시나리오 5-Way `[GIF]` & 15종 궤적 아틀라스 `[PNG]`
-
-동일 시드(Seed) 조건에서 **연막 LiDAR 오염(`#12 smoke_lidar_corruption`)**, **교차 이동 기둥(`#5 dynamic_crossfire_alley`)**, **U자 함정(`#15 u_pocket_trap`)** 5단계 비교 `[GIF]` 및 전체 **15대 시나리오 3D 월드·2D 궤적 아틀라스 `[PNG]`** 를 한눈에 비교한다.
-
-| `[GIF]` `#12 smoke_lidar_corruption` (Seed 2127) | `[GIF]` `#5 dynamic_crossfire_alley` (Seed 2127) | `[GIF]` `#15 u_pocket_trap` (Seed 3036) |
-| :---: | :---: | :---: |
-| <img src="docs/images/evidence/comp5_smoke_lidar_corruption.gif" width="100%" alt="[GIF] 5-Way smoke_lidar_corruption"> | <img src="docs/images/evidence/comp5_dynamic_crossfire_alley.gif" width="100%" alt="[GIF] 5-Way dynamic_crossfire_alley"> | <img src="docs/images/evidence/comp5_u_pocket_trap.gif" width="100%" alt="[GIF] 5-Way u_pocket_trap"> |
-
-| `[PNG]` 15대 재난 시나리오 3D Gazebo 월드 (9개 고유 맵) | `[PNG]` 15대 시나리오 2D 구조 단면 · 5-Stage(`BAS~P3 Opt2`) 궤적 아틀라스 |
-| :---: | :---: |
-| <img src="docs/images/scenario_worlds_15_3d.png" width="100%" alt="[PNG] 15 Disaster Scenarios 3D"> | <img src="docs/images/scenario_routes_15_atlas.png" width="100%" alt="[PNG] 15 Disaster Scenarios 2D Routes Atlas"> |
+<p align="center">
+  <img src="docs/images/scenario_routes_15_atlas.png" width="100%" alt="15 Disaster Scenarios 2D Routes Atlas (5-Stage)">
+</p>
 
 <details>
-<summary><strong>[GIF] · [PNG] Phase 2-B 3D Dual-View 영상 및 초기 학습 곡선 아카이브 펼쳐보기</strong></summary>
+<summary><strong>15대 시나리오 3D Gazebo 월드 (9개 고유 맵) 펼쳐보기</strong></summary>
 
-| `[GIF]` `dynamic_crossfire_alley` 3D Dual-View | `[GIF]` `smoke_lidar_corruption` 3D Dual-View | `[PNG]` Phase 2-B V100 학습 곡선 (`44.24M` steps/track) |
-| :---: | :---: | :---: |
-| <img src="docs/images/evidence/p2b_dynamic_crossfire_alley.gif" width="100%" alt="[GIF] 3D dynamic_crossfire_alley"> | <img src="docs/images/evidence/p2b_smoke_lidar_corruption.gif" width="100%" alt="[GIF] 3D smoke_lidar_corruption"> | <img src="docs/images/evidence/phase2b_learning_curves_sim.png" width="100%" alt="[PNG] Phase 2-B Learning Curves"> |
-
-- 아카이브 문서: [초기 15회 분석](docs/붕괴건물_15회_자율복귀_벤치마크_분석보고서.md) · [원리 해설](docs/재난환경_자율복귀_알고리즘_원리_해설_및_보고서.md) · [Phase 2-B 요약](docs/phase2b_comparison_summary.txt) · [`benchmark_results/`](benchmark_results/)
+<p align="center">
+  <img src="docs/images/scenario_worlds_15_3d.png" width="100%" alt="15 Disaster Scenarios 3D Gazebo Worlds">
+</p>
 
 </details>
 
----
-
-## Phase 3: 2D 시맨틱 SLAM · 3채널 Context-RL · 통신 단절 아키텍처
-
-> 📄 **상세 설계 및 트러블슈팅**: [`docs/차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md`](docs/차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md) · [트러블슈팅 백서 #42](docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md#420-42-phase-3-2d-lidar-단안-rgb-투영-시맨틱-slam-e2e-및-3채널-context-rl-회피-정책-통합-검증)
-
-### 1. 단안 RGB-2D LiDAR 투영 퓨전 & 통신 단절 캐시 아키텍처
-
-- **선행 논문 수식 3 오타 정정 & 270° CCW 역변환**: 이은원·김진현(2025) 수식 (3)의 $X \cdot f_y$ 오타를 $Y \cdot f_y$ ($v = (Y \cdot f_y)/Z + c_y$)로 바로잡고, 실차 카메라 90° 시계방향 장착에 맞춘 $270^\circ$ CCW 역변환(`unrotate_point`, `unrotate_bbox_xyxy`)을 정합했다([`semantic_mapper_core.py`](src/disaster_recovery/disaster_recovery/semantic_mapper_core.py)).
-- **배경 벽면 오인 차단 (`+0.25m` 전경 클러스터링) & 4종 영구 아티팩트 저장 (`semantic_map_node.py`)**: 바운딩 박스 가로 중앙 70% 내 2D LaserScan 투영 포인트 중 $Z \le \min(Z) + 0.25\,\text{m}$ 전경 클러스터 중앙값을 채택해 `/map` 위에 조난자(`person`)·저상 장애물(`Ch1`)·가스(`GAS_HAZARD`, `Ch2`)·음성 경보를 실시간 마킹하며, `/semantic_map/save_map` 호출 시 `raw_map.png`, `raw_map.yaml`, `semantic_objects.json`, `semantic_map_overlay.png`를 원자적으로 저장한다.
-- **통신 연결 ↔ 단절 시 시맨틱(조난자·저상 장애물) 인지 원리**:
-  - **통신 연결 중 (전진 탐사 · Outbound)**: Host PC의 `YOLO26n` + `semantic_map_node`가 `/map`에 좌표를 스탬핑하는 동시에 `/semantic_map/cached_objects` 토픽으로 로봇 RPi 4의 `SemanticObjectCache` 메모리에 실시간 백업한다.
-  - **통신 단절 후 (자율 복귀 · Return)**: Host YOLO 링크가 끊겨도 로봇 온보드 **`SemanticObjectCache`에 백업된 조난자(`r=0.55m`)·저상 장애물(`Ch1`)·가스(`Ch2`) 좌표가 영속 유지**되며, 복귀 중 새로 만나는 유독가스는 온보드 MQ-2(`/gas/level`)가 [`cb_gas()`](src/disaster_recovery/disaster_recovery/recovery_controller.py#L886-L894) 로 즉시 추가 기록한다(단절 이후 심부에서 처음 등장하는 조난자까지 신규 탐지하려면 향후 온보드 NPU 탑재가 필요하다).
-
-```mermaid
-sequenceDiagram
-    participant Robot as RPi 4 (recovery_controller)
-    participant Host as Host PC (YOLO26n + semantic_map_node)
-    Note over Robot,Host: 1단계: 통신 연결 중 (탐사 · Outbound)
-    Robot->>Host: /camera/image_raw + /scan + /odom
-    Host->>Host: YOLO26n person/chair 탐지 + /map 좌표 스탬핑
-    Host-->>Robot: /semantic_map/cached_objects (온보드 사전 백업 동기화)
-    Note over Robot,Host: 2단계: 통신 단절 발생 (Blackout · Return)
-    Host--xRobot: Heartbeat & YOLO26n 링크 중단 (신규 YOLO 탐지 불가)
-    Robot->>Robot: SemanticObjectCache 영속 유지 + 온보드 MQ-2(/gas/level) 실시간 추가
-    Robot->>Robot: Option 2 3-Ch Context-RL ONNX (0.13ms)로 캐싱된 조난자·저상·가스 우회 복귀
-```
-
-| `[GIF]` 3패널 E2E 시맨틱 SLAM (Gazebo 3D + YOLO + `/map`) | `[PNG]` E2E 3패널 실시간 스냅샷 (`t=87.8s`) | `[PNG]` 2D `/map` 시맨틱 좌표 영구 오버레이 |
-| :---: | :---: | :---: |
-| <img src="docs/images/evidence/phase3_semantic_slam_e2e.gif" width="100%" alt="[GIF] Phase 3 Semantic SLAM E2E"> | <img src="docs/images/evidence/phase3_semantic_slam_live.png" width="100%" alt="[PNG] Phase 3 Semantic SLAM Live"> | <img src="docs/images/evidence/phase3_gazebo_semantic_map_overlay.png" width="100%" alt="[PNG] Phase 3 Semantic Map Overlay"> |
-
-> **Gazebo 3D 색상 범례**: **분홍 사각/원반** = 저상 장애물(`h=0.095m`, 2D LiDAR 사각지대) · **노란 원반** = 유독가스 구역(`r=0.55m`) · **하늘색 링/리본** = Base Camp `(0,0)` & 탐색 경로 · **파란 부채꼴** = 2D LiDAR 스캔 평면(`z=0.171m`) · **서 있는 사람** = 조난자(`person`)
-
----
-
-### 2. 비퇴행(Non-Regression) 아키텍처 설계 결정: Option 1 vs Option 2 & V100 재학습
-
-Phase 2-B 1채널 격자를 **3채널 ($12\times 12\times 3 = 432$셀 + 544차원 시계열 스칼라 = `976`차원: `Ch0` 2D LiDAR, `Ch1` 저상 장애물, `Ch2` 가스/조난자 보호반경)** 로 확장하는 과정에서 가장 핵심적인 공학적 난제는 **"시맨틱 위험물이 없는 일반 재난 환경(`Ch1=0, Ch2=0`)에서 Phase 2-B의 검증된 협소 문틀·장애물 통과 성능을 어떻게 100% 보존할 것인가"** 였다.
-
-#### (1) 아키텍처 대안 비교 (Option 1 vs Option 2 설계 고찰)
-
-초기 3채널 모델(`Phase 3 v3`)은 Phase 2-B 가중치를 3채널 단일 네트워크로 Warm-Start 미세조정(`lr=2e-5`)하고 `Modality Dropout(28%)`을 적용했으나, 공유 백본(`fusion`·`actor_mean`) 가중치가 광역 회피 방향으로 변형되면서 시맨틱 객체가 전혀 없는 15대 일반 재난 벤치마크에서 엄격 무충돌 성공률이 **Phase 2-B `104/150 (69.3%)` → `87/150 (58.0%)` (`-11.3%p`, 특히 `house 6/10→1/10`, `house_hard 9/10→2/10`)로 퇴행**하는 현상이 확인되었다. 이를 해결하기 위해 다음 두 가지 아키텍처 후보를 심층 비교했다.
-
-| 비교 항목 | 후보 1 (Option 1): Hard Channel Gating<br>(Dual-ONNX 런타임 조건부 스위칭) | 후보 2 (Option 2): Frozen Phase 2-B Backbone + Zero-Gated Residual Adapter (**최종 채택**) |
-| :--- | :--- | :--- |
-| **핵심 구조** | 제어기(`recovery_controller`)가 매 스텝 `max(|Ch1|, |Ch2|)`를 검사하여 `0`이면 Phase 2-B 1-Ch ONNX를, `> 0`이면 Phase 3 3-Ch ONNX를 교차 호출 | 단일 통합 ONNX 내부에 **동결(Frozen)된 Phase 2-B 1-Ch 백본**과 **Zero-Gated Residual 시맨틱 어댑터**를 병렬 결합 (`--arch frozen_residual`) |
-| **수식 정의** | $\pi(s) = \begin{cases} \pi_{\text{P2B}}(s_{\text{1ch}}) & \text{if } \|Ch_{1:2}\|_\infty = 0 \\ \pi_{\text{P3}}(s_{\text{3ch}}) & \text{otherwise} \end{cases}$ | $a = \tanh\!\Big(\text{atanh}\big(\pi_{\text{P2B}}(s_{\text{1ch}})\big) + g(Ch_1,Ch_2)\cdot \Delta_{\text{sem}}(s_{\text{3ch}})\Big)$<br>단, $g(Ch_1,Ch_2) = \text{clamp}\!\left(\frac{\max(|Ch_1|,|Ch_2|)}{10^{-4}},\, 0,\, 1\right)$ |
-| **비시맨틱 구간(`Ch1=0, Ch2=0`) 비퇴행성** | 1-Ch ONNX를 직접 실행하므로 일치 (`max_abs_diff = 0.0`) | 게이트 $g(0,0) = 0$이 되어 잔차 항이 정확히 소거되므로 **단일 ONNX 내부에서 수학적으로 완전 일치 (`non_regression_max_abs_diff = 0.0`)** |
-| **시맨틱 경계 진입·이탈 연속성** | **불연속 (치명적 한계)**: 로컬 코스트맵($1.8\times 1.8\,\text{m}$) 경계에 저상 장애물·가스가 걸칠 때마다 서로 다른 잠재 표현을 가진 두 정책 간 **하드 스위칭 채터링(조향 급변)** 발생 | **연속·일관성 유지**: 시맨틱 위험 구간($g=1$)에서도 동결된 Phase 2-B 백본이 기저 벽면·문틀 정렬 조향($\text{atanh}(\pi_{\text{P2B}})$)을 계속 담당하고, 어댑터는 시맨틱 회피에 필요한 잔차($\Delta_{\text{sem}}$)만 연속 가산 |
-| **배포 복잡도** | 런타임에 ONNX 세션 2개 동시 로드 및 모드 전환 관리 필요 | **단일 ONNX 파일 (`414.7 KB`, CPU 추론 `0.13 ms`)** 로 드롭인 교체 |
-| **최종 결정** | ❌ **기각** (경계 스위칭 불연속 및 이중 모델 관리 한계) | ✅ **채택** (수학적 비퇴행 보장 + 단일 네트워크 연속 잔차 제어) |
-
-#### (2) Option 2 (`frozen_residual`) V100 Dual-Track 학습 및 ONNX 검증 결과
-
-[`train_phase2_v100.py`](scripts/host/train_phase2_v100.py) 에 `FrozenBackboneSemanticTeacher` 및 `FrozenBackboneSemanticStudent`를 구현하고, `load_phase2b_student_weights_from_onnx()`로 Phase 2-B 1채널 ONNX 가중치를 동결 백본에 정확히 주입한 뒤 Tesla V100 32GB에서 Dual-Track(`sim` / `real_tb3`, 각 3 시드 × `3.54M` = `10.62M` steps/track) 학습 및 DAgger 증류를 완료했다([`phase3_option2_training_summary.json`](benchmark_results/phase3_option2_training_summary.json)).
-
-| 트랙 (ONNX 모델) | 크기 / 아키텍처 | `Ch1=0, Ch2=0`<br>`max_abs_diff` | Unseen SR | Base-6 SR | Dropout Fallback SR | Semantic-2 SR | Low-Obs Contact-Free | Gas Hazard-Free / Victim Corridor | CPU 추론 지연 (mean / p95) |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **`sim`**<br>([`sim_policy_student_semantic_v3.onnx`](src/disaster_recovery/config/sim_policy_student_semantic_v3.onnx)) | `414.7 KB`<br>`frozen_residual` | **`0.0`** | **`98.3%`** | **`98.9%`** | **`98.3%`** | **`96.7%`** | **`100.0%`** | `60.0%` / **`93.3%`** | **`0.1325 ms`** / `0.1471 ms` |
-| **`real_tb3`**<br>([`real_tb3_policy_student_semantic_v3.onnx`](src/disaster_recovery/config/real_tb3_policy_student_semantic_v3.onnx)) | `414.7 KB`<br>`frozen_residual` | **`0.0`** | **`95.8%`** | **`96.7%`** | **`97.5%`** | **`93.3%`** | **`86.7%`** | `26.7%`* / **`100.0%`** | **`0.1295 ms`** / `0.1402 ms` |
-
-> *주: `real_tb3` 트랙은 강한 바닥 마찰 변이·슬립 도메인 무작위화 환경에서 체크포인트 선정 기준(`unseen_sr`)이 타임아웃 방지를 위한 전진 돌파를 우선함에 따라 절차적 Holdout 내 `gas_hazard_free_rate`가 `26.7%`(`seed 202` 최고 `60.0%`)로 `sim` 트랙(`60.0%`, Gazebo `ab10` 실증 `90.0%` 가스 무침범) 대비 보수적 트레이드오프를 보인다.*
-
-| `[PNG]` Option 2 V100 `sim` 트랙 학습 곡선 | `[PNG]` Option 2 V100 `real_tb3` 트랙 학습 곡선 | `[PNG]` Option 2 Final Student 3D Rollout (`PASS`) |
-| :---: | :---: | :---: |
-| <img src="docs/images/evidence_v4/phase3_learning_curves_sim.png" width="100%" alt="[PNG] Option 2 Sim Learning Curves"> | <img src="docs/images/evidence_v4/phase3_learning_curves_real_tb3.png" width="100%" alt="[PNG] Option 2 Real TB3 Learning Curves"> | <img src="docs/images/evidence_v4/phase3_sim_final_student.png" width="100%" alt="[PNG] Option 2 Final Student Rollout"> |
-
-<details>
-<summary><strong>[GIF] Phase 3 3채널 학습 단계별 3D 주행 진화 비교 (`Early` → `Mid` → `Final Student`) 펼쳐보기</strong></summary>
-
-| `[GIF]` Early (`LOW-OBS HIT` · 시맨틱 수렴 전) | `[GIF]` Mid (`LOW-OBS HIT` · 잔차 어댑터 조정 중) | `[GIF]` Final Student ONNX (`PASS · LowHit 0`) |
-| :---: | :---: | :---: |
-| <img src="docs/images/evidence_v3/phase3_sim_early_upd12.gif" width="100%" alt="[GIF] Phase 3 Early Rollout"> | <img src="docs/images/evidence_v3/phase3_sim_mid_upd24.gif" width="100%" alt="[GIF] Phase 3 Mid Rollout"> | <img src="docs/images/evidence_v3/phase3_sim_final_student.gif" width="100%" alt="[GIF] Phase 3 Final Student Rollout"> |
-
-</details>
-
----
-
-### 3. Gazebo 시맨틱 구조·회피 10-Trial A/B 검증
-
-[`disaster_semantic_rescue_world.world`](src/disaster_recovery/worlds/disaster_semantic_rescue_world.world) 에서 저상 장애물(`h=0.095m`) 2개와 유해 가스(`r=0.55m`)를 복귀 경로에 배치하고, **Phase 2-B Blind (`use_semantic_rl_policy:=false`)** 와 **Phase 3 Option 2 Semantic-Aware (`use_semantic_rl_policy:=true`)** 간 10회 반복 A/B 비교를 수행했다([`semantic_avoidance_ab_10trials.json`](benchmark_results/phase3_semantic_v3/semantic_avoidance_ab_10trials.json)).
-
-| 평가 지표 (`10 Trials`) | Phase 2-B Blind<br>(`use_semantic_rl_policy:=false`) | Phase 3 Option 2 Semantic-Aware<br>(`use_semantic_rl_policy:=true`) | 개선 폭 |
-| :--- | :---: | :---: | :---: |
-| **도착 성공률 (Arrival)** | `6/10` (`60.0%`) | **`8/10` (`80.0%`)** | **`+20.0%p`** |
-| **무충돌 복귀 성공률 (Collision-Free)** | `1/10` (`10.0%`) | **`8/10` (`80.0%`)** | **`+70.0%p` (`8.0×`)** |
-| **엄격 위험무관통 성공률 (Strict Hazard-Free)** | `0/10` (`0.0%`) | **`8/10` (`80.0%`)** | **`+80.0%p` (`0% → 80%`)** |
-| **저상 장애물 충돌 / 가스 구역 침범 횟수** | 저상 충돌 `7회` / 가스 침범 `6회` | **저상 충돌 `0회` / 가스 침범 `1회`** | **저상 충돌 완전 제거 (`7 → 0`)** |
-| **평균 최소 이격 (저상 장애물 / 가스 중심)** | `0.3425 m` / `0.6072 m` | **`0.5466 m` / `0.7868 m`** | **`+20.41 cm` / `+17.96 cm`** |
-| **평균 복귀 소요 시간** | `74.90 s` | **`35.27 s`** | **`2.12×` 단축 (`-39.63 s`)** |
-
-| `[GIF]` Blind vs Semantic-Aware A/B 실주행 비교 | `[PNG]` 10-Trial 시맨틱 A/B 정량 비교 그래프 (`Option 2`) |
-| :---: | :---: |
-| <img src="docs/images/evidence/phase3_semantic_avoidance_ab.gif" width="100%" alt="[GIF] Phase 3 Semantic Avoidance AB"> | <img src="docs/images/evidence_v3/phase3_semantic_ab_comparison.png" width="100%" alt="[PNG] Phase 3 10-Trial Semantic A/B Comparison"> |
-
----
-
-### 4. 15대 시나리오 150회 엄격 무충돌 비퇴행 벤치마크
+### 6.2 150회 엄격 무충돌 비퇴행 벤치마크
 
 도착 여부만 보던 기존(Legacy) 기준 대신 **물리 충돌 없음(`debris_collision == False`, `min_debris_dist >= 0.265 m`) 및 벽/장애물 스침 허용 한도(`lidar_collision_steps < 4`)** 로 통일하고, 15개 전 시나리오(150회)에 대해 `phase2b_strict`와 **100% 동일한 잔해 시드·배치(`same_debris = 150/150`)** 로 검증한 결과다([`phase2b_strict/`](benchmark_results/phase2b_strict/), [`phase3_semantic_v3/`](benchmark_results/phase3_semantic_v3/), [`phase3_option2/`](benchmark_results/phase3_option2/)).
 
@@ -422,7 +323,132 @@ Phase 2-B 1채널 격자를 **3채널 ($12\times 12\times 3 = 432$셀 + 544차�
 
 ---
 
-## 하드웨어 구성
+## 7. 5단계 동일 맵 비교 GIF
+
+### 7.1 Semantic Rescue 동일 맵 5단계 비교
+
+[`disaster_semantic_rescue_world.world`](src/disaster_recovery/worlds/disaster_semantic_rescue_world.world) 에서 **조난자(`person`)·저상 장애물 2개(`h=0.095m`)·유독가스 구역(`r=0.55m`)** 을 배치하고, Outbound SLAM+YOLO26n 좌표 스탬핑 후 Blackout 시점에 **2차 붕괴 3D 낙석(`box_obs_1`)** 이 퇴로를 막았을 때 5개 알고리즘의 주행 비교다([`comp5_semantic_rescue.json`](benchmark_results/phase3_semantic_v3/comp5_semantic_rescue.json), [`run_comp5_semantic_rescue.py`](scripts/host/run_comp5_semantic_rescue.py)).
+
+| `[GIF]` Semantic Rescue 동일 `/map` 위 5단계 비교 (`BAS` ~ `P3 Option 2`) | `[PNG]` RViz2 `/map` + YOLO26n 실제 좌표 스탬핑 (`person`, `chair`, `GAS_HAZARD`) |
+| :---: | :---: |
+| <img src="docs/images/evidence/comp5_semantic_rescue_map.gif" width="100%" alt="[GIF] 5-Stage Semantic Rescue Arena Comparison"> | <img src="docs/images/evidence/comp5_semantic_rviz_coords.png" width="100%" alt="[PNG] RViz2 and YOLO26n Stamped Semantic Map Coordinates"> |
+
+- **결과 판독**: `Baseline`(`low=0.222m`, `gas=0.197m`)과 `Phase 1`(`low=0.201m`)은 저상 장애물에 충돌하고, `Phase 2-A`는 2차 낙석 뒤에서 정체 타임아웃(`135.54s`, `low=0.213m`)된다. `Phase 2-B`는 3D 낙석을 크게 돌며 `60.61s` 만에 귀환(`low=0.340m`, `gas=0.591m`)한 반면, **`Phase 3 (Option 2)`는 `/map`에 캐싱된 저상·가스 좌표를 3채널 잔차 어댑터로 반영해 충분한 안전 마진(`low=0.471m`, `gas=1.002m`)을 유지하며 `11.76s`(`5.15×` 단축) 만에 복귀(`PASS`)** 했다.
+
+### 7.2 극한 3대 시나리오 5단계 비교
+
+동일 시드 조건에서 연막 LiDAR 오염(`smoke_lidar_corruption`), 교차 이동 기둥(`dynamic_crossfire_alley`), U자 함정(`u_pocket_trap`)에 대한 5단계 비교다.
+
+| `[GIF]` `#12 smoke_lidar_corruption` (Seed 2127) | `[GIF]` `#5 dynamic_crossfire_alley` (Seed 2127) | `[GIF]` `#15 u_pocket_trap` (Seed 3036) |
+| :---: | :---: | :---: |
+| <img src="docs/images/evidence/comp5_smoke_lidar_corruption.gif" width="100%" alt="[GIF] 5-Way smoke_lidar_corruption"> | <img src="docs/images/evidence/comp5_dynamic_crossfire_alley.gif" width="100%" alt="[GIF] 5-Way dynamic_crossfire_alley"> | <img src="docs/images/evidence/comp5_u_pocket_trap.gif" width="100%" alt="[GIF] 5-Way u_pocket_trap"> |
+
+<details>
+<summary><strong>[GIF] · [PNG] Phase 2-B 3D Dual-View 영상 및 초기 학습 곡선 아카이브 펼쳐보기</strong></summary>
+
+| `[GIF]` `dynamic_crossfire_alley` 3D Dual-View | `[GIF]` `smoke_lidar_corruption` 3D Dual-View | `[PNG]` Phase 2-B V100 학습 곡선 (`44.24M` steps/track) |
+| :---: | :---: | :---: |
+| <img src="docs/images/evidence/p2b_dynamic_crossfire_alley.gif" width="100%" alt="[GIF] 3D dynamic_crossfire_alley"> | <img src="docs/images/evidence/p2b_smoke_lidar_corruption.gif" width="100%" alt="[GIF] 3D smoke_lidar_corruption"> | <img src="docs/images/evidence/phase2b_learning_curves_sim.png" width="100%" alt="[PNG] Phase 2-B Learning Curves"> |
+
+- 아카이브 문서: [초기 15회 분석](docs/붕괴건물_15회_자율복귀_벤치마크_분석보고서.md) · [원리 해설](docs/재난환경_자율복귀_알고리즘_원리_해설_및_보고서.md) · [Phase 2-B 요약](docs/phase2b_comparison_summary.txt) · [`benchmark_results/`](benchmark_results/)
+
+</details>
+
+---
+
+## 8. Gazebo 시맨틱 회피 10-Trial A/B
+
+[`disaster_semantic_rescue_world.world`](src/disaster_recovery/worlds/disaster_semantic_rescue_world.world) 에서 저상 장애물(`h=0.095m`) 2개와 유해 가스(`r=0.55m`)를 복귀 경로에 배치하고, **Phase 2-B Blind (`use_semantic_rl_policy:=false`)** 와 **Phase 3 Option 2 Semantic-Aware (`use_semantic_rl_policy:=true`)** 간 10회 반복 A/B 비교를 수행했다([`semantic_avoidance_ab_10trials.json`](benchmark_results/phase3_semantic_v3/semantic_avoidance_ab_10trials.json)).
+
+| 평가 지표 (`10 Trials`) | Phase 2-B Blind<br>(`use_semantic_rl_policy:=false`) | Phase 3 Option 2 Semantic-Aware<br>(`use_semantic_rl_policy:=true`) | 개선 폭 |
+| :--- | :---: | :---: | :---: |
+| **도착 성공률 (Arrival)** | `6/10` (`60.0%`) | **`8/10` (`80.0%`)** | **`+20.0%p`** |
+| **무충돌 복귀 성공률 (Collision-Free)** | `1/10` (`10.0%`) | **`8/10` (`80.0%`)** | **`+70.0%p` (`8.0×`)** |
+| **엄격 위험무관통 성공률 (Strict Hazard-Free)** | `0/10` (`0.0%`) | **`8/10` (`80.0%`)** | **`+80.0%p` (`0% → 80%`)** |
+| **저상 장애물 충돌 / 가스 구역 침범 횟수** | 저상 충돌 `7회` / 가스 침범 `6회` | **저상 충돌 `0회` / 가스 침범 `1회`** | **저상 충돌 완전 제거 (`7 → 0`)** |
+| **평균 최소 이격 (저상 장애물 / 가스 중심)** | `0.3425 m` / `0.6072 m` | **`0.5466 m` / `0.7868 m`** | **`+20.41 cm` / `+17.96 cm`** |
+| **평균 복귀 소요 시간** | `74.90 s` | **`35.27 s`** | **`2.12×` 단축 (`-39.63 s`)** |
+
+| `[GIF]` Blind vs Semantic-Aware A/B 실주행 비교 | `[PNG]` 10-Trial 시맨틱 A/B 정량 비교 그래프 (`Option 2`) |
+| :---: | :---: |
+| <img src="docs/images/evidence/phase3_semantic_avoidance_ab.gif" width="100%" alt="[GIF] Phase 3 Semantic Avoidance AB"> | <img src="docs/images/evidence_v3/phase3_semantic_ab_comparison.png" width="100%" alt="[PNG] Phase 3 10-Trial Semantic A/B Comparison"> |
+
+---
+
+## 9. Phase 3 기술 상세: 시맨틱 SLAM · Option 2 Context-RL
+
+> 📄 **상세 설계 및 트러블슈팅**: [`docs/차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md`](docs/차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md) · [트러블슈팅 백서 #42](docs/2026-11-10_통신단절_재난대응_터틀봇3_프로젝트_시도내역_및_트러블슈팅_총정리.md#420-42-phase-3-2d-lidar-단안-rgb-투영-시맨틱-slam-e2e-및-3채널-context-rl-회피-정책-통합-검증)
+
+### 9.1 단안 RGB-2D LiDAR 투영 퓨전 & 통신 단절 캐시
+
+- **선행 논문 수식 3 오타 정정 & 270° CCW 역변환**: 이은원·김진현(2025) 수식 (3)의 $X \cdot f_y$ 오타를 $Y \cdot f_y$ ($v = (Y \cdot f_y)/Z + c_y$)로 바로잡고, 실차 카메라 90° 시계방향 장착에 맞춘 $270^\circ$ CCW 역변환(`unrotate_point`, `unrotate_bbox_xyxy`)을 정합했다([`semantic_mapper_core.py`](src/disaster_recovery/disaster_recovery/semantic_mapper_core.py)).
+- **배경 벽면 오인 차단 (`+0.25m` 전경 클러스터링) & 4종 영구 아티팩트 저장 (`semantic_map_node.py`)**: 바운딩 박스 가로 중앙 70% 내 2D LaserScan 투영 포인트 중 $Z \le \min(Z) + 0.25\,\text{m}$ 전경 클러스터 중앙값을 채택해 `/map` 위에 조난자(`person`)·저상 장애물(`Ch1`)·가스(`GAS_HAZARD`, `Ch2`)·음성 경보를 실시간 마킹하며, `/semantic_map/save_map` 호출 시 `raw_map.png`, `raw_map.yaml`, `semantic_objects.json`, `semantic_map_overlay.png`를 원자적으로 저장한다.
+- **통신 연결 ↔ 단절 시 시맨틱(조난자·저상 장애물) 인지 원리**:
+  - **통신 연결 중 (전진 탐사 · Outbound)**: Host PC의 `YOLO26n` + `semantic_map_node`가 `/map`에 좌표를 스탬핑하는 동시에 `/semantic_map/cached_objects` 토픽으로 로봇 RPi 4의 `SemanticObjectCache` 메모리에 실시간 백업한다.
+  - **통신 단절 후 (자율 복귀 · Return)**: Host YOLO 링크가 끊겨도 로봇 온보드 **`SemanticObjectCache`에 백업된 조난자(`r=0.55m`)·저상 장애물(`Ch1`)·가스(`Ch2`) 좌표가 영속 유지**되며, 복귀 중 새로 만나는 유독가스는 온보드 MQ-2(`/gas/level`)가 [`cb_gas()`](src/disaster_recovery/disaster_recovery/recovery_controller.py#L886-L894) 로 즉시 추가 기록한다(단절 이후 심부에서 처음 등장하는 조난자까지 신규 탐지하려면 향후 온보드 NPU 탑재가 필요하다).
+
+```mermaid
+sequenceDiagram
+    participant Robot as RPi 4 (recovery_controller)
+    participant Host as Host PC (YOLO26n + semantic_map_node)
+    Note over Robot,Host: 1단계: 통신 연결 중 (탐사 · Outbound)
+    Robot->>Host: /camera/image_raw + /scan + /odom
+    Host->>Host: YOLO26n person/chair 탐지 + /map 좌표 스탬핑
+    Host-->>Robot: /semantic_map/cached_objects (온보드 사전 백업 동기화)
+    Note over Robot,Host: 2단계: 통신 단절 발생 (Blackout · Return)
+    Host--xRobot: Heartbeat & YOLO26n 링크 중단 (신규 YOLO 탐지 불가)
+    Robot->>Robot: SemanticObjectCache 영속 유지 + 온보드 MQ-2(/gas/level) 실시간 추가
+    Robot->>Robot: Option 2 3-Ch Context-RL ONNX (0.13ms)로 캐싱된 조난자·저상·가스 우회 복귀
+```
+
+| `[GIF]` 3패널 E2E 시맨틱 SLAM (Gazebo 3D + YOLO + `/map`) | `[PNG]` E2E 3패널 실시간 스냅샷 (`t=87.8s`) | `[PNG]` 2D `/map` 시맨틱 좌표 영구 오버레이 |
+| :---: | :---: | :---: |
+| <img src="docs/images/evidence/phase3_semantic_slam_e2e.gif" width="100%" alt="[GIF] Phase 3 Semantic SLAM E2E"> | <img src="docs/images/evidence/phase3_semantic_slam_live.png" width="100%" alt="[PNG] Phase 3 Semantic SLAM Live"> | <img src="docs/images/evidence/phase3_gazebo_semantic_map_overlay.png" width="100%" alt="[PNG] Phase 3 Semantic Map Overlay"> |
+
+> **Gazebo 3D 색상 범례**: **분홍 사각/원반** = 저상 장애물(`h=0.095m`, 2D LiDAR 사각지대) · **노란 원반** = 유독가스 구역(`r=0.55m`) · **하늘색 링/리본** = Base Camp `(0,0)` & 탐색 경로 · **파란 부채꼴** = 2D LiDAR 스캔 평면(`z=0.171m`) · **서 있는 사람** = 조난자(`person`)
+
+### 9.2 비퇴행 설계: Option 1 vs Option 2
+
+Phase 2-B 1채널 격자를 **3채널 ($12\times 12\times 3 = 432$셀 + 544차원 시계열 스칼라 = `976`차원: `Ch0` 2D LiDAR, `Ch1` 저상 장애물, `Ch2` 가스/조난자 보호반경)** 로 확장하는 과정에서 가장 핵심적인 공학적 난제는 **"시맨틱 위험물이 없는 일반 재난 환경(`Ch1=0, Ch2=0`)에서 Phase 2-B의 검증된 협소 문틀·장애물 통과 성능을 어떻게 100% 보존할 것인가"** 였다.
+
+초기 3채널 모델(`Phase 3 v3`)은 Phase 2-B 가중치를 3채널 단일 네트워크로 Warm-Start 미세조정(`lr=2e-5`)하고 `Modality Dropout(28%)`을 적용했으나, 공유 백본(`fusion`·`actor_mean`) 가중치가 광역 회피 방향으로 변형되면서 시맨틱 객체가 전혀 없는 15대 일반 재난 벤치마크에서 엄격 무충돌 성공률이 **Phase 2-B `104/150 (69.3%)` → `87/150 (58.0%)` (`-11.3%p`, 특히 `house 6/10→1/10`, `house_hard 9/10→2/10`)로 퇴행**하는 현상이 확인되었다. 이를 해결하기 위해 다음 두 가지 아키텍처 후보를 심층 비교했다.
+
+| 비교 항목 | 후보 1 (Option 1): Hard Channel Gating<br>(Dual-ONNX 런타임 조건부 스위칭) | 후보 2 (Option 2): Frozen Phase 2-B Backbone + Zero-Gated Residual Adapter (**최종 채택**) |
+| :--- | :--- | :--- |
+| **핵심 구조** | 제어기(`recovery_controller`)가 매 스텝 `max(|Ch1|, |Ch2|)`를 검사하여 `0`이면 Phase 2-B 1-Ch ONNX를, `> 0`이면 Phase 3 3-Ch ONNX를 교차 호출 | 단일 통합 ONNX 내부에 **동결(Frozen)된 Phase 2-B 1-Ch 백본**과 **Zero-Gated Residual 시맨틱 어댑터**를 병렬 결합 (`--arch frozen_residual`) |
+| **수식 정의** | $\pi(s) = \begin{cases} \pi_{\text{P2B}}(s_{\text{1ch}}) & \text{if } \|Ch_{1:2}\|_\infty = 0 \\ \pi_{\text{P3}}(s_{\text{3ch}}) & \text{otherwise} \end{cases}$ | $a = \tanh\!\Big(\text{atanh}\big(\pi_{\text{P2B}}(s_{\text{1ch}})\big) + g(Ch_1,Ch_2)\cdot \Delta_{\text{sem}}(s_{\text{3ch}})\Big)$<br>단, $g(Ch_1,Ch_2) = \text{clamp}\!\left(\frac{\max(|Ch_1|,|Ch_2|)}{10^{-4}},\, 0,\, 1\right)$ |
+| **비시맨틱 구간(`Ch1=0, Ch2=0`) 비퇴행성** | 1-Ch ONNX를 직접 실행하므로 일치 (`max_abs_diff = 0.0`) | 게이트 $g(0,0) = 0$이 되어 잔차 항이 정확히 소거되므로 **단일 ONNX 내부에서 수학적으로 완전 일치 (`non_regression_max_abs_diff = 0.0`)** |
+| **시맨틱 경계 진입·이탈 연속성** | **불연속 (치명적 한계)**: 로컬 코스트맵($1.8\times 1.8\,\text{m}$) 경계에 저상 장애물·가스가 걸칠 때마다 서로 다른 잠재 표현을 가진 두 정책 간 **하드 스위칭 채터링(조향 급변)** 발생 | **연속·일관성 유지**: 시맨틱 위험 구간($g=1$)에서도 동결된 Phase 2-B 백본이 기저 벽면·문틀 정렬 조향($\text{atanh}(\pi_{\text{P2B}})$)을 계속 담당하고, 어댑터는 시맨틱 회피에 필요한 잔차($\Delta_{\text{sem}}$)만 연속 가산 |
+| **배포 복잡도** | 런타임에 ONNX 세션 2개 동시 로드 및 모드 전환 관리 필요 | **단일 ONNX 파일 (`414.7 KB`, CPU 추론 `0.13 ms`)** 로 드롭인 교체 |
+| **최종 결정** | ❌ **기각** (경계 스위칭 불연속 및 이중 모델 관리 한계) | ✅ **채택** (수학적 비퇴행 보장 + 단일 네트워크 연속 잔차 제어) |
+
+### 9.3 Option 2 V100 Dual-Track 학습 및 ONNX 검증
+
+[`train_phase2_v100.py`](scripts/host/train_phase2_v100.py) 에 `FrozenBackboneSemanticTeacher` 및 `FrozenBackboneSemanticStudent`를 구현하고, `load_phase2b_student_weights_from_onnx()`로 Phase 2-B 1채널 ONNX 가중치를 동결 백본에 정확히 주입한 뒤 Tesla V100 32GB에서 Dual-Track(`sim` / `real_tb3`, 각 3 시드 × `3.54M` = `10.62M` steps/track) 학습 및 DAgger 증류를 완료했다([`phase3_option2_training_summary.json`](benchmark_results/phase3_option2_training_summary.json)).
+
+| 트랙 (ONNX 모델) | 크기 / 아키텍처 | `Ch1=0, Ch2=0`<br>`max_abs_diff` | Unseen SR | Base-6 SR | Dropout Fallback SR | Semantic-2 SR | Low-Obs Contact-Free | Gas Hazard-Free / Victim Corridor | CPU 추론 지연 (mean / p95) |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **`sim`**<br>([`sim_policy_student_semantic_v3.onnx`](src/disaster_recovery/config/sim_policy_student_semantic_v3.onnx)) | `414.7 KB`<br>`frozen_residual` | **`0.0`** | **`98.3%`** | **`98.9%`** | **`98.3%`** | **`96.7%`** | **`100.0%`** | `60.0%` / **`93.3%`** | **`0.1325 ms`** / `0.1471 ms` |
+| **`real_tb3`**<br>([`real_tb3_policy_student_semantic_v3.onnx`](src/disaster_recovery/config/real_tb3_policy_student_semantic_v3.onnx)) | `414.7 KB`<br>`frozen_residual` | **`0.0`** | **`95.8%`** | **`96.7%`** | **`97.5%`** | **`93.3%`** | **`86.7%`** | `26.7%`* / **`100.0%`** | **`0.1295 ms`** / `0.1402 ms` |
+
+> *주: `real_tb3` 트랙은 강한 바닥 마찰 변이·슬립 도메인 무작위화 환경에서 체크포인트 선정 기준(`unseen_sr`)이 타임아웃 방지를 위한 전진 돌파를 우선함에 따라 절차적 Holdout 내 `gas_hazard_free_rate`가 `26.7%`(`seed 202` 최고 `60.0%`)로 `sim` 트랙(`60.0%`, Gazebo `ab10` 실증 `90.0%` 가스 무침범) 대비 보수적 트레이드오프를 보인다.*
+
+| `[PNG]` Option 2 V100 `sim` 트랙 학습 곡선 | `[PNG]` Option 2 V100 `real_tb3` 트랙 학습 곡선 | `[PNG]` Option 2 Final Student 3D Rollout (`PASS`) |
+| :---: | :---: | :---: |
+| <img src="docs/images/evidence_v4/phase3_learning_curves_sim.png" width="100%" alt="[PNG] Option 2 Sim Learning Curves"> | <img src="docs/images/evidence_v4/phase3_learning_curves_real_tb3.png" width="100%" alt="[PNG] Option 2 Real TB3 Learning Curves"> | <img src="docs/images/evidence_v4/phase3_sim_final_student.png" width="100%" alt="[PNG] Option 2 Final Student Rollout"> |
+
+<details>
+<summary><strong>[GIF] Phase 3 3채널 학습 단계별 3D 주행 진화 비교 (`Early` → `Mid` → `Final Student`) 펼쳐보기</strong></summary>
+
+| `[GIF]` Early (`LOW-OBS HIT` · 시맨틱 수렴 전) | `[GIF]` Mid (`LOW-OBS HIT` · 잔차 어댑터 조정 중) | `[GIF]` Final Student ONNX (`PASS · LowHit 0`) |
+| :---: | :---: | :---: |
+| <img src="docs/images/evidence_v3/phase3_sim_early_upd12.gif" width="100%" alt="[GIF] Phase 3 Early Rollout"> | <img src="docs/images/evidence_v3/phase3_sim_mid_upd24.gif" width="100%" alt="[GIF] Phase 3 Mid Rollout"> | <img src="docs/images/evidence_v3/phase3_sim_final_student.gif" width="100%" alt="[GIF] Phase 3 Final Student Rollout"> |
+
+</details>
+
+---
+
+## 10. 하드웨어 구성
 
 <p align="center">
   <img src="docs/images/turtlebot3_3dprinted_shell.jpg" alt="TurtleBot3 Burger 3D-Printed Custom Shell" width="60%">
@@ -440,7 +466,7 @@ Phase 2-B 1채널 격자를 **3채널 ($12\times 12\times 3 = 432$셀 + 544차�
 | Host PC (관제/로컬 시뮬) | Intel Core i7-8700 (6C/12T) / DDR4 16GB 2666MHz / NVIDIA GTX 1050 Ti 4GB / Windows 11 + WSL2 Ubuntu 22.04 / PyTorch 2.5.1 + CUDA 12.1 |
 | 학습 서버 (대규모 RL) | Intel Core i9-10900X (10C/20T) / DDR4 256GB 2666MHz (Non-ECC) / NVIDIA Tesla V100-PCIE-32GB / Ubuntu 20.04.6 LTS Host + Ubuntu 22.04 Docker (ROS 2 Humble) — 병렬 시뮬 검증 & Dual-Track RL 학습 |
 
-### MQ-2 + ADS1115 회로
+### 10.1 MQ-2 + ADS1115 회로
 
 OpenCR은 TurtleBot3 순정 펌웨어(모터·`/odom`)를 그대로 유지하고, 가스 센서는 RPi 4의 I2C로 읽는다. ADS1115는 **반드시 3.3 V로 급전**한다 (RPi GPIO는 5 V 비허용).
 
@@ -468,7 +494,328 @@ i2cdetect -y 1        # 48 이 보여야 정상
 
 ---
 
-## 저장소 구조
+## 11. 설치 및 테스트
+
+### 11.1 공통 (Host PC · RPi 4) — `~/.bashrc`
+
+```bash
+source /opt/ros/humble/setup.bash
+export ROS_DOMAIN_ID=0
+export ROS_LOCALHOST_ONLY=0
+export TURTLEBOT3_MODEL=burger
+export LDS_MODEL=LDS-01          # RPi 4
+```
+
+### 11.2 Host PC (WSL2)
+
+`C:\Users\<user>\.wslconfig`
+
+```ini
+[wsl2]
+networkingMode=mirrored
+dnsTunneling=true
+firewall=true
+autoProxy=true
+```
+
+```bash
+# PowerShell: wsl --shutdown 후 WSL 재진입
+sudo apt install -y ros-humble-desktop ros-humble-cv-bridge \
+                    ros-humble-teleop-twist-keyboard ros-humble-camera-calibration \
+                    ros-humble-turtlebot3-cartographer ros-humble-turtlebot3-gazebo
+pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+pip3 install ultralytics faster-whisper
+pip3 install "numpy==1.26.4" "opencv-python==4.10.0.84"     # cv_bridge(NumPy 1.x) 호환 고정
+python3 -c "import torch; print(torch.cuda.is_available())"   # True 확인
+```
+
+> WSL2 내부에 Linux용 NVIDIA 드라이버를 설치하지 않는다. Windows 드라이버가 WSL로 전달된다.
+>
+> `yolo26n.pt`는 첫 실행 시 Ultralytics가 자동 다운로드한다 (저장소에는 포함하지 않음). NumPy 2.x가 설치되면 `cv_bridge` import가 실패하므로 위 버전 고정을 유지한다.
+
+### 11.3 RPi 4
+
+```bash
+sudo apt install -y ros-humble-v4l2-camera ros-humble-cv-bridge python3-opencv \
+                    ros-humble-image-transport-plugins \
+                    python3-smbus i2c-tools alsa-utils
+sudo usermod -aG i2c,audio $USER   # 재로그인 필요
+arecord -l                          # card 1: AB13X USB Audio 확인 (번호가 다르면 alsa_device 수정)
+```
+
+### 11.4 빌드 (양쪽 모두)
+
+```bash
+mkdir -p ~/disaster_recovery_ws && cd ~/disaster_recovery_ws
+git clone https://github.com/rjw136-lab/disaster_recovery_ws.git .
+colcon build --symlink-install --packages-select disaster_recovery
+source install/setup.bash
+```
+
+### 11.5 단위 테스트
+
+```bash
+source /opt/ros/humble/setup.bash && source install/setup.bash
+python3 -m pytest -p no:anyio src/disaster_recovery/test -q   # ADS1115(8) + 하이브리드(9) + 로컬A*(9) + 시맨틱제어기(4) + 시맨틱매퍼(17) + 시맨틱RL(9) = 총 56개 전수 PASS
+```
+
+---
+
+## 12. 실행
+
+### 12.1 원터치 통합 실행 (권장)
+
+```bash
+# Host PC에서 실행: RPi 4 원격 브링업 + Host AI(YOLO26n + Whisper CUDA) + SLAM(RobotModel RViz2) + WASD 텔레옵
+python3 scripts/host/start.py
+
+python3 scripts/host/start.py --tmux             # tmux 3분할 콕핏 대시보드
+python3 scripts/host/start.py --host-only        # 로봇 원격 기동 생략
+python3 scripts/host/start.py --no-cartographer  # SLAM/RViz2 생략
+python3 scripts/host/start.py --status           # 네트워크 및 노드 상태 점검
+python3 scripts/host/stop.py                     # 전체 종료
+```
+
+### 12.2 단계별 수동 실행
+
+| # | 기기 | 명령 |
+| :-: | :--- | :--- |
+| 1 | RPi 4 | `ros2 launch turtlebot3_bringup robot.launch.py` (또는 `bash scripts/rpi/start_all.sh`) |
+| 2 | RPi 4 | `ros2 run camera_ros camera_node --ros-args -p width:=640 -p height:=480 -p format:=BGR888` (또는 `bash scripts/rpi/start_camera.sh`) |
+| 3 | RPi 4 | `ros2 launch disaster_recovery robot_onboard.launch.py` |
+| 4 | Host | `ros2 launch disaster_recovery host_station.launch.py` (RViz 동시 실행: `use_rviz:=true`) |
+| 5 | Host | `python3 scripts/host/wasd_teleop.py topic:=/cmd_vel_remote` (또는 `teleop_twist_keyboard --ros-args -r cmd_vel:=/cmd_vel_remote`) |
+| 6 | Host | `ros2 launch turtlebot3_cartographer cartographer.launch.py use_rviz:=false` + `ros2 run rviz2 rviz2 -d src/disaster_recovery/config/disaster_cartographer.rviz` |
+
+> ⚠ 텔레옵은 반드시 `/cmd_vel_remote`로 리매핑한다. `/cmd_vel`에 직접 발행하면 워치독의 원격 명령 차단이 무력화된다.
+
+상태 모니터링:
+
+```bash
+ros2 topic echo /recovery/status
+ros2 topic echo /disaster/victim_alert
+ros2 topic echo /disaster/audio_alert
+```
+
+### 12.3 `host_station.launch.py` 인자
+
+| 인자 | 기본값 | 설명 |
+| :--- | :-: | :--- |
+| `yolo_model_path` | `yolo26n.pt` | YOLO 가중치 경로/이름 |
+| `image_topic` | `/camera/image_raw/compressed` | 카메라 토픽 |
+| `use_compressed` | `true` | `CompressedImage` 구독 (Wi-Fi 대역폭 절약) |
+| `rotation_angle` | `270` | 영상 회전 (0/90/180/270) |
+| `show_window` | `true` | OpenCV 탐지 창 표시 |
+| `heartbeat_rate_hz` | `10.0` | Heartbeat 주기 |
+| `confidence_threshold` | `0.40` | YOLO 추론 임계값 |
+| `person_conf_threshold` | `0.55` | 조난자 알림 임계값 |
+| `only_person_detection` | `false` | COCO class 0(person)만 추론 (`host_ai_pipeline` 노드 단독 기본값은 `True`) |
+| `min_consecutive_detections` | `2` | 알림 발행에 필요한 연속 탐지 프레임 수 |
+| `cuda_device` | `0` | GPU 번호 |
+| `whisper_model_size` | `base` | Faster-Whisper 모델 크기 (tiny/base/small) |
+| `whisper_device` | `cuda` | Whisper 연산 디바이스 (`cuda` INT8 기본, cuBLAS/cuDNN 프리로드 후 실패 시 `cpu` 자동 폴백) |
+| `whisper_compute_type` | `int8` | Whisper 양자화 타입 (`int8`, `int8_float32`, `float32`) |
+| `use_rviz` | `false` | `disaster_station.rviz`로 RViz2 동시 실행 |
+
+> 참고: `host_ai_pipeline` 노드는 추가 내부 파라미터 `yolo_max_fps`(기본값 `15.0`)로 비전 추론 주기를 조절해 GPU/CPU 여유를 확보한다.
+
+---
+
+## 13. Gazebo 시뮬레이션
+
+실차 없이 Host PC에서 **Phase 3 2D 시맨틱 SLAM(`semantic_map_node` · YOLO26n · `slam_toolbox`/Cartographer `/map`)** 과 **3채널 Context-RL 자율 복귀(`recovery_controller`)**, 15대 시나리오 엄격 무충돌 벤치마크를 검증하기 위한 환경이다.
+
+### 13.1 인터랙티브 시뮬레이션 실행 (`sim.py`)
+
+```bash
+python3 scripts/host/sim.py                # 기본값: 지진 붕괴 건물 재난 맵 (--collapsed)
+python3 scripts/host/sim.py --tunnel       # 지하 터널 재난 맵
+python3 scripts/host/sim.py --house        # 방·복도 구조의 house 맵
+python3 scripts/host/sim.py --maze         # 좁은 내부 격벽 미로 맵
+python3 scripts/host/sim.py --world world  # 기본 turtlebot3_world 맵 (empty 가능)
+python3 scripts/host/sim.py --yolo         # 가상 카메라(/camera/image_raw, rotation_angle:=0) + YOLO26n + semantic_map_node
+python3 scripts/host/sim.py --no-slam      # SLAM/RViz 없이 실행
+python3 scripts/host/sim.py --no-teleop    # 내장 텔레옵 비활성화
+python3 scripts/host/sim.py --software     # GPU 가속 대신 llvmpipe 소프트웨어 렌더링 강제
+python3 scripts/host/sim.py --headless     # gzclient 3D GUI 없이 물리 서버만 구동
+python3 scripts/host/sim.py --stop         # 시뮬레이션 프로세스 일괄 종료
+python3 scripts/host/start.py --sim        # start.py 경유 실행
+```
+
+| 키 | 동작 |
+| :-: | :--- |
+| `W` `A` `S` `D` | 전진 / 좌회전 / 후진 / 우회전 |
+| `Space` | 정지 |
+| `H` | Heartbeat 송신 중단 (통신 단절 재현 → 3초 후 Phase 3/2-B 자율 복귀 진입) |
+| `R` | Heartbeat 복구 |
+| `O` | 지나온 복귀 경로에 랜덤 붕괴 암석(`disaster_debris`) 3~6개 투하 / 일괄 제거 토글 |
+| `Q` | 종료 |
+
+### 13.2 엄격 무충돌 150-Trial 벤치마크 및 Phase 3 시맨틱 검증 재현
+
+```bash
+# 15대 재난 시나리오 엄격 무충돌(Strict Collision-Free) 벤치마크 (기본값: 무충돌 판정 활성)
+python3 scripts/host/ab_disaster_benchmark.py --scenario collapsed --trials 10 \
+  --proposed-strategy proposed_rl \
+  --context-rl-onnx src/disaster_recovery/config/sim_policy_student_semantic_v3.onnx
+
+# Phase 3 시맨틱 구조·회피 10-Trial A/B & 3패널 E2E /map+YOLO+좌표 녹화
+python3 scripts/host/run_phase3_semantic_suite.py --mode check-yolo
+python3 scripts/host/run_phase3_semantic_suite.py --mode ab10 --trials 10
+python3 scripts/host/run_phase3_semantic_suite.py --mode record-e2e
+python3 scripts/host/run_phase3_semantic_suite.py --mode record-ab
+```
+
+> WSL2(WSLg) 환경에서 `scripts/host/sim.py`는 `MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA`를 설정해 Direct3D12 GPU 가속으로 `gzclient`와 `rviz2`를 구동하며(`--software`로 `llvmpipe` 강제 가능), Docker/Xvfb 헤드리스 녹화 시에는 `unset QT_QPA_PLATFORM_PLUGIN_PATH QT_PLUGIN_PATH` 및 `vglrun -d egl`로 Tesla V100 EGL 가속을 사용한다.
+
+---
+
+## 14. ROS 2 인터페이스 및 파라미터
+
+### 14.1 토픽 · 서비스
+
+| 토픽 | 타입 | 발행 → 구독 |
+| :--- | :--- | :--- |
+| `/heartbeat` | `std_msgs/Header` | host_ai_pipeline → recovery_controller (10 Hz) |
+| `/cmd_vel_remote` | `geometry_msgs/Twist` | teleop → recovery_controller |
+| `/cmd_vel` | `geometry_msgs/Twist` | recovery_controller, aruco_docking → turtlebot3_node |
+| `/odom` | `nav_msgs/Odometry` | turtlebot3_node → recovery_controller, blackbox |
+| `/scan` | `sensor_msgs/LaserScan` | LDS-01 → recovery_controller, blackbox |
+| `/gas/level` | `std_msgs/Float32` | gas_sensor_node → recovery_controller, blackbox (예열·기준 측정 후 발행) |
+| `/gas/voltage` | `std_msgs/Float32` | gas_sensor_node → (모니터링) MQ-2 출력 전압 |
+| `/gas/rs_ro` | `std_msgs/Float32` | gas_sensor_node → (모니터링) 데이터시트 ppm 곡선용 Rs/Ro |
+| `/gas/sensor_ok` | `std_msgs/Bool` | gas_sensor_node → (모니터링) I2C 읽기 실패 시 false |
+| `/camera/image_raw` | `sensor_msgs/Image` | v4l2_camera → aruco_docking, blackbox |
+| `/camera/image_raw/compressed` | `sensor_msgs/CompressedImage` | image_transport → host_ai_pipeline (BEST_EFFORT, depth 1) |
+| `/camera/camera_info` | `sensor_msgs/CameraInfo` | v4l2_camera → aruco_docking |
+| `/detection/image` | `sensor_msgs/Image` | host_ai_pipeline → RViz2 (바운딩 박스 + SURVIVOR 배너) |
+| `/audio/raw` | `std_msgs/UInt8MultiArray` | audio_capture_node → host_ai_pipeline (48 kHz S16_LE mono, 0.5 s/msg) |
+| `/aruco/debug_image` | `sensor_msgs/Image` | aruco_docking → (모니터링) |
+| `/aruco/dock_trigger` | `std_msgs/Bool` | recovery_controller → aruco_docking |
+| `/aruco/dock_complete` | `std_msgs/Bool` | aruco_docking → recovery_controller |
+| `/blackbox/trigger` | `std_msgs/Bool` | recovery_controller → blackbox_recorder |
+| `/recovery/status` | `std_msgs/String` | recovery_controller → (모니터링) |
+| `/disaster/victim_alert` | `std_msgs/String` | host_ai_pipeline → (관제) |
+| `/disaster/audio_alert` | `std_msgs/String` | host_ai_pipeline → (관제) |
+| `/detection/objects` | `std_msgs/String` | host_ai_pipeline → semantic_map_node (YOLO 감지 객체 JSON + stamp) |
+| `/semantic_map/markers` | `visualization_msgs/MarkerArray` | semantic_map_node → RViz2 (조난자·장애물·가스·음성 4종 영구 마커) |
+| `/semantic_map/cached_objects` | `std_msgs/String` | semantic_map_node → recovery_controller (RPi 4 온보드 캐시 동기화) |
+| `/semantic_map/save_map` | `std_srvs/srv/Trigger` | 관제/사용자 → semantic_map_node (raw_map, yaml, json, overlay 4종 아티팩트 저장 서비스) |
+
+### 14.2 주요 파라미터
+
+<details>
+<summary><strong><code>recovery_params.yaml</code> 파라미터 표 펼쳐보기</strong></summary>
+
+[`config/recovery_params.yaml`](src/disaster_recovery/config/recovery_params.yaml)
+
+| 파라미터 | 기본값 | 의미 |
+| :--- | :-: | :--- |
+| `heartbeat_timeout_sec` | 3.0 | 통신 단절 판정 시간 |
+| `gas_threshold` | 0.40 | 가스 위험 판정값 (`1 − Rs/Rs_air`, ppm 아님 · 현장 보정 필요) |
+| `gas_stale_timeout_sec` / `gas_stale_triggers_recovery` | 2.0 / false | `/gas/level` 끊김 경고 / 끊김 시 복귀 여부 |
+| `warmup_sec` / `baseline_samples` | 60 / 100 | MQ-2 예열 시간 / 기준 측정 샘플 수 |
+| `rs_air_kohm` | 0.0 | 0보다 크면 저장된 기준값 재사용 |
+| `log_dist_threshold_m` / `log_angle_threshold_deg` | 0.30 / 25.0 | 경유지 기록 간격 (거리 / 회전) |
+| `waypoint_reach_radius_m` / `heading_tolerance_rad` | 0.10 / 0.12 | 경유지 도달 판정 반경 / 정렬 허용 각도 |
+| `linear_speed_max` / `angular_speed_max` | 0.20 / 0.65 | 복귀 속도 상한 (m/s, rad/s) |
+| `kp_linear` / `kp_angular` | 0.60 / 1.40 | 직진 / 회전 비례 제어 게인 |
+| `lidar_min_range_m` / `lidar_max_danger_range_m` | 0.12 / 0.25 | 정지 거리 구간 |
+| `lidar_fov_half_deg` | 20.0 | 전방 감시 반각 |
+| `docking_start_distance_m` | 0.50 | ArUco 도킹 전환 거리 |
+| `enable_scan_matching` | true | 2D ICP 스캔 매칭 보정 활성화 |
+| `scan_match_weight` | 0.40 | 상보필터 가중치 (0 = 오도메트리만, 1 = 라이다만) |
+| `scan_match_max_dist_m` | 0.45 | ICP 매칭 발동 반경 |
+| `enable_hybrid_tracking` / `lookahead_dist_m` | true / 0.45 | Regulated Pure Pursuit 연속 추종 / 전방 주시 거리 |
+| `enable_td3_avoidance` / `td3_clearance_dist_m` | true / 0.42 | Residual TD3 국소 우회 / 장애물 회피 반경 |
+| `td3_max_avoid_steps` | 250 | TD3 우회 최대 스텝 수 (10 Hz 기준 25초) |
+| `use_semantic_rl_policy` | false | `true` 시 Phase 3 3채널 시맨틱 RL 정책 활성화 (`false` = Phase 2-B 1채널 기본) |
+| `semantic_rl_onnx_path` | `""` | 비어 있으면 시뮬 `sim_policy_student_semantic_v3.onnx` / 실차 `real_tb3_policy_student_semantic_v3.onnx` 자동 탐색 |
+| `use_aruco_docking` | false | `true` 시 ArUco 도킹 전환 (`sim.py --yolo`는 `true` 오버라이드) |
+| `aruco_docking_timeout_sec` | 12.0 | 제어기 측 도킹 2차 백업 타임아웃 |
+| `search_timeout_sec` (aruco_docking) | 10.0 | 마커 미감지 시 미션 완료 처리까지의 시간 |
+| `marker_size_m` / `target_dock_dist_m` | 0.10 / 0.20 | 마커 크기 / 마커 앞 정지 거리 |
+| `camera_rotation_deg` (aruco_docking) | 270 | 카메라 장착 회전 보정 |
+| `alsa_device` / `sample_rate` (audio_capture_node) | `plughw:1,0` / 48000 | USB 마이크 장치 / 샘플레이트 |
+| `chunk_duration_sec` (audio_capture_node) | 0.5 | `/audio/raw` 메시지 1개 길이 |
+
+Host AI 파라미터 (`host_ai_pipeline` 코드 기본값): `yolo_max_fps=15.0`, `whisper_device='cuda'`, `whisper_compute_type='int8'`, `audio_sample_rate=48000`, `sample_rate_hz=16000`, `audio_buffer_sec=2.0`(50% 중첩), `voice_activity_threshold=0.012`(RMS).  
+시맨틱 매핑 파라미터 상세(`cluster_radius_m=0.45`, `ch1_obstacle_radius_m=0.22`, `ch2_hazard_radius_m=0.55` 등): [`config/semantic_map_params.yaml`](src/disaster_recovery/config/semantic_map_params.yaml) · 실차 보수적 프로파일: [`config/recovery_params_real.yaml`](src/disaster_recovery/config/recovery_params_real.yaml).
+
+</details>
+
+---
+
+## 15. 알려진 한계 및 해결 이슈
+
+본 저장소는 실차 검증 및 고도화가 진행 중인 프로토타입이다.
+
+**현재 남아 있는 한계 및 진행 중인 서버 작업**
+
+1. **도킹 기하 가정**: 마커가 출발 위치 정면 벽에 있다고 가정한다. 출발 자세와 마커의 상대 위치는 현장에서 실측해 `target_dock_dist_m`을 조정해야 한다.
+2. **가스 센서 미결선**: 회로 설계와 드라이버는 완료되었으나 실물 결선 전이므로 `gas_stale_triggers_recovery: false`로 둔다.
+3. **블랙박스 Wi-Fi 스트리밍 차단 미구현**: 현재는 로컬 기록만 시작한다.
+4. **통신 단절 중 신규 조난자 비전 탐지 불가 (YOLO Host 의존성)**: `host_ai_pipeline`(YOLO26n)은 Host PC에서 실행되므로, 통신 단절 이후(Return 단계) 시야에 새로 등장한 조난자를 실시간 탐지할 수 없다. 단절 직전까지 `/semantic_map/cached_objects`로 백업된 조난자·저상 장애물 좌표 유지 및 온보드 MQ-2(`/gas/level`) 실시간 가스 감지만 수행하며, 완전 단절 심부 탐지 확장을 위해서는 RPi 4 온보드 경량 비전 가속기(예: NPU/Hailo) 탑재가 필요하다.
+5. **실물 TurtleBot3 Burger Track B 필드 실증 예정**: V100 Phase 2-B(`150회 엄격 69.3% / 도착 97.3%`) 및 Phase 3 Option 2(`150회 엄격 79.3% / 도착 95.3%`, 10-Trial 시맨틱 A/B 엄격 무위험 `80.0%`) 검증을 완료했으며, 실물 RPi 4 온보드 환경에서의 Track B(`real_tb3_policy_student_semantic_v3.onnx`, `414.7 KB`, x86 CPU `0.130 ms`) 추론 지연 실측 및 현장 주행은 실물 결합 시험에서 수행 예정이다.
+6. **Phase 3 `real_tb3` 트랙 슬립-가스 회피 트레이드오프**: `sim` 트랙은 Holdout `gas_victim_corridor 93.3%`(`gas_hazard_free_rate 60.0%`) 및 Gazebo `ab10` 저상 충돌 `0회` / 가스 침범 `1/10`을 달성했으나, 강한 슬립이 부여된 `real_tb3` 트랙은 타임아웃 방지를 위한 전진 돌파를 우선함에 따라 Holdout `gas_hazard_free_rate`가 `26.7%`(`gas_victim_corridor` 도착률 `100.0%`)로 후속 다목적 체크포인트 선정(`unseen_sr + gas_hazard_free_rate`) 고도화 여지가 남아 있다.
+
+<details>
+<summary><strong>해결된 이슈 (25건) 펼쳐보기</strong></summary>
+
+| 이슈 | 해결 방법 |
+| :--- | :--- |
+| Phase 3 초기 3-Ch 미세조정(`v3`)의 비시맨틱 환경(`Ch1=0, Ch2=0`) 엄격 무충돌 퇴행 (`69.3% → 58.0%`) | **Option 1(Hard Channel Gating)** 의 경계 스위칭 불연속 한계를 분석·기각하고, **Option 2(Frozen Phase 2-B Backbone + Zero-Gated Residual Semantic Adapter)** 를 채택·재학습해 `Ch1=0, Ch2=0`에서 `max_abs_diff = 0.0` 수학적 일치 및 **150회 엄격 무충돌 `119/150 (79.3%)` (`+21.3%p` 회복, Phase 2-B 대비 `+10.0%p`)** 달성 |
+| Phase 2 고정 블렌딩(`0.70·RL`)의 `house` 협소 문틀 진동·지체 | 섹터 여유 거리·협소 패스 여부 기반 **Clearance-Gated Blending** 및 `ESCAPE` 중 시계열 버퍼 유지로 재학습 없이 **`48/50 (96.0%)`**, `house` `8/10 → 9/10` |
+| Phase 1 `house` `~0.28m` 틈새 과차단 & Phase 2 RL 수렴 정체·앙상블 상쇄 | `_virtual_obstacles` `±0.03m`/9s 튜닝으로 **5대 환경 `49/50 (98.0%)`** 달성; Phase 2 V100 **`ret_norm=25` + `nav_dist` + 선택적 DAgger 증류**로 `sim`/`real_tb3` ONNX 추출 및 **공식 Gazebo S2S `47/50 (94.0%)`** 검증 완료 (`#30~#36`) |
+| 붕괴 건물 교착 및 다회차 `corr_y` 오프셋 누적 | `/recovery/reset_episode`로 에피소드 상태 초기화 및 `RollingLocalGrid(0.04m) + 2D A* + 위상 지름길 + ESCAPE` 도입 |
+| 저상 장애물·벽 너머 단축 및 전방 밀착 정지 | 진입(`NORMAL_TELEOP`) 선행 관측, 실내 벽 너머 단축 차단, 전방 unpin 및 `_virtual_obstacles` 가상 접촉 장벽 추가 |
+| 병렬 벤치마크 포트 충돌 및 `/home/lab` 경로 하드코딩 | `--gz-port` / `--ros-domain-id` 워커별 격리 및 7개 파일 동적 경로 탐색 전환 |
+| 복귀로 상 신규 낙하 잔해 앞 영구 대기 | 초경량 TD3 연속 제어 국소 우회(Layer 2) 및 2D ICP 슬립 소거(Layer 3)를 연동한 4계층 하이브리드 아키텍처 구현 및 회피 복귀 검증 완료 |
+| OpenCR 펌웨어 충돌 | MQ-2를 ADS1115(I2C)로 RPi 4에 직결, OpenCR은 순정 펌웨어 유지 |
+| `audio_capture_node` 스텁 | `arecord` 기반 48 kHz PCM 스트리밍 및 Host 측 VAD + Whisper 연동 구현 |
+| 바퀴 슬립 누적 오차 | 2D ICP 스캔 매칭 구현. 이후 초기 추정값 부호 오류와 `/odom` 수신 시 보정값이 덮어써지는 문제를 수정하고 지속형 SE(2) 오프셋 방식으로 변경 |
+| ArUco 마커 부재 시 무한 회전 | 10초 타임아웃 세이프티 가드 추가 |
+| 다중 터미널 수동 실행 | `start.py` / `stop.py` 원터치 실행·종료 |
+| WSL2 Gazebo 렌더링 및 호환성 | `sim.py` 기본 모드를 WSLg `MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA` 하드웨어 GPU 가속으로 전환하고, 드라이버 호환 문제 시 `--software`(`llvmpipe`) 폴백 지원 |
+| Faster-Whisper CPU 전용 실행 지연 | `_preload_nvidia_cuda_libs()`로 pip cuBLAS/cuDNN 프리로드 후 CUDA INT8 GPU 가속 적용 (미가용 시 CPU 자동 폴백) |
+| RViz2 터틀봇3 3D 모델 미표시 & YOLO CPU 병목 | `disaster_cartographer.rviz`(`RobotModel` + `/robot_description`) 분리 적용 및 `yolo_max_fps=15.0` 추론 상한 도입 |
+| Gazebo 런치 월드 경로 하드코딩 | `disaster_world.launch.py` 신규 제작을 통해 다중 월드 및 초기 위치 인자 동적 바인딩 |
+| 대형 복합 메쉬 월드 엔티티 스폰 실패 | 19개 메쉬 로딩 지연 대응 `spawn_entity.py -timeout 120.0` 플래그 적용 |
+| 근거리 웨이포인트 제자리 회전 발산 | $d \le 0.08\,\text{m}$ 도달 시 즉시 pop 및 불감대 예외 처리로 $\text{atan2}$ 특이점 진동 해소 |
+| 타임아웃 발생 후 제어기 상태 데드락 | Heartbeat 1.2초 이상 연속 정상 수신 시 `NORMAL_TELEOP`으로 완전 복구하는 글로벌 리셋 워치독 구현 |
+| 터널 노면 휠슬립 외부 측정 왜곡 | `/recovery/status`에 ICP 보정 좌표계(`POSE:x,y,th`) 실시간 브로드캐스팅 동기화 |
+| RViz2 SLAM 점유 격자 지도 미동기화 (검은 화면) | Cartographer `occupancy_grid_node`의 `/map` 토픽이 `Durability: Volatile`인데 반해, RViz2 설정이 `Transient Local`로 지정되어 발생한 ROS 2 DDS QoS 정책 충돌을 진단하고, `disaster_station.rviz` 및 RViz 설정을 `Volatile`로 동기화하여 실시간 맵 렌더링 정상화 |
+| 터널 +Y 축 주행 시 횡방향 조향 부호 역전 (우측 벽 쏠림) | Gazebo 터널 좌표계에서 로봇이 +Y(헤딩 $\pi/2$) 방향으로 전진할 때 $-X$가 좌측, $+X$가 우측임에 따라 단순 횡오차($e_x$) 적용 시 조향이 역전되던 문제를 헤딩 기반 스탠리 조향($\theta_{\text{target}} = 1.57 + 0.45(x - x_{\text{target}})$)으로 전환하여 중앙 차선($x=-0.75$) 정밀 추종 달성 |
+| Gazebo 시뮬레이션 중 동적 낙석(Debris) 런타임 투하/삭제 | 물리 월드 재기동 없이 통신 단절 시점마다 `gazebo_ros spawn_entity.py` 및 `/delete_entity` 서비스 호출을 결합하고, 로컬호스트 도메인 환경변수를 주입하여 실시간 낙석 투하 및 라이다 회피 연동 검증 |
+| ROS 2 백그라운드 데몬 XML-RPC 소켓 타임아웃 (`Errno 110`) | 반복된 CLI 호출로 백그라운드 데몬 응답 지연 발생 시 `pkill -9 -f "ros2.*daemon"` 자동 플러시 및 `--no-daemon` 플래그/직접 rclpy 노드 통신을 적용하여 무중단 연속 벤치마크 안정화 |
+| 국소 회피 제어기(TD3) 스텝 버짓 초과 후 무한 정지 데드락 | 복합 낙석 구간에서 회피 스텝 한도 초과 시 `OBSTACLE_HOLD`로 멈추던 구조를 보완하여, `td3_max_avoid_steps`를 250스텝(25초)으로 확장하고 스텝 만료 시 2D ICP 보정 후 다음 웨이포인트로 자동 전진(Pop)하여 복귀 지속 처리 |
+
+</details>
+
+---
+
+## 16. 필드 테스트
+
+전체 체크리스트: [`docs/FIELD_TEST_CHECKLIST.md`](docs/FIELD_TEST_CHECKLIST.md)
+
+- [ ] 텔레옵 주행 중 `[ODOM LOGGER] Recorded Waypoint` 로그가 0.3 m / 25° 간격으로 출력되는가
+- [ ] Host PC의 `host_station.launch.py`를 `Ctrl+C`로 종료하면 약 3초 후 정지하는가
+- [ ] 정지 이후 텔레옵 키 입력이 무시되는가
+- [ ] `~/blackbox_logs/session_*/`에 mp4·csv가 생성되는가
+- [ ] 제자리 회전 → 직진으로 경유지를 역순 추종하는가
+- [ ] 복귀 중 `[LIDAR SCAN MATCH]` 로그가 출력되는가
+- [ ] 복귀 중 전방 약 15 cm에 장애물을 두면 정지하고, 치우면 재개하는가
+- [ ] 원점 0.5 m 이내에서 ArUco 도킹으로 전환되고 최종 위치가 출발점 15 cm 이내인가
+- [ ] 라이터 가스(점화 금지)를 MQ-2에 근접시켰을 때 동일한 복귀 시퀀스가 시작되는가
+- [x] Host 탐지 창/`/detection/image`가 정방향(270° 보정)으로 표시되고 사람 앞에서 `SURVIVOR LOCATED` 배너가 뜨는가
+- [ ] 마이크 앞에서 "살려주세요"라고 말하면 `/disaster/audio_alert`가 발행되는가
+
+---
+
+## 17. 저장소 구조
+
+<details>
+<summary><strong>디렉터리 트리 펼쳐보기</strong></summary>
 
 ```
 disaster_recovery_ws/
@@ -565,319 +912,11 @@ disaster_recovery_ws/
         └── test_semantic_rl_env.py      # 3ch 관측 공간, Modality Dropout, Option 2 Exact Parity 테스트 (9개)
 ```
 
----
-
-## 설치
-
-### 공통 (Host PC · RPi 4) — `~/.bashrc`
-
-```bash
-source /opt/ros/humble/setup.bash
-export ROS_DOMAIN_ID=0
-export ROS_LOCALHOST_ONLY=0
-export TURTLEBOT3_MODEL=burger
-export LDS_MODEL=LDS-01          # RPi 4
-```
-
-### Host PC (WSL2)
-
-`C:\Users\<user>\.wslconfig`
-
-```ini
-[wsl2]
-networkingMode=mirrored
-dnsTunneling=true
-firewall=true
-autoProxy=true
-```
-
-```bash
-# PowerShell: wsl --shutdown 후 WSL 재진입
-sudo apt install -y ros-humble-desktop ros-humble-cv-bridge \
-                    ros-humble-teleop-twist-keyboard ros-humble-camera-calibration \
-                    ros-humble-turtlebot3-cartographer ros-humble-turtlebot3-gazebo
-pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-pip3 install ultralytics faster-whisper
-pip3 install "numpy==1.26.4" "opencv-python==4.10.0.84"     # cv_bridge(NumPy 1.x) 호환 고정
-python3 -c "import torch; print(torch.cuda.is_available())"   # True 확인
-```
-
-> WSL2 내부에 Linux용 NVIDIA 드라이버를 설치하지 않는다. Windows 드라이버가 WSL로 전달된다.
->
-> `yolo26n.pt`는 첫 실행 시 Ultralytics가 자동 다운로드한다 (저장소에는 포함하지 않음). NumPy 2.x가 설치되면 `cv_bridge` import가 실패하므로 위 버전 고정을 유지한다.
-
-### RPi 4
-
-```bash
-sudo apt install -y ros-humble-v4l2-camera ros-humble-cv-bridge python3-opencv \
-                    ros-humble-image-transport-plugins \
-                    python3-smbus i2c-tools alsa-utils
-sudo usermod -aG i2c,audio $USER   # 재로그인 필요
-arecord -l                          # card 1: AB13X USB Audio 확인 (번호가 다르면 alsa_device 수정)
-```
-
-### 빌드 (양쪽 모두)
-
-```bash
-mkdir -p ~/disaster_recovery_ws && cd ~/disaster_recovery_ws
-git clone https://github.com/rjw136-lab/disaster_recovery_ws.git .
-colcon build --symlink-install --packages-select disaster_recovery
-source install/setup.bash
-```
-
-### 단위 테스트
-
-```bash
-source /opt/ros/humble/setup.bash && source install/setup.bash
-python3 -m pytest -p no:anyio src/disaster_recovery/test -q   # ADS1115(8) + 하이브리드(9) + 로컬A*(9) + 시맨틱제어기(4) + 시맨틱매퍼(17) + 시맨틱RL(9) = 총 56개 전수 PASS
-```
+</details>
 
 ---
 
-## 실행
-
-### 원터치 통합 실행 (권장)
-
-```bash
-# Host PC에서 실행: RPi 4 원격 브링업 + Host AI(YOLO26n + Whisper CUDA) + SLAM(RobotModel RViz2) + WASD 텔레옵
-python3 scripts/host/start.py
-
-python3 scripts/host/start.py --tmux             # tmux 3분할 콕핏 대시보드
-python3 scripts/host/start.py --host-only        # 로봇 원격 기동 생략
-python3 scripts/host/start.py --no-cartographer  # SLAM/RViz2 생략
-python3 scripts/host/start.py --status           # 네트워크 및 노드 상태 점검
-python3 scripts/host/stop.py                     # 전체 종료
-```
-
-### 단계별 수동 실행
-
-| # | 기기 | 명령 |
-| :-: | :--- | :--- |
-| 1 | RPi 4 | `ros2 launch turtlebot3_bringup robot.launch.py` (또는 `bash scripts/rpi/start_all.sh`) |
-| 2 | RPi 4 | `ros2 run camera_ros camera_node --ros-args -p width:=640 -p height:=480 -p format:=BGR888` (또는 `bash scripts/rpi/start_camera.sh`) |
-| 3 | RPi 4 | `ros2 launch disaster_recovery robot_onboard.launch.py` |
-| 4 | Host | `ros2 launch disaster_recovery host_station.launch.py` (RViz 동시 실행: `use_rviz:=true`) |
-| 5 | Host | `python3 scripts/host/wasd_teleop.py topic:=/cmd_vel_remote` (또는 `teleop_twist_keyboard --ros-args -r cmd_vel:=/cmd_vel_remote`) |
-| 6 | Host | `ros2 launch turtlebot3_cartographer cartographer.launch.py use_rviz:=false` + `ros2 run rviz2 rviz2 -d src/disaster_recovery/config/disaster_cartographer.rviz` |
-
-> ⚠ 텔레옵은 반드시 `/cmd_vel_remote`로 리매핑한다. `/cmd_vel`에 직접 발행하면 워치독의 원격 명령 차단이 무력화된다.
-
-상태 모니터링:
-
-```bash
-ros2 topic echo /recovery/status
-ros2 topic echo /disaster/victim_alert
-ros2 topic echo /disaster/audio_alert
-```
-
-### `host_station.launch.py` 인자
-
-| 인자 | 기본값 | 설명 |
-| :--- | :-: | :--- |
-| `yolo_model_path` | `yolo26n.pt` | YOLO 가중치 경로/이름 |
-| `image_topic` | `/camera/image_raw/compressed` | 카메라 토픽 |
-| `use_compressed` | `true` | `CompressedImage` 구독 (Wi-Fi 대역폭 절약) |
-| `rotation_angle` | `270` | 영상 회전 (0/90/180/270) |
-| `show_window` | `true` | OpenCV 탐지 창 표시 |
-| `heartbeat_rate_hz` | `10.0` | Heartbeat 주기 |
-| `confidence_threshold` | `0.40` | YOLO 추론 임계값 |
-| `person_conf_threshold` | `0.55` | 조난자 알림 임계값 |
-| `only_person_detection` | `false` | COCO class 0(person)만 추론 (`host_ai_pipeline` 노드 단독 기본값은 `True`) |
-| `min_consecutive_detections` | `2` | 알림 발행에 필요한 연속 탐지 프레임 수 |
-| `cuda_device` | `0` | GPU 번호 |
-| `whisper_model_size` | `base` | Faster-Whisper 모델 크기 (tiny/base/small) |
-| `whisper_device` | `cuda` | Whisper 연산 디바이스 (`cuda` INT8 기본, cuBLAS/cuDNN 프리로드 후 실패 시 `cpu` 자동 폴백) |
-| `whisper_compute_type` | `int8` | Whisper 양자화 타입 (`int8`, `int8_float32`, `float32`) |
-| `use_rviz` | `false` | `disaster_station.rviz`로 RViz2 동시 실행 |
-
-> 참고: `host_ai_pipeline` 노드는 추가 내부 파라미터 `yolo_max_fps`(기본값 `15.0`)로 비전 추론 주기를 조절해 GPU/CPU 여유를 확보한다.
-
----
-
-## Gazebo 시뮬레이션
-
-실차 없이 Host PC에서 **Phase 3 2D 시맨틱 SLAM(`semantic_map_node` · YOLO26n · `slam_toolbox`/Cartographer `/map`)** 과 **3채널 Context-RL 자율 복귀(`recovery_controller`)**, 15대 시나리오 엄격 무충돌 벤치마크를 검증하기 위한 환경이다.
-
-### 1. 인터랙티브 시뮬레이션 실행 (`sim.py`)
-
-```bash
-python3 scripts/host/sim.py                # 기본값: 지진 붕괴 건물 재난 맵 (--collapsed)
-python3 scripts/host/sim.py --tunnel       # 지하 터널 재난 맵
-python3 scripts/host/sim.py --house        # 방·복도 구조의 house 맵
-python3 scripts/host/sim.py --maze         # 좁은 내부 격벽 미로 맵
-python3 scripts/host/sim.py --world world  # 기본 turtlebot3_world 맵 (empty 가능)
-python3 scripts/host/sim.py --yolo         # 가상 카메라(/camera/image_raw, rotation_angle:=0) + YOLO26n + semantic_map_node
-python3 scripts/host/sim.py --no-slam      # SLAM/RViz 없이 실행
-python3 scripts/host/sim.py --no-teleop    # 내장 텔레옵 비활성화
-python3 scripts/host/sim.py --software     # GPU 가속 대신 llvmpipe 소프트웨어 렌더링 강제
-python3 scripts/host/sim.py --headless     # gzclient 3D GUI 없이 물리 서버만 구동
-python3 scripts/host/sim.py --stop         # 시뮬레이션 프로세스 일괄 종료
-python3 scripts/host/start.py --sim        # start.py 경유 실행
-```
-
-| 키 | 동작 |
-| :-: | :--- |
-| `W` `A` `S` `D` | 전진 / 좌회전 / 후진 / 우회전 |
-| `Space` | 정지 |
-| `H` | Heartbeat 송신 중단 (통신 단절 재현 → 3초 후 Phase 3/2-B 자율 복귀 진입) |
-| `R` | Heartbeat 복구 |
-| `O` | 지나온 복귀 경로에 랜덤 붕괴 암석(`disaster_debris`) 3~6개 투하 / 일괄 제거 토글 |
-| `Q` | 종료 |
-
-### 2. 엄격 무충돌 150-Trial 벤치마크 및 Phase 3 시맨틱 검증 재현
-
-```bash
-# 15대 재난 시나리오 엄격 무충돌(Strict Collision-Free) 벤치마크 (기본값: 무충돌 판정 활성)
-python3 scripts/host/ab_disaster_benchmark.py --scenario collapsed --trials 10 \
-  --proposed-strategy proposed_rl \
-  --context-rl-onnx src/disaster_recovery/config/sim_policy_student_semantic_v3.onnx
-
-# Phase 3 시맨틱 구조·회피 10-Trial A/B & 3패널 E2E /map+YOLO+좌표 녹화
-python3 scripts/host/run_phase3_semantic_suite.py --mode check-yolo
-python3 scripts/host/run_phase3_semantic_suite.py --mode ab10 --trials 10
-python3 scripts/host/run_phase3_semantic_suite.py --mode record-e2e
-python3 scripts/host/run_phase3_semantic_suite.py --mode record-ab
-```
-
-> WSL2(WSLg) 환경에서 `scripts/host/sim.py`는 `MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA`를 설정해 Direct3D12 GPU 가속으로 `gzclient`와 `rviz2`를 구동하며(`--software`로 `llvmpipe` 강제 가능), Docker/Xvfb 헤드리스 녹화 시에는 `unset QT_QPA_PLATFORM_PLUGIN_PATH QT_PLUGIN_PATH` 및 `vglrun -d egl`로 Tesla V100 EGL 가속을 사용한다.
-
----
-
-## ROS 2 인터페이스
-
-| 토픽 | 타입 | 발행 → 구독 |
-| :--- | :--- | :--- |
-| `/heartbeat` | `std_msgs/Header` | host_ai_pipeline → recovery_controller (10 Hz) |
-| `/cmd_vel_remote` | `geometry_msgs/Twist` | teleop → recovery_controller |
-| `/cmd_vel` | `geometry_msgs/Twist` | recovery_controller, aruco_docking → turtlebot3_node |
-| `/odom` | `nav_msgs/Odometry` | turtlebot3_node → recovery_controller, blackbox |
-| `/scan` | `sensor_msgs/LaserScan` | LDS-01 → recovery_controller, blackbox |
-| `/gas/level` | `std_msgs/Float32` | gas_sensor_node → recovery_controller, blackbox (예열·기준 측정 후 발행) |
-| `/gas/voltage` | `std_msgs/Float32` | gas_sensor_node → (모니터링) MQ-2 출력 전압 |
-| `/gas/rs_ro` | `std_msgs/Float32` | gas_sensor_node → (모니터링) 데이터시트 ppm 곡선용 Rs/Ro |
-| `/gas/sensor_ok` | `std_msgs/Bool` | gas_sensor_node → (모니터링) I2C 읽기 실패 시 false |
-| `/camera/image_raw` | `sensor_msgs/Image` | v4l2_camera → aruco_docking, blackbox |
-| `/camera/image_raw/compressed` | `sensor_msgs/CompressedImage` | image_transport → host_ai_pipeline (BEST_EFFORT, depth 1) |
-| `/camera/camera_info` | `sensor_msgs/CameraInfo` | v4l2_camera → aruco_docking |
-| `/detection/image` | `sensor_msgs/Image` | host_ai_pipeline → RViz2 (바운딩 박스 + SURVIVOR 배너) |
-| `/audio/raw` | `std_msgs/UInt8MultiArray` | audio_capture_node → host_ai_pipeline (48 kHz S16_LE mono, 0.5 s/msg) |
-| `/aruco/debug_image` | `sensor_msgs/Image` | aruco_docking → (모니터링) |
-| `/aruco/dock_trigger` | `std_msgs/Bool` | recovery_controller → aruco_docking |
-| `/aruco/dock_complete` | `std_msgs/Bool` | aruco_docking → recovery_controller |
-| `/blackbox/trigger` | `std_msgs/Bool` | recovery_controller → blackbox_recorder |
-| `/recovery/status` | `std_msgs/String` | recovery_controller → (모니터링) |
-| `/disaster/victim_alert` | `std_msgs/String` | host_ai_pipeline → (관제) |
-| `/disaster/audio_alert` | `std_msgs/String` | host_ai_pipeline → (관제) |
-| `/detection/objects` | `std_msgs/String` | host_ai_pipeline → semantic_map_node (YOLO 감지 객체 JSON + stamp) |
-| `/semantic_map/markers` | `visualization_msgs/MarkerArray` | semantic_map_node → RViz2 (조난자·장애물·가스·음성 4종 영구 마커) |
-| `/semantic_map/cached_objects` | `std_msgs/String` | semantic_map_node → recovery_controller (RPi 4 온보드 캐시 동기화) |
-| `/semantic_map/save_map` | `std_srvs/srv/Trigger` | 관제/사용자 → semantic_map_node (raw_map, yaml, json, overlay 4종 아티팩트 저장 서비스) |
-
----
-
-## 주요 파라미터
-
-[`config/recovery_params.yaml`](src/disaster_recovery/config/recovery_params.yaml)
-
-| 파라미터 | 기본값 | 의미 |
-| :--- | :-: | :--- |
-| `heartbeat_timeout_sec` | 3.0 | 통신 단절 판정 시간 |
-| `gas_threshold` | 0.40 | 가스 위험 판정값 (`1 − Rs/Rs_air`, ppm 아님 · 현장 보정 필요) |
-| `gas_stale_timeout_sec` / `gas_stale_triggers_recovery` | 2.0 / false | `/gas/level` 끊김 경고 / 끊김 시 복귀 여부 |
-| `warmup_sec` / `baseline_samples` | 60 / 100 | MQ-2 예열 시간 / 기준 측정 샘플 수 |
-| `rs_air_kohm` | 0.0 | 0보다 크면 저장된 기준값 재사용 |
-| `log_dist_threshold_m` / `log_angle_threshold_deg` | 0.30 / 25.0 | 경유지 기록 간격 (거리 / 회전) |
-| `waypoint_reach_radius_m` / `heading_tolerance_rad` | 0.10 / 0.12 | 경유지 도달 판정 반경 / 정렬 허용 각도 |
-| `linear_speed_max` / `angular_speed_max` | 0.20 / 0.65 | 복귀 속도 상한 (m/s, rad/s) |
-| `kp_linear` / `kp_angular` | 0.60 / 1.40 | 직진 / 회전 비례 제어 게인 |
-| `lidar_min_range_m` / `lidar_max_danger_range_m` | 0.12 / 0.25 | 정지 거리 구간 |
-| `lidar_fov_half_deg` | 20.0 | 전방 감시 반각 |
-| `docking_start_distance_m` | 0.50 | ArUco 도킹 전환 거리 |
-| `enable_scan_matching` | true | 2D ICP 스캔 매칭 보정 활성화 |
-| `scan_match_weight` | 0.40 | 상보필터 가중치 (0 = 오도메트리만, 1 = 라이다만) |
-| `scan_match_max_dist_m` | 0.45 | ICP 매칭 발동 반경 |
-| `enable_hybrid_tracking` / `lookahead_dist_m` | true / 0.45 | Regulated Pure Pursuit 연속 추종 / 전방 주시 거리 |
-| `enable_td3_avoidance` / `td3_clearance_dist_m` | true / 0.42 | Residual TD3 국소 우회 / 장애물 회피 반경 |
-| `td3_max_avoid_steps` | 250 | TD3 우회 최대 스텝 수 (10 Hz 기준 25초) |
-| `use_semantic_rl_policy` | false | `true` 시 Phase 3 3채널 시맨틱 RL 정책 활성화 (`false` = Phase 2-B 1채널 기본) |
-| `semantic_rl_onnx_path` | `""` | 비어 있으면 시뮬 `sim_policy_student_semantic_v3.onnx` / 실차 `real_tb3_policy_student_semantic_v3.onnx` 자동 탐색 |
-| `use_aruco_docking` | false | `true` 시 ArUco 도킹 전환 (`sim.py --yolo`는 `true` 오버라이드) |
-| `aruco_docking_timeout_sec` | 12.0 | 제어기 측 도킹 2차 백업 타임아웃 |
-| `search_timeout_sec` (aruco_docking) | 10.0 | 마커 미감지 시 미션 완료 처리까지의 시간 |
-| `marker_size_m` / `target_dock_dist_m` | 0.10 / 0.20 | 마커 크기 / 마커 앞 정지 거리 |
-| `camera_rotation_deg` (aruco_docking) | 270 | 카메라 장착 회전 보정 |
-| `alsa_device` / `sample_rate` (audio_capture_node) | `plughw:1,0` / 48000 | USB 마이크 장치 / 샘플레이트 |
-| `chunk_duration_sec` (audio_capture_node) | 0.5 | `/audio/raw` 메시지 1개 길이 |
-
-Host AI 파라미터 (`host_ai_pipeline` 코드 기본값): `yolo_max_fps=15.0`, `whisper_device='cuda'`, `whisper_compute_type='int8'`, `audio_sample_rate=48000`, `sample_rate_hz=16000`, `audio_buffer_sec=2.0`(50% 중첩), `voice_activity_threshold=0.012`(RMS).  
-시맨틱 매핑 파라미터 상세(`cluster_radius_m=0.45`, `ch1_obstacle_radius_m=0.22`, `ch2_hazard_radius_m=0.55` 등): [`config/semantic_map_params.yaml`](src/disaster_recovery/config/semantic_map_params.yaml) · 실차 보수적 프로파일: [`config/recovery_params_real.yaml`](src/disaster_recovery/config/recovery_params_real.yaml).
-
----
-
-## 필드 테스트
-
-전체 체크리스트: [`docs/FIELD_TEST_CHECKLIST.md`](docs/FIELD_TEST_CHECKLIST.md)
-
-- [ ] 텔레옵 주행 중 `[ODOM LOGGER] Recorded Waypoint` 로그가 0.3 m / 25° 간격으로 출력되는가
-- [ ] Host PC의 `host_station.launch.py`를 `Ctrl+C`로 종료하면 약 3초 후 정지하는가
-- [ ] 정지 이후 텔레옵 키 입력이 무시되는가
-- [ ] `~/blackbox_logs/session_*/`에 mp4·csv가 생성되는가
-- [ ] 제자리 회전 → 직진으로 경유지를 역순 추종하는가
-- [ ] 복귀 중 `[LIDAR SCAN MATCH]` 로그가 출력되는가
-- [ ] 복귀 중 전방 약 15 cm에 장애물을 두면 정지하고, 치우면 재개하는가
-- [ ] 원점 0.5 m 이내에서 ArUco 도킹으로 전환되고 최종 위치가 출발점 15 cm 이내인가
-- [ ] 라이터 가스(점화 금지)를 MQ-2에 근접시켰을 때 동일한 복귀 시퀀스가 시작되는가
-- [x] Host 탐지 창/`/detection/image`가 정방향(270° 보정)으로 표시되고 사람 앞에서 `SURVIVOR LOCATED` 배너가 뜨는가
-- [ ] 마이크 앞에서 "살려주세요"라고 말하면 `/disaster/audio_alert`가 발행되는가
-
----
-
-## 알려진 한계
-
-본 저장소는 실차 검증 및 고도화가 진행 중인 프로토타입이다.
-
-**현재 남아 있는 한계 및 진행 중인 서버 작업**
-
-1. **도킹 기하 가정**: 마커가 출발 위치 정면 벽에 있다고 가정한다. 출발 자세와 마커의 상대 위치는 현장에서 실측해 `target_dock_dist_m`을 조정해야 한다.
-2. **가스 센서 미결선**: 회로 설계와 드라이버는 완료되었으나 실물 결선 전이므로 `gas_stale_triggers_recovery: false`로 둔다.
-3. **블랙박스 Wi-Fi 스트리밍 차단 미구현**: 현재는 로컬 기록만 시작한다.
-4. **통신 단절 중 신규 조난자 비전 탐지 불가 (YOLO Host 의존성)**: `host_ai_pipeline`(YOLO26n)은 Host PC에서 실행되므로, 통신 단절 이후(Return 단계) 시야에 새로 등장한 조난자를 실시간 탐지할 수 없다. 단절 직전까지 `/semantic_map/cached_objects`로 백업된 조난자·저상 장애물 좌표 유지 및 온보드 MQ-2(`/gas/level`) 실시간 가스 감지만 수행하며, 완전 단절 심부 탐지 확장을 위해서는 RPi 4 온보드 경량 비전 가속기(예: NPU/Hailo) 탑재가 필요하다.
-5. **실물 TurtleBot3 Burger Track B 필드 실증 예정**: V100 Phase 2-B(`150회 엄격 69.3% / 도착 97.3%`) 및 Phase 3 Option 2(`150회 엄격 79.3% / 도착 95.3%`, 10-Trial 시맨틱 A/B 엄격 무위험 `80.0%`) 검증을 완료했으며, 실물 RPi 4 온보드 환경에서의 Track B(`real_tb3_policy_student_semantic_v3.onnx`, `414.7 KB`, x86 CPU `0.130 ms`) 추론 지연 실측 및 현장 주행은 실물 결합 시험에서 수행 예정이다.
-6. **Phase 3 `real_tb3` 트랙 슬립-가스 회피 트레이드오프**: `sim` 트랙은 Holdout `gas_victim_corridor 93.3%`(`gas_hazard_free_rate 60.0%`) 및 Gazebo `ab10` 저상 충돌 `0회` / 가스 침범 `1/10`을 달성했으나, 강한 슬립이 부여된 `real_tb3` 트랙은 타임아웃 방지를 위한 전진 돌파를 우선함에 따라 Holdout `gas_hazard_free_rate`가 `26.7%`(`gas_victim_corridor` 도착률 `100.0%`)로 후속 다목적 체크포인트 선정(`unseen_sr + gas_hazard_free_rate`) 고도화 여지가 남아 있다.
-
-**해결된 이슈**
-
-| 이슈 | 해결 방법 |
-| :--- | :--- |
-| Phase 3 초기 3-Ch 미세조정(`v3`)의 비시맨틱 환경(`Ch1=0, Ch2=0`) 엄격 무충돌 퇴행 (`69.3% → 58.0%`) | **Option 1(Hard Channel Gating)** 의 경계 스위칭 불연속 한계를 분석·기각하고, **Option 2(Frozen Phase 2-B Backbone + Zero-Gated Residual Semantic Adapter)** 를 채택·재학습해 `Ch1=0, Ch2=0`에서 `max_abs_diff = 0.0` 수학적 일치 및 **150회 엄격 무충돌 `119/150 (79.3%)` (`+21.3%p` 회복, Phase 2-B 대비 `+10.0%p`)** 달성 |
-| Phase 2 고정 블렌딩(`0.70·RL`)의 `house` 협소 문틀 진동·지체 | 섹터 여유 거리·협소 패스 여부 기반 **Clearance-Gated Blending** 및 `ESCAPE` 중 시계열 버퍼 유지로 재학습 없이 **`48/50 (96.0%)`**, `house` `8/10 → 9/10` |
-| Phase 1 `house` `~0.28m` 틈새 과차단 & Phase 2 RL 수렴 정체·앙상블 상쇄 | `_virtual_obstacles` `±0.03m`/9s 튜닝으로 **5대 환경 `49/50 (98.0%)`** 달성; Phase 2 V100 **`ret_norm=25` + `nav_dist` + 선택적 DAgger 증류**로 `sim`/`real_tb3` ONNX 추출 및 **공식 Gazebo S2S `47/50 (94.0%)`** 검증 완료 (`#30~#36`) |
-| 붕괴 건물 교착 및 다회차 `corr_y` 오프셋 누적 | `/recovery/reset_episode`로 에피소드 상태 초기화 및 `RollingLocalGrid(0.04m) + 2D A* + 위상 지름길 + ESCAPE` 도입 |
-| 저상 장애물·벽 너머 단축 및 전방 밀착 정지 | 진입(`NORMAL_TELEOP`) 선행 관측, 실내 벽 너머 단축 차단, 전방 unpin 및 `_virtual_obstacles` 가상 접촉 장벽 추가 |
-| 병렬 벤치마크 포트 충돌 및 `/home/lab` 경로 하드코딩 | `--gz-port` / `--ros-domain-id` 워커별 격리 및 7개 파일 동적 경로 탐색 전환 |
-| 복귀로 상 신규 낙하 잔해 앞 영구 대기 | 초경량 TD3 연속 제어 국소 우회(Layer 2) 및 2D ICP 슬립 소거(Layer 3)를 연동한 4계층 하이브리드 아키텍처 구현 및 회피 복귀 검증 완료 |
-| OpenCR 펌웨어 충돌 | MQ-2를 ADS1115(I2C)로 RPi 4에 직결, OpenCR은 순정 펌웨어 유지 |
-| `audio_capture_node` 스텁 | `arecord` 기반 48 kHz PCM 스트리밍 및 Host 측 VAD + Whisper 연동 구현 |
-| 바퀴 슬립 누적 오차 | 2D ICP 스캔 매칭 구현. 이후 초기 추정값 부호 오류와 `/odom` 수신 시 보정값이 덮어써지는 문제를 수정하고 지속형 SE(2) 오프셋 방식으로 변경 |
-| ArUco 마커 부재 시 무한 회전 | 10초 타임아웃 세이프티 가드 추가 |
-| 다중 터미널 수동 실행 | `start.py` / `stop.py` 원터치 실행·종료 |
-| WSL2 Gazebo 렌더링 및 호환성 | `sim.py` 기본 모드를 WSLg `MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA` 하드웨어 GPU 가속으로 전환하고, 드라이버 호환 문제 시 `--software`(`llvmpipe`) 폴백 지원 |
-| Faster-Whisper CPU 전용 실행 지연 | `_preload_nvidia_cuda_libs()`로 pip cuBLAS/cuDNN 프리로드 후 CUDA INT8 GPU 가속 적용 (미가용 시 CPU 자동 폴백) |
-| RViz2 터틀봇3 3D 모델 미표시 & YOLO CPU 병목 | `disaster_cartographer.rviz`(`RobotModel` + `/robot_description`) 분리 적용 및 `yolo_max_fps=15.0` 추론 상한 도입 |
-| Gazebo 런치 월드 경로 하드코딩 | `disaster_world.launch.py` 신규 제작을 통해 다중 월드 및 초기 위치 인자 동적 바인딩 |
-| 대형 복합 메쉬 월드 엔티티 스폰 실패 | 19개 메쉬 로딩 지연 대응 `spawn_entity.py -timeout 120.0` 플래그 적용 |
-| 근거리 웨이포인트 제자리 회전 발산 | $d \le 0.08\,\text{m}$ 도달 시 즉시 pop 및 불감대 예외 처리로 $\text{atan2}$ 특이점 진동 해소 |
-| 타임아웃 발생 후 제어기 상태 데드락 | Heartbeat 1.2초 이상 연속 정상 수신 시 `NORMAL_TELEOP`으로 완전 복구하는 글로벌 리셋 워치독 구현 |
-| 터널 노면 휠슬립 외부 측정 왜곡 | `/recovery/status`에 ICP 보정 좌표계(`POSE:x,y,th`) 실시간 브로드캐스팅 동기화 |
-| RViz2 SLAM 점유 격자 지도 미동기화 (검은 화면) | Cartographer `occupancy_grid_node`의 `/map` 토픽이 `Durability: Volatile`인데 반해, RViz2 설정이 `Transient Local`로 지정되어 발생한 ROS 2 DDS QoS 정책 충돌을 진단하고, `disaster_station.rviz` 및 RViz 설정을 `Volatile`로 동기화하여 실시간 맵 렌더링 정상화 |
-| 터널 +Y 축 주행 시 횡방향 조향 부호 역전 (우측 벽 쏠림) | Gazebo 터널 좌표계에서 로봇이 +Y(헤딩 $\pi/2$) 방향으로 전진할 때 $-X$가 좌측, $+X$가 우측임에 따라 단순 횡오차($e_x$) 적용 시 조향이 역전되던 문제를 헤딩 기반 스탠리 조향($\theta_{\text{target}} = 1.57 + 0.45(x - x_{\text{target}})$)으로 전환하여 중앙 차선($x=-0.75$) 정밀 추종 달성 |
-| Gazebo 시뮬레이션 중 동적 낙석(Debris) 런타임 투하/삭제 | 물리 월드 재기동 없이 통신 단절 시점마다 `gazebo_ros spawn_entity.py` 및 `/delete_entity` 서비스 호출을 결합하고, 로컬호스트 도메인 환경변수를 주입하여 실시간 낙석 투하 및 라이다 회피 연동 검증 |
-| ROS 2 백그라운드 데몬 XML-RPC 소켓 타임아웃 (`Errno 110`) | 반복된 CLI 호출로 백그라운드 데몬 응답 지연 발생 시 `pkill -9 -f "ros2.*daemon"` 자동 플러시 및 `--no-daemon` 플래그/직접 rclpy 노드 통신을 적용하여 무중단 연속 벤치마크 안정화 |
-| 국소 회피 제어기(TD3) 스텝 버짓 초과 후 무한 정지 데드락 | 복합 낙석 구간에서 회피 스텝 한도 초과 시 `OBSTACLE_HOLD`로 멈추던 구조를 보완하여, `td3_max_avoid_steps`를 250스텝(25초)으로 확장하고 스텝 만료 시 2D ICP 보정 후 다음 웨이포인트로 자동 전진(Pop)하여 복귀 지속 처리 |
-
----
-
-## 선행 특허(Prior Art) 및 지식재산권(IP) 분석
+## 18. 선행 특허 및 IP 분석
 
 본 프로젝트의 신규성(Novelty)·진보성(Inventive Step)을 확인하고 향후 출원 및 침해 회피(FTO) 설계를 위해, 대한민국 특허청(KIPRIS)과 미국 특허청(USPTO)의 핵심 선행 특허 **13개 패밀리(14개 문헌)** 를 분석하였다. (`#02` 등록공보와 `#07` 공개공보는 동일 패밀리이다.)
 
@@ -901,7 +940,7 @@ Host AI 파라미터 (`host_ai_pipeline` 코드 기본값): `yolo_max_fps=15.0`,
 
 ---
 
-## 참고 문헌
+## 19. 참고 문헌
 
 ### 로봇 제어 · 위치 추정 · 경로 계획
 
