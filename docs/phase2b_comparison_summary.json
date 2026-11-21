@@ -807,5 +807,1350 @@
       "succ_mean_t": 102.58,
       "succ_mean_len": 13.93
     }
+  },
+  "_audit_note": "최신 무결성 검증(리셋 실패·음수 시간·25cm 초과 성공·return_path 점프 0건) 원본 JSON(benchmark_results/phase2b_strict_clean, phase3_option2_clean 및 기존 phase3_semantic_v3) 엄격 무충돌 집계는 'strict_benchmarks_from_raw_json' 키에 수록함. 기존 'per_scenario'/'overall'의 149/150(99.33%), 80/150(53.33%) 수치는 과거 Legacy(충돌 허용) 기록, 원본 JSON 미보관 상태임.",
+  "strict_benchmarks_from_raw_json": {
+    "per_scenario": {
+      "collapsed": {
+        "baseline_strict": {
+          "strict_pass": 1,
+          "arrival_pass": 1,
+          "total": 10,
+          "strict_sr_pct": 10.0
+        },
+        "phase2b_strict": {
+          "strict_pass": 5,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 50.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 113.77,
+          "mean_time_s_pass": 91.0,
+          "mean_error_cm_pass": 12.86,
+          "fails_strict": [
+            2,
+            3,
+            5,
+            6,
+            10
+          ]
+        },
+        "phase3_semantic_v3": {
+          "strict_pass": 7,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 70.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 104.22,
+          "mean_time_s_pass": 95.09,
+          "mean_error_cm_pass": 8.3,
+          "fails_strict": [
+            4,
+            7,
+            8
+          ]
+        },
+        "phase3_option2": {
+          "strict_pass": 5,
+          "arrival_pass": 9,
+          "total": 10,
+          "strict_sr_pct": 50.0,
+          "arrival_sr_pct": 90.0,
+          "mean_time_s_all": 135.32,
+          "mean_time_s_pass": 91.5,
+          "mean_error_cm_pass": 13.38,
+          "fails_strict": [
+            2,
+            5,
+            8,
+            9,
+            10
+          ]
+        },
+        "phase2b_strict_clean": {
+          "strict_pass": 5,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 50.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 113.77,
+          "mean_time_s_pass": 91.0,
+          "mean_error_cm_pass": 12.86,
+          "fails_strict": [
+            2,
+            3,
+            5,
+            6,
+            10
+          ]
+        },
+        "phase3_option2_clean": {
+          "strict_pass": 5,
+          "arrival_pass": 9,
+          "total": 10,
+          "strict_sr_pct": 50.0,
+          "arrival_sr_pct": 90.0,
+          "mean_time_s_all": 135.32,
+          "mean_time_s_pass": 91.5,
+          "mean_error_cm_pass": 13.38,
+          "fails_strict": [
+            2,
+            5,
+            8,
+            9,
+            10
+          ]
+        }
+      },
+      "collapsed_heavy": {
+        "baseline_strict": {
+          "strict_pass": 0,
+          "arrival_pass": 0,
+          "total": 10,
+          "strict_sr_pct": 0.0
+        },
+        "phase2b_strict": {
+          "strict_pass": 8,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 80.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 107.84,
+          "mean_time_s_pass": 99.79,
+          "mean_error_cm_pass": 11.23,
+          "fails_strict": [
+            2,
+            9
+          ]
+        },
+        "phase3_semantic_v3": {
+          "strict_pass": 7,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 70.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 112.43,
+          "mean_time_s_pass": 114.83,
+          "mean_error_cm_pass": 8.42,
+          "fails_strict": [
+            2,
+            4,
+            10
+          ]
+        },
+        "phase3_option2": {
+          "strict_pass": 9,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 90.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 86.96,
+          "mean_time_s_pass": 92.7,
+          "mean_error_cm_pass": 12.51,
+          "fails_strict": [
+            2
+          ]
+        },
+        "phase2b_strict_clean": {
+          "strict_pass": 8,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 80.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 107.84,
+          "mean_time_s_pass": 99.79,
+          "mean_error_cm_pass": 11.23,
+          "fails_strict": [
+            2,
+            9
+          ]
+        },
+        "phase3_option2_clean": {
+          "strict_pass": 9,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 90.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 86.96,
+          "mean_time_s_pass": 92.7,
+          "mean_error_cm_pass": 12.51,
+          "fails_strict": [
+            2
+          ]
+        }
+      },
+      "tunnel": {
+        "baseline_strict": {
+          "strict_pass": 1,
+          "arrival_pass": 1,
+          "total": 10,
+          "strict_sr_pct": 10.0
+        },
+        "phase2b_strict": {
+          "strict_pass": 9,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 90.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 90.66,
+          "mean_time_s_pass": 80.66,
+          "mean_error_cm_pass": 8.17,
+          "fails_strict": [
+            10
+          ]
+        },
+        "phase3_semantic_v3": {
+          "strict_pass": 10,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 100.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 83.75,
+          "mean_time_s_pass": 83.75,
+          "mean_error_cm_pass": 8.25,
+          "fails_strict": []
+        },
+        "phase3_option2": {
+          "strict_pass": 8,
+          "arrival_pass": 8,
+          "total": 10,
+          "strict_sr_pct": 80.0,
+          "arrival_sr_pct": 80.0,
+          "mean_time_s_all": 109.38,
+          "mean_time_s_pass": 81.72,
+          "mean_error_cm_pass": 8.26,
+          "fails_strict": [
+            9,
+            10
+          ]
+        },
+        "phase2b_strict_clean": {
+          "strict_pass": 9,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 90.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 90.66,
+          "mean_time_s_pass": 80.66,
+          "mean_error_cm_pass": 8.17,
+          "fails_strict": [
+            10
+          ]
+        },
+        "phase3_option2_clean": {
+          "strict_pass": 8,
+          "arrival_pass": 8,
+          "total": 10,
+          "strict_sr_pct": 80.0,
+          "arrival_sr_pct": 80.0,
+          "mean_time_s_all": 109.38,
+          "mean_time_s_pass": 81.72,
+          "mean_error_cm_pass": 8.26,
+          "fails_strict": [
+            9,
+            10
+          ]
+        }
+      },
+      "house": {
+        "baseline_strict": {
+          "strict_pass": 0,
+          "arrival_pass": 0,
+          "total": 10,
+          "strict_sr_pct": 0.0
+        },
+        "phase2b_strict": {
+          "strict_pass": 6,
+          "arrival_pass": 9,
+          "total": 10,
+          "strict_sr_pct": 60.0,
+          "arrival_sr_pct": 90.0,
+          "mean_time_s_all": 115.14,
+          "mean_time_s_pass": 103.63,
+          "mean_error_cm_pass": 8.56,
+          "fails_strict": [
+            1,
+            2,
+            3,
+            7
+          ]
+        },
+        "phase3_semantic_v3": {
+          "strict_pass": 1,
+          "arrival_pass": 8,
+          "total": 10,
+          "strict_sr_pct": 10.0,
+          "arrival_sr_pct": 80.0,
+          "mean_time_s_all": 174.84,
+          "mean_time_s_pass": 89.9,
+          "mean_error_cm_pass": 8.3,
+          "fails_strict": [
+            1,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ]
+        },
+        "phase3_option2": {
+          "strict_pass": 5,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 50.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 113.55,
+          "mean_time_s_pass": 100.86,
+          "mean_error_cm_pass": 8.68,
+          "fails_strict": [
+            1,
+            2,
+            3,
+            7,
+            10
+          ]
+        },
+        "phase2b_strict_clean": {
+          "strict_pass": 6,
+          "arrival_pass": 9,
+          "total": 10,
+          "strict_sr_pct": 60.0,
+          "arrival_sr_pct": 90.0,
+          "mean_time_s_all": 115.14,
+          "mean_time_s_pass": 103.63,
+          "mean_error_cm_pass": 8.56,
+          "fails_strict": [
+            1,
+            2,
+            3,
+            7
+          ]
+        },
+        "phase3_option2_clean": {
+          "strict_pass": 5,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 50.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 113.55,
+          "mean_time_s_pass": 100.86,
+          "mean_error_cm_pass": 8.68,
+          "fails_strict": [
+            1,
+            2,
+            3,
+            7,
+            10
+          ]
+        }
+      },
+      "maze": {
+        "baseline_strict": {
+          "strict_pass": 0,
+          "arrival_pass": 0,
+          "total": 10,
+          "strict_sr_pct": 0.0
+        },
+        "phase2b_strict": {
+          "strict_pass": 10,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 100.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 22.97,
+          "mean_time_s_pass": 22.97,
+          "mean_error_cm_pass": 8.1,
+          "fails_strict": []
+        },
+        "phase3_semantic_v3": {
+          "strict_pass": 8,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 80.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 24.36,
+          "mean_time_s_pass": 25.49,
+          "mean_error_cm_pass": 8.21,
+          "fails_strict": [
+            3,
+            5
+          ]
+        },
+        "phase3_option2": {
+          "strict_pass": 10,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 100.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 22.71,
+          "mean_time_s_pass": 22.71,
+          "mean_error_cm_pass": 8.05,
+          "fails_strict": []
+        },
+        "phase2b_strict_clean": {
+          "strict_pass": 10,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 100.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 22.97,
+          "mean_time_s_pass": 22.97,
+          "mean_error_cm_pass": 8.1,
+          "fails_strict": []
+        },
+        "phase3_option2_clean": {
+          "strict_pass": 10,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 100.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 22.71,
+          "mean_time_s_pass": 22.71,
+          "mean_error_cm_pass": 8.05,
+          "fails_strict": []
+        }
+      },
+      "collapsed_hard": {
+        "baseline_strict": {
+          "strict_pass": 0,
+          "arrival_pass": 0,
+          "total": 10,
+          "strict_sr_pct": 0.0
+        },
+        "phase2b_strict": {
+          "strict_pass": 5,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 50.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 116.43,
+          "mean_time_s_pass": 107.32,
+          "mean_error_cm_pass": 11.05,
+          "fails_strict": [
+            1,
+            2,
+            3,
+            7,
+            9
+          ]
+        },
+        "phase3_semantic_v3": {
+          "strict_pass": 7,
+          "arrival_pass": 9,
+          "total": 10,
+          "strict_sr_pct": 70.0,
+          "arrival_sr_pct": 90.0,
+          "mean_time_s_all": 135.61,
+          "mean_time_s_pass": 117.83,
+          "mean_error_cm_pass": 8.49,
+          "fails_strict": [
+            4,
+            6,
+            10
+          ]
+        },
+        "phase3_option2": {
+          "strict_pass": 5,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 50.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 105.36,
+          "mean_time_s_pass": 94.54,
+          "mean_error_cm_pass": 10.34,
+          "fails_strict": [
+            1,
+            3,
+            4,
+            7,
+            9
+          ]
+        },
+        "phase2b_strict_clean": {
+          "strict_pass": 5,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 50.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 116.43,
+          "mean_time_s_pass": 107.32,
+          "mean_error_cm_pass": 11.05,
+          "fails_strict": [
+            1,
+            2,
+            3,
+            7,
+            9
+          ]
+        },
+        "phase3_option2_clean": {
+          "strict_pass": 5,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 50.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 105.36,
+          "mean_time_s_pass": 94.54,
+          "mean_error_cm_pass": 10.34,
+          "fails_strict": [
+            1,
+            3,
+            4,
+            7,
+            9
+          ]
+        }
+      },
+      "collapsed_heavy_hard": {
+        "baseline_strict": {
+          "strict_pass": 1,
+          "arrival_pass": 1,
+          "total": 10,
+          "strict_sr_pct": 10.0
+        },
+        "phase2b_strict": {
+          "strict_pass": 3,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 30.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 146.71,
+          "mean_time_s_pass": 108.67,
+          "mean_error_cm_pass": 14.07,
+          "fails_strict": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7
+          ]
+        },
+        "phase3_semantic_v3": {
+          "strict_pass": 5,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 50.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 151.3,
+          "mean_time_s_pass": 132.28,
+          "mean_error_cm_pass": 8.44,
+          "fails_strict": [
+            1,
+            2,
+            4,
+            7,
+            8
+          ]
+        },
+        "phase3_option2": {
+          "strict_pass": 3,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 30.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 146.96,
+          "mean_time_s_pass": 131.03,
+          "mean_error_cm_pass": 11.96,
+          "fails_strict": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            9,
+            10
+          ]
+        },
+        "phase2b_strict_clean": {
+          "strict_pass": 3,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 30.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 146.71,
+          "mean_time_s_pass": 108.67,
+          "mean_error_cm_pass": 14.07,
+          "fails_strict": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7
+          ]
+        },
+        "phase3_option2_clean": {
+          "strict_pass": 3,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 30.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 146.96,
+          "mean_time_s_pass": 131.03,
+          "mean_error_cm_pass": 11.96,
+          "fails_strict": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            9,
+            10
+          ]
+        }
+      },
+      "tunnel_hard": {
+        "baseline_strict": {
+          "strict_pass": 0,
+          "arrival_pass": 0,
+          "total": 10,
+          "strict_sr_pct": 0.0
+        },
+        "phase2b_strict": {
+          "strict_pass": 10,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 100.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 108.07,
+          "mean_time_s_pass": 108.07,
+          "mean_error_cm_pass": 8.3,
+          "fails_strict": []
+        },
+        "phase3_semantic_v3": {
+          "strict_pass": 9,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 90.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 114.14,
+          "mean_time_s_pass": 108.58,
+          "mean_error_cm_pass": 8.17,
+          "fails_strict": [
+            5
+          ]
+        },
+        "phase3_option2": {
+          "strict_pass": 10,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 100.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 110.54,
+          "mean_time_s_pass": 110.54,
+          "mean_error_cm_pass": 8.25,
+          "fails_strict": []
+        },
+        "phase2b_strict_clean": {
+          "strict_pass": 10,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 100.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 108.07,
+          "mean_time_s_pass": 108.07,
+          "mean_error_cm_pass": 8.3,
+          "fails_strict": []
+        },
+        "phase3_option2_clean": {
+          "strict_pass": 10,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 100.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 110.54,
+          "mean_time_s_pass": 110.54,
+          "mean_error_cm_pass": 8.25,
+          "fails_strict": []
+        }
+      },
+      "house_hard": {
+        "baseline_strict": {
+          "strict_pass": 0,
+          "arrival_pass": 0,
+          "total": 10,
+          "strict_sr_pct": 0.0
+        },
+        "phase2b_strict": {
+          "strict_pass": 6,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 60.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 96.14,
+          "mean_time_s_pass": 94.52,
+          "mean_error_cm_pass": 8.63,
+          "fails_strict": [
+            5,
+            6,
+            7,
+            9
+          ]
+        },
+        "phase3_semantic_v3": {
+          "strict_pass": 2,
+          "arrival_pass": 7,
+          "total": 10,
+          "strict_sr_pct": 20.0,
+          "arrival_sr_pct": 70.0,
+          "mean_time_s_all": 118.27,
+          "mean_time_s_pass": 113.0,
+          "mean_error_cm_pass": 8.48,
+          "fails_strict": [
+            2,
+            3,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ]
+        },
+        "phase3_option2": {
+          "strict_pass": 5,
+          "arrival_pass": 9,
+          "total": 10,
+          "strict_sr_pct": 50.0,
+          "arrival_sr_pct": 90.0,
+          "mean_time_s_all": 141.56,
+          "mean_time_s_pass": 111.32,
+          "mean_error_cm_pass": 8.67,
+          "fails_strict": [
+            2,
+            3,
+            5,
+            6,
+            7
+          ]
+        },
+        "phase2b_strict_clean": {
+          "strict_pass": 6,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 60.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 96.14,
+          "mean_time_s_pass": 94.52,
+          "mean_error_cm_pass": 8.63,
+          "fails_strict": [
+            5,
+            6,
+            7,
+            9
+          ]
+        },
+        "phase3_option2_clean": {
+          "strict_pass": 5,
+          "arrival_pass": 9,
+          "total": 10,
+          "strict_sr_pct": 50.0,
+          "arrival_sr_pct": 90.0,
+          "mean_time_s_all": 141.56,
+          "mean_time_s_pass": 111.32,
+          "mean_error_cm_pass": 8.67,
+          "fails_strict": [
+            2,
+            3,
+            5,
+            6,
+            7
+          ]
+        }
+      },
+      "maze_hard": {
+        "baseline_strict": {
+          "strict_pass": 0,
+          "arrival_pass": 0,
+          "total": 10,
+          "strict_sr_pct": 0.0
+        },
+        "phase2b_strict": {
+          "strict_pass": 10,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 100.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 19.57,
+          "mean_time_s_pass": 19.57,
+          "mean_error_cm_pass": 8.32,
+          "fails_strict": []
+        },
+        "phase3_semantic_v3": {
+          "strict_pass": 4,
+          "arrival_pass": 9,
+          "total": 10,
+          "strict_sr_pct": 40.0,
+          "arrival_sr_pct": 90.0,
+          "mean_time_s_all": 63.14,
+          "mean_time_s_pass": 24.9,
+          "mean_error_cm_pass": 4.6,
+          "fails_strict": [
+            2,
+            5,
+            6,
+            7,
+            9,
+            10
+          ]
+        },
+        "phase3_option2": {
+          "strict_pass": 10,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 100.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 22.6,
+          "mean_time_s_pass": 22.6,
+          "mean_error_cm_pass": 8.13,
+          "fails_strict": []
+        },
+        "phase2b_strict_clean": {
+          "strict_pass": 10,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 100.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 19.57,
+          "mean_time_s_pass": 19.57,
+          "mean_error_cm_pass": 8.32,
+          "fails_strict": []
+        },
+        "phase3_option2_clean": {
+          "strict_pass": 10,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 100.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 22.6,
+          "mean_time_s_pass": 22.6,
+          "mean_error_cm_pass": 8.13,
+          "fails_strict": []
+        }
+      },
+      "u_pocket_trap": {
+        "baseline_strict": {
+          "strict_pass": 0,
+          "arrival_pass": 0,
+          "total": 10,
+          "strict_sr_pct": 0.0
+        },
+        "phase2b_strict": {
+          "strict_pass": 10,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 100.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 89.89,
+          "mean_time_s_pass": 89.89,
+          "mean_error_cm_pass": 8.06,
+          "fails_strict": []
+        },
+        "phase3_semantic_v3": {
+          "strict_pass": 10,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 100.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 91.59,
+          "mean_time_s_pass": 91.59,
+          "mean_error_cm_pass": 8.0,
+          "fails_strict": []
+        },
+        "phase3_option2": {
+          "strict_pass": 9,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 90.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 89.3,
+          "mean_time_s_pass": 90.01,
+          "mean_error_cm_pass": 8.11,
+          "fails_strict": [
+            5
+          ]
+        },
+        "phase2b_strict_clean": {
+          "strict_pass": 10,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 100.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 89.89,
+          "mean_time_s_pass": 89.89,
+          "mean_error_cm_pass": 8.06,
+          "fails_strict": []
+        },
+        "phase3_option2_clean": {
+          "strict_pass": 9,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 90.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 89.3,
+          "mean_time_s_pass": 90.01,
+          "mean_error_cm_pass": 8.11,
+          "fails_strict": [
+            5
+          ]
+        }
+      },
+      "slip_chicane": {
+        "baseline_strict": {
+          "strict_pass": 0,
+          "arrival_pass": 0,
+          "total": 10,
+          "strict_sr_pct": 0.0
+        },
+        "phase2b_strict": {
+          "strict_pass": 4,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 40.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 119.57,
+          "mean_time_s_pass": 98.9,
+          "mean_error_cm_pass": 8.08,
+          "fails_strict": [
+            1,
+            2,
+            3,
+            5,
+            8,
+            9
+          ]
+        },
+        "phase3_semantic_v3": {
+          "strict_pass": 3,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 30.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 153.09,
+          "mean_time_s_pass": 135.03,
+          "mean_error_cm_pass": 8.53,
+          "fails_strict": [
+            1,
+            2,
+            3,
+            5,
+            7,
+            8,
+            10
+          ]
+        },
+        "phase3_option2": {
+          "strict_pass": 5,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 50.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 116.25,
+          "mean_time_s_pass": 109.08,
+          "mean_error_cm_pass": 7.75,
+          "fails_strict": [
+            3,
+            5,
+            6,
+            9,
+            10
+          ]
+        },
+        "phase2b_strict_clean": {
+          "strict_pass": 4,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 40.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 119.57,
+          "mean_time_s_pass": 98.9,
+          "mean_error_cm_pass": 8.08,
+          "fails_strict": [
+            1,
+            2,
+            3,
+            5,
+            8,
+            9
+          ]
+        },
+        "phase3_option2_clean": {
+          "strict_pass": 5,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 50.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 116.25,
+          "mean_time_s_pass": 109.08,
+          "mean_error_cm_pass": 7.75,
+          "fails_strict": [
+            3,
+            5,
+            6,
+            9,
+            10
+          ]
+        }
+      },
+      "dynamic_gauntlet": {
+        "baseline_strict": {
+          "strict_pass": 0,
+          "arrival_pass": 0,
+          "total": 10,
+          "strict_sr_pct": 0.0
+        },
+        "phase2b_strict": {
+          "strict_pass": 2,
+          "arrival_pass": 6,
+          "total": 10,
+          "strict_sr_pct": 20.0,
+          "arrival_sr_pct": 60.0,
+          "mean_time_s_all": 217.54,
+          "mean_time_s_pass": 106.35,
+          "mean_error_cm_pass": 8.28,
+          "fails_strict": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            9,
+            10
+          ]
+        },
+        "phase3_semantic_v3": {
+          "strict_pass": 3,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 30.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 123.5,
+          "mean_time_s_pass": 98.3,
+          "mean_error_cm_pass": 8.01,
+          "fails_strict": [
+            1,
+            2,
+            3,
+            4,
+            6,
+            8,
+            9
+          ]
+        },
+        "phase3_option2": {
+          "strict_pass": 4,
+          "arrival_pass": 8,
+          "total": 10,
+          "strict_sr_pct": 40.0,
+          "arrival_sr_pct": 80.0,
+          "mean_time_s_all": 160.48,
+          "mean_time_s_pass": 111.33,
+          "mean_error_cm_pass": 8.35,
+          "fails_strict": [
+            2,
+            3,
+            5,
+            6,
+            7,
+            9
+          ]
+        },
+        "phase2b_strict_clean": {
+          "strict_pass": 2,
+          "arrival_pass": 6,
+          "total": 10,
+          "strict_sr_pct": 20.0,
+          "arrival_sr_pct": 60.0,
+          "mean_time_s_all": 217.54,
+          "mean_time_s_pass": 106.35,
+          "mean_error_cm_pass": 8.28,
+          "fails_strict": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            9,
+            10
+          ]
+        },
+        "phase3_option2_clean": {
+          "strict_pass": 4,
+          "arrival_pass": 8,
+          "total": 10,
+          "strict_sr_pct": 40.0,
+          "arrival_sr_pct": 80.0,
+          "mean_time_s_all": 160.48,
+          "mean_time_s_pass": 111.33,
+          "mean_error_cm_pass": 8.35,
+          "fails_strict": [
+            2,
+            3,
+            5,
+            6,
+            7,
+            9
+          ]
+        }
+      },
+      "dynamic_crossfire_alley": {
+        "baseline_strict": {
+          "strict_pass": 0,
+          "arrival_pass": 0,
+          "total": 10,
+          "strict_sr_pct": 0.0
+        },
+        "phase2b_strict": {
+          "strict_pass": 0,
+          "arrival_pass": 5,
+          "total": 10,
+          "strict_sr_pct": 0.0,
+          "arrival_sr_pct": 50.0,
+          "mean_time_s_all": 193.15,
+          "mean_time_s_pass": 0.0,
+          "mean_error_cm_pass": 0.0,
+          "fails_strict": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ]
+        },
+        "phase3_semantic_v3": {
+          "strict_pass": 2,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 20.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 88.39,
+          "mean_time_s_pass": 49.65,
+          "mean_error_cm_pass": 8.04,
+          "fails_strict": [
+            2,
+            3,
+            4,
+            5,
+            7,
+            8,
+            9,
+            10
+          ]
+        },
+        "phase3_option2": {
+          "strict_pass": 0,
+          "arrival_pass": 7,
+          "total": 10,
+          "strict_sr_pct": 0.0,
+          "arrival_sr_pct": 70.0,
+          "mean_time_s_all": 167.45,
+          "mean_time_s_pass": 0.0,
+          "mean_error_cm_pass": 0.0,
+          "fails_strict": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ]
+        },
+        "phase2b_strict_clean": {
+          "strict_pass": 0,
+          "arrival_pass": 5,
+          "total": 10,
+          "strict_sr_pct": 0.0,
+          "arrival_sr_pct": 50.0,
+          "mean_time_s_all": 193.15,
+          "mean_time_s_pass": 0.0,
+          "mean_error_cm_pass": 0.0,
+          "fails_strict": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ]
+        },
+        "phase3_option2_clean": {
+          "strict_pass": 0,
+          "arrival_pass": 7,
+          "total": 10,
+          "strict_sr_pct": 0.0,
+          "arrival_sr_pct": 70.0,
+          "mean_time_s_all": 167.45,
+          "mean_time_s_pass": 0.0,
+          "mean_error_cm_pass": 0.0,
+          "fails_strict": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ]
+        }
+      },
+      "smoke_lidar_corruption": {
+        "baseline_strict": {
+          "strict_pass": 0,
+          "arrival_pass": 0,
+          "total": 10,
+          "strict_sr_pct": 0.0
+        },
+        "phase2b_strict": {
+          "strict_pass": 8,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 80.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 77.5,
+          "mean_time_s_pass": 76.16,
+          "mean_error_cm_pass": 8.0,
+          "fails_strict": [
+            4,
+            7
+          ]
+        },
+        "phase3_semantic_v3": {
+          "strict_pass": 9,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 90.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 79.48,
+          "mean_time_s_pass": 77.57,
+          "mean_error_cm_pass": 8.4,
+          "fails_strict": [
+            10
+          ]
+        },
+        "phase3_option2": {
+          "strict_pass": 8,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 80.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 76.16,
+          "mean_time_s_pass": 74.94,
+          "mean_error_cm_pass": 7.84,
+          "fails_strict": [
+            7,
+            9
+          ]
+        },
+        "phase2b_strict_clean": {
+          "strict_pass": 8,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 80.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 77.5,
+          "mean_time_s_pass": 76.16,
+          "mean_error_cm_pass": 8.0,
+          "fails_strict": [
+            4,
+            7
+          ]
+        },
+        "phase3_option2_clean": {
+          "strict_pass": 8,
+          "arrival_pass": 10,
+          "total": 10,
+          "strict_sr_pct": 80.0,
+          "arrival_sr_pct": 100.0,
+          "mean_time_s_all": 76.16,
+          "mean_time_s_pass": 74.94,
+          "mean_error_cm_pass": 7.84,
+          "fails_strict": [
+            7,
+            9
+          ]
+        }
+      }
+    },
+    "overall_150_trials": {
+      "phase2b_strict": {
+        "baseline_strict_passes": 3,
+        "baseline_strict_sr_pct": 2.0,
+        "proposed_strict_passes": 96,
+        "proposed_strict_sr_pct": 64.0,
+        "proposed_arrival_passes": 140,
+        "proposed_arrival_sr_pct": 93.33,
+        "proposed_mean_time_s_all": 109.0,
+        "proposed_mean_time_s_pass": 79.72,
+        "proposed_mean_error_cm_pass": 9.05
+      },
+      "phase3_semantic_v3": {
+        "baseline_strict_passes": 57,
+        "baseline_strict_sr_pct": 38.0,
+        "proposed_strict_passes": 87,
+        "proposed_strict_sr_pct": 58.0,
+        "proposed_arrival_passes": 143,
+        "proposed_arrival_sr_pct": 95.33,
+        "proposed_mean_time_s_all": 107.87,
+        "proposed_mean_time_s_pass": 89.69,
+        "proposed_mean_error_cm_pass": 8.11
+      },
+      "phase3_option2": {
+        "baseline_strict_passes": 3,
+        "baseline_strict_sr_pct": 2.0,
+        "proposed_strict_passes": 96,
+        "proposed_strict_sr_pct": 64.0,
+        "proposed_arrival_passes": 141,
+        "proposed_arrival_sr_pct": 94.0,
+        "proposed_mean_time_s_all": 106.97,
+        "proposed_mean_time_s_pass": 81.57,
+        "proposed_mean_error_cm_pass": 9.08
+      },
+      "phase2b_strict_clean": {
+        "baseline_strict_passes": 3,
+        "baseline_strict_sr_pct": 2.0,
+        "proposed_strict_passes": 96,
+        "proposed_strict_sr_pct": 64.0,
+        "proposed_arrival_passes": 140,
+        "proposed_arrival_sr_pct": 93.33,
+        "proposed_mean_time_s_all": 109.0,
+        "proposed_mean_time_s_pass": 79.72,
+        "proposed_mean_error_cm_pass": 9.05
+      },
+      "phase3_option2_clean": {
+        "baseline_strict_passes": 3,
+        "baseline_strict_sr_pct": 2.0,
+        "proposed_strict_passes": 96,
+        "proposed_strict_sr_pct": 64.0,
+        "proposed_arrival_passes": 141,
+        "proposed_arrival_sr_pct": 94.0,
+        "proposed_mean_time_s_all": 106.97,
+        "proposed_mean_time_s_pass": 81.57,
+        "proposed_mean_error_cm_pass": 9.08
+      }
+    }
   }
 }

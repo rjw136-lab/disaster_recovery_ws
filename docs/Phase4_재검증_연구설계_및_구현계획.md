@@ -55,7 +55,7 @@ flowchart TB
     subgraph RL["Layer-2 (Phase 4-C): 4-Ch 비퇴행 CPPO Residual RL (ONNX, 10 Hz 고정)"]
         P2B["Frozen Phase 2-B 1-Ch 백본 z_P2B(hist 16x34 @ 10 Hz, Ch0)"]
         RES["Zero-Gated 4-Ch Residual 어댑터 (Ch1+Ch2+Ch3, 1120 dim 고정, 외곽 클램핑 제거, 내장 SafetyHead 제거)"]
-        SWITCH["호모토피 단일화: Ch1/Ch2/Ch3 활성 시 u_nom=u_rl / 순수 LiDAR 시 Phase 2-B 블렌딩 유지"]
+        SWITCH["호모토피 단일화: u_nom = (1 - g_res)*Blend(u_base, u_rl) + g_res*u_rl"]
     end
 
     subgraph SHIELD["Layer-3 (Phase 4-D): 2-Circle Soft-CBF-QP (10 Hz 기본 / 20 Hz Inner Loop)"]
@@ -94,7 +94,7 @@ flowchart TB
 | :--- | :--- | :---: | :---: | :--- | :--- |
 | **Layer-0** | 2D PLICP + IMU 자이로 Deskew | `5 Hz` 스캔 갱신 / `10 Hz` 유지 | $0.0 \sim 0.2\,\text{s}$ | 비퇴화 스캔 정합 속도 $(\hat{v}_{\text{scan}}, \hat{\omega}_{\text{scan}})$ 산출 및 휠 슬립 잔차 복원 | 법선 정보 행렬 $\lambda_{\min}(H) < \lambda_{\text{deg}}$ 시 휠/자이로 안전 폴백, 중복 스캔 `0` 속도 방지 |
 | **Layer-1** | 시맨틱·동적 통합 2D A\* + LIFO | `10 Hz` (Outer Loop) | $1.5 \sim 8.0\,\text{m}$ | 전역·중거리 우회 경로 및 위상 지름길 탐색(`subgoal_xy` 생성) | `Ch1` 하드 차단 우선, 협소 복도 경로 실패 시 `Ch1` 고비용 `soft_cost` 강등 폴백으로 교착 방지 |
-| **Layer-2** | 4-Ch 비퇴행 CPPO + PID Lagrangian Residual RL | **`10 Hz` 고정** (Outer Loop) | $0.5 \sim 2.0\,\text{s}$ (16스텝=`1.6 s` TCN 보존) | `Ch1/Ch2/Ch3` 활성 복합 고슬립·비선형 동적 교차 하에서 꼬리 위험($\text{CVaR}_{0.1}$) 및 CBF 개입 억제 | `Ch1=Ch2=Ch3=0` 시 ONNX 함수 **`max_abs_diff = 0.0`** (모듈 비퇴행) + 15종 Gazebo 폐루프 비퇴행 별도 입증; 활성 구간 `u_nom = u_rl` 호모토피 단일화 |
+| **Layer-2** | 4-Ch 비퇴행 CPPO + PID Lagrangian Residual RL | **`10 Hz` 고정** (Outer Loop) | $0.5 \sim 2.0\,\text{s}$ (16스텝=`1.6 s` TCN 보존) | `Ch1/Ch2/Ch3` 활성 복합 고슬립·비선형 동적 교차 하에서 꼬리 위험($\text{CVaR}_{0.1}$) 및 CBF 개입 억제 | `Ch1=Ch2=Ch3=0` 시 ONNX 함수 **`max_abs_diff = 0.0`** (모듈 비퇴행) + 15종 Gazebo 폐루프 비퇴행 별도 입증; 연속 호모토피 단일화 $u_{\text{nom}} = (1 - g_{\text{res}})\,\text{Blend}(u_{\text{base}}, u_{\text{rl}}) + g_{\text{res}}\,u_{\text{rl}}$ |
 | **Layer-3** | 전·후단 2-Circle Soft-CBF-QP ($2 \times 2$ PDAS) | `10 Hz` 기본 / 필요 시 **`20 Hz` Inner Loop** | $0.0 \sim 0.3\,\text{s}$ | 2-Circle Covering 기반 LiDAR·시맨틱·동적 통합 최소 개입 안전 필터 | 후방 스윙 돌출 `0.000 m`, $2R_{\text{safe,static}} = 0.266 < 0.28\,\text{m}$ 무슬랙 통과, 편심 시 $\delta_m \ge 0$ Graceful Degradation, MQ-2 `Ch2` 내부 진입 시 LIFO 안전 WP 탈출 |
 
 ---
@@ -325,7 +325,9 @@ flowchart TB
 1. `FrozenBackboneSemanticTeacher` 및 `FrozenBackboneSemanticStudent`의 `patch_channels`를 `4`까지 확장한다(`sem_channels = 3`: `Ch1, Ch2, Ch3`), 내장 `sem_safety_head`는 Phase 4 Student ONNX 그래프에서 제거(`scale_gate = 0.0`)한다.
 2. **호모토피 충돌 방지 단일 확정 규칙 (`Blend(u_base, u_rl)` 정리)**:
    - 배포 시 A\* 기저 제어 $u_{\text{base}}$와 RL 제어 $u_{\text{rl}}$을 선형 블렌딩하면 장애물 앞에서 좌/우 우회 위상이 상쇄되는 호모토피 충돌이 발생한다.
-   - **확정 규칙**: **A\*는 우회 `subgoal_xy`만 제공하고, `Ch1/Ch2/Ch3` 중 하나라도 활성(`ch123_peak > 1e-4`, 즉 `res_gate > 0`)인 구간에서는 `u_base`와의 선형 블렌딩을 즉시 중단하여 `u_nom = u_rl`로 제어 출력을 단일화한다.** 단, **`Ch1 = Ch2 = Ch3 = 0`인 순수 LiDAR 구간만 Phase 2-B 기존 블렌딩(`alpha_rl`)을 유지**한다.
+   - **확정 규칙 (연속 보간 기반 호모토피 단일화)**: **A\*는 우회 `subgoal_xy`만 제공하고, 불리언 하드 스위칭 대신 `res_gate`($g_{\text{res}} = \text{clip}((\text{ch123\_peak} - 10^{-4})/0.04,\, 0.0,\, 1.0)$)를 이용한 연속 보간으로 공칭 명령을 산출한다:**
+     $$u_{\text{nom}} = (1 - g_{\text{res}}) \cdot \text{Blend}(u_{\text{base}}, u_{\text{rl}}) + g_{\text{res}} \cdot u_{\text{rl}}$$
+     **`Ch1 = Ch2 = Ch3 = 0`($g_{\text{res}} = 0$)인 순수 LiDAR 구간에서는 Phase 2-B 기존 블렌딩 `Blend(u_base, u_rl)`(`alpha_rl`)을 100% 유지하며, `Ch1/Ch2/Ch3` 활성 구간에서는 $g_{\text{res}} \to 1$로 연속 수렴해 불연속 토크 스파이크 없이 `u_nom = u_rl`로 제어 출력을 단일화한다.**
 3. **모듈 단위 비퇴행 vs 폐루프 비퇴행 구분 명시**:
    - **모듈 단위 비퇴행**: `Ch1 = Ch2 = Ch3 = 0`에서 `res_gate = clip((ch123_peak - 1e-4) / 0.04, 0.0, 1.0) = 0`이므로 4-Ch ONNX 함수 출력이 Phase 2-B 1-Ch ONNX와 **`max_abs_diff == 0.0`**임을 단위 테스트로 보장한다.
    - **폐루프 비퇴행**: Stage 0.3의 `act_v, act_w` 입력 소스 변경(PLICP 속도)과 Stage 2 Soft-CBF-QP 결합은 폐루프 시스템 역학을 변경하므로 ONNX 함수 동일성만으로 시스템 비퇴행을 단정하지 않는다. 시스템 수준의 비퇴행은 **15종 Gazebo(150회) 폐루프 벤치마크(기존 100% 달성 7종 시나리오 무퇴행 유지)**로 별도 실증한다.
@@ -461,7 +463,7 @@ flowchart TB
 - [ ] **Step 1-1**: `dynamic_tracker.py` *(신규 생성 예정)* (Free-space 레이캐스팅 검증 결합 배경 차분 + 확정 트랙 정적 맵 마스킹 + 현 길이/외접 반경 클러스터 필터 + 표면 호 편향 보정 + 연속 감쇠율 $\beta$ 감쇠-CV KF + $4 \times 4$ 행렬 공분산 전파 + ICP 점프 $\text{SE}(2)$ 연동 + `Ch3` 분모 `max(r_eff - r_c, eps)` 수정; IMM 생략) 구현 및 `test_dynamic_tracker.py` ($\tau = 0.5\,\text{s}/1.0\,\text{s}$ FDE 게이트) 통과.
 - [ ] **Step 1-2**: `local_grid_planner.py` 및 `recovery_controller.py`에 `Ch3` 동적 예측 비용 및 중간 틱 KF 외삽 상태 연동 → **M1 베이스라인** Gazebo `#5, #6` 측정.
 - [ ] **Step 2-1**: `cbf_safety_shield.py` *(신규 생성 예정)* (`model.sdf` 실측 2-Circle Covering $l_f=0.020, l_r=0.060, r_{\text{circle}}=0.098$ + 연속 감쇠율 $\gamma_{\text{dyn}} < \gamma_{\text{static}} \le \gamma_{\text{gas}}$ + $\epsilon_{\text{inter}}$ + `cbf_v_min` + `0.10 m` 복셀 최근접 16점 + 온보드 MQ-2 `Ch2` 내부 LIFO 탈출 분기 + 슬랙 소거 기반 순수 NumPy $2 \times 2$ PDAS + Armijo 1D 선탐색) 구현 및 `test_cbf_safety_shield.py` (조건수 $\kappa = 10^4$ 단위 테스트 포함) 통과.
-- [ ] **Step 2-2**: `recovery_controller.py`에 Soft-CBF-QP 연결, 기존 1.2초 정지·4중 휴리스틱 가드 비활성화 및 호모토피 단일화 분기(`Ch1/Ch2/Ch3` 활성 시 `u_nom = u_rl`) 연결 → **M2 (`No-RL + CBF`)** (및 필요 시 참고군 `M3-legacy`) Gazebo `#5, #6, #7, #8` 측정.
+- [ ] **Step 2-2**: `recovery_controller.py`에 Soft-CBF-QP 연결, 기존 1.2초 정지·4중 휴리스틱 가드 비활성화 및 연속 호모토피 단일화(`u_nom = (1 - g_res) * Blend(u_base, u_rl) + g_res * u_rl`) 연결 → **M2 (`No-RL + CBF`)** (및 필요 시 참고군 `M3-legacy`) Gazebo `#5, #6, #7, #8` 측정.
 - [ ] **Step 3-1**: `rl_procedural_env.py` 4채널(`Ch3`, 외곽 클램핑 제거) 확장, 조화 진동 교차 레짐, 실측 기반 PLICP 속도 노이즈 DR, `Ch3` `0.2~0.4 s` 확정 지연·속도 노이즈·차폐 드롭아웃 DR, 순수 물리 위반 비용 $c_t$와 CBF 개입 보상 페널티 분리, 배치 $2 \times 2$ PDAS `BatchSoftCBFShield` 연동 (`test_phase4_cvar_env.py` 통과).
 - [ ] **Step 3-2**: `train_phase2_v100.py`에 경량 **CPPO (Rockafellar-Uryasev $\nu$ + 꼬리 에피소드 가중, 비용 어드밴티지 독립 `std` 정규화 제거) + PID Lagrangian + CBF 전환 시 Critic 재예열/$\lambda$ 완화** 구현, 동일 4-Ch 환경에서 **M3 (Expected-Cost Lagrangian PPO, $d_{\text{thresh}}$ 파레토 스윕)** 및 **M4 (CPPO)** V100 3-seed 학습, **Cost-weighted DAgger** 증류(필요 시 Student 직접 CVaR 미세조정) 및 ONNX 추출 (`max_abs_diff == 0.0` 모듈 단위 비퇴행 검증).
 - [ ] **Step 4-1**: **M0~M4** Gazebo 15종(150회, 폐루프 비퇴행 확인) + `ab30` 시맨틱 A/B + **복합 스트레스(`Ch1 + Ch2 + Ch3 + 고슬립`) Gazebo 벤치마크** 실행 및 `M3` vs `M4` 파레토 공정 비교 통계 표/그래프 생성.
@@ -475,4 +477,4 @@ flowchart TB
 | **협소 문틀 CBF 교착, 후방 스윙 충돌 및 솔버 불수렴** | `#7 house`, `#8 house_hard` 문틀 앞 $v \to 0$ 정지, 회전 중 후단 모서리 접촉, 고조건수($\kappa \sim 10^4$) 제약에서 진동 | `model.sdf` 실측 2-Circle Covering($l_f=0.020, l_r=0.060, r_{\text{circle}}=0.098$, 후방 돌출 `0.000 m`, $2R_{\text{safe,static}}=0.266 < 0.28\,\text{m}$)을 적용하고, 순수 NumPy $2 \times 2$ PDAS + Armijo 1D 선탐색으로 $\kappa = 10^4$ 조건에서 정확 수렴 및 편심 시 Soft 슬랙 Graceful Degradation을 보장한다. |
 | **고속 동적 장애물 구동기 한계 및 MQ-2 `Ch2` 내부 발산** | $0.36 \sim 0.42\,\text{m/s}$ 정면 접근 장애물에 1스텝 CBF만으로 회피 실패, 온보드 MQ-2 `Ch2` 내부($h < 0$) 진입 시 전방 폭주 | 선제 회피·타이밍 조절은 Stage 1(`Ch3`+A\*)과 Stage 3(CPPO)에 배분해 UCS 진입을 예방하고, 온보드 MQ-2 `Ch2` 내부 진입 시에는 해당 `Ch2` 반발 제약을 비활성화하고 LIFO 직전 안전 웨이포인트 방향 탈출 예외 분기를 작동시킨다. |
 | **CPPO $\lambda$ 진동, 꼬리 노이즈 폭주 및 CBF 전환 Value Shock** | 학습 중반 $\lambda$ 발산·과보수화, 비용 0 수렴 구간 기울기 폭발, CBF-in-the-loop 투입 직후 정책 붕괴 | PID Lagrangian(적분 상한·초기 25% 커리큘럼)으로 진동을 억제하고, 비용 어드밴티지 독립 `std` 정규화를 제거하며, CBF 전환 직후 Actor를 $5 \sim 10$ 업데이트 동결해 Critic($V_R, V_C$)을 재예열하고 $\lambda / I_k$ 감쇠 완화 및 $\nu$ 재초기화를 수행한다. |
-| **호모토피 충돌 및 `5 Hz` 스캔 왜곡·RPi 4 연산 예산 압박** | `Ch1/2/3` 앞 A\*-RL 방향 상쇄 충돌, 회전 중 PLICP 오차 급증, RPi 4 제어 틱 지연 초과 | `Ch1/Ch2/Ch3` 활성 시 `u_nom = u_rl` 단일화로 호모토피 충돌을 원천 차단한다. `5 Hz` `scan.header.stamp` 게이팅 + IMU 자이로 디스크유를 적용하고, RL/TCN(`10 Hz` 고정)과 CBF Inner Loop(`10~20 Hz`)를 다중 주기 분리하며 핵심 파이프라인 `<= 10.0 ms`, 전체 제어 틱 `<= 30.0 ms`(p99 `<= 50.0 ms`) 예산으로 실측 관리한다. |
+| **호모토피 충돌 및 `5 Hz` 스캔 왜곡·RPi 4 연산 예산 압박** | `Ch1/2/3` 앞 A\*-RL 방향 상쇄 충돌, 회전 중 PLICP 오차 급증, RPi 4 제어 틱 지연 초과 | `u_nom = (1 - g_res) * Blend(u_base, u_rl) + g_res * u_rl` 연속 보간 단일화로 불연속 스파이크 없이 호모토피 충돌을 원천 차단한다. `5 Hz` `scan.header.stamp` 게이팅 + IMU 자이로 디스크유를 적용하고, RL/TCN(`10 Hz` 고정)과 CBF Inner Loop(`10~20 Hz`)를 다중 주기 분리하며 핵심 파이프라인 `<= 10.0 ms`, 전체 제어 틱 `<= 30.0 ms`(p99 `<= 50.0 ms`) 예산으로 실측 관리한다. |

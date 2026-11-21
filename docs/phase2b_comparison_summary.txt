@@ -1,3 +1,33 @@
+# =============================================================================
+# [최신 Clean 실측 원본 JSON 기준 150-Trial 엄격 무충돌(Strict) vs 물리 도착(Arrival) 집계]
+# 출처: benchmark_results/{phase2b_strict_clean, phase3_semantic_v3, phase3_option2_clean}/ab_*_10trials.json
+# =============================================================================
+  collapsed                | Base(strict)= 1/10 | P2B_clean(arr/strict)=10/10 /  5/10 | P3_v3(arr/strict)=10/10 /  7/10 | P3_opt2_clean(arr/strict)= 9/10 /  5/10 (mean_t=135.3s)
+  collapsed_heavy          | Base(strict)= 0/10 | P2B_clean(arr/strict)=10/10 /  8/10 | P3_v3(arr/strict)=10/10 /  7/10 | P3_opt2_clean(arr/strict)=10/10 /  9/10 (mean_t= 87.0s)
+  tunnel                   | Base(strict)= 1/10 | P2B_clean(arr/strict)=10/10 /  9/10 | P3_v3(arr/strict)=10/10 / 10/10 | P3_opt2_clean(arr/strict)= 8/10 /  8/10 (mean_t=109.4s)
+  house                    | Base(strict)= 0/10 | P2B_clean(arr/strict)= 9/10 /  6/10 | P3_v3(arr/strict)= 8/10 /  1/10 | P3_opt2_clean(arr/strict)=10/10 /  5/10 (mean_t=113.5s)
+  maze                     | Base(strict)= 0/10 | P2B_clean(arr/strict)=10/10 / 10/10 | P3_v3(arr/strict)=10/10 /  8/10 | P3_opt2_clean(arr/strict)=10/10 / 10/10 (mean_t= 22.7s)
+  collapsed_hard           | Base(strict)= 0/10 | P2B_clean(arr/strict)=10/10 /  5/10 | P3_v3(arr/strict)= 9/10 /  7/10 | P3_opt2_clean(arr/strict)=10/10 /  5/10 (mean_t=105.4s)
+  collapsed_heavy_hard     | Base(strict)= 1/10 | P2B_clean(arr/strict)=10/10 /  3/10 | P3_v3(arr/strict)=10/10 /  5/10 | P3_opt2_clean(arr/strict)=10/10 /  3/10 (mean_t=147.0s)
+  tunnel_hard              | Base(strict)= 0/10 | P2B_clean(arr/strict)=10/10 / 10/10 | P3_v3(arr/strict)=10/10 /  9/10 | P3_opt2_clean(arr/strict)=10/10 / 10/10 (mean_t=110.5s)
+  house_hard               | Base(strict)= 0/10 | P2B_clean(arr/strict)=10/10 /  6/10 | P3_v3(arr/strict)= 7/10 /  2/10 | P3_opt2_clean(arr/strict)= 9/10 /  5/10 (mean_t=141.6s)
+  maze_hard                | Base(strict)= 0/10 | P2B_clean(arr/strict)=10/10 / 10/10 | P3_v3(arr/strict)= 9/10 /  4/10 | P3_opt2_clean(arr/strict)=10/10 / 10/10 (mean_t= 22.6s)
+  u_pocket_trap            | Base(strict)= 0/10 | P2B_clean(arr/strict)=10/10 / 10/10 | P3_v3(arr/strict)=10/10 / 10/10 | P3_opt2_clean(arr/strict)=10/10 /  9/10 (mean_t= 89.3s)
+  slip_chicane             | Base(strict)= 0/10 | P2B_clean(arr/strict)=10/10 /  4/10 | P3_v3(arr/strict)=10/10 /  3/10 | P3_opt2_clean(arr/strict)=10/10 /  5/10 (mean_t=116.2s)
+  dynamic_gauntlet         | Base(strict)= 0/10 | P2B_clean(arr/strict)= 6/10 /  2/10 | P3_v3(arr/strict)=10/10 /  3/10 | P3_opt2_clean(arr/strict)= 8/10 /  4/10 (mean_t=160.5s)
+  dynamic_crossfire_alley  | Base(strict)= 0/10 | P2B_clean(arr/strict)= 5/10 /  0/10 | P3_v3(arr/strict)=10/10 /  2/10 | P3_opt2_clean(arr/strict)= 7/10 /  0/10 (mean_t=167.4s)
+  smoke_lidar_corruption   | Base(strict)= 0/10 | P2B_clean(arr/strict)=10/10 /  8/10 | P3_v3(arr/strict)=10/10 /  9/10 | P3_opt2_clean(arr/strict)=10/10 /  8/10 (mean_t= 76.2s)
+
+=== OVERALL 150-TRIAL STRICT / ARRIVAL TOTALS (Clean 원본 JSON 실측 기준) ===
+  baseline (phase2b_strict_clean/phase3_option2_clean) : strict   3/150 (2.00%)
+  baseline (phase3_semantic_v3)                        : strict  57/150 (38.00%)
+  phase2b_strict_clean                                 : strict  96/150 (64.00%) | arrival 140/150 (93.33%) | mean_t=109.00s (succ=79.72s, err=9.05cm)
+  phase3_semantic_v3 (legacy 3-Ch)                     : strict  87/150 (58.00%) | arrival 143/150 (95.33%) | mean_t=107.87s (succ=89.69s)
+  phase3_option2_clean (최신 frozen_residual)          : strict  96/150 (64.00%) | arrival 141/150 (94.00%) | mean_t=106.97s (succ=81.57s, err=9.08cm)
+
+# =============================================================================
+# [과거 Legacy(충돌 허용) 기록, 원본 JSON 미보관 — 아카이브 참고용]
+# =============================================================================
 === collapsed ===
   baseline     :  5/10 | mean_t= 164.5s (succ= 102.2s, med= 122.0s) | len=13.38m | fails=[3, 4, 7, 8, 9]
   phase1       : 10/10 | mean_t= 101.8s (succ= 101.8s, med= 106.5s) | len=15.68m | fails=[]

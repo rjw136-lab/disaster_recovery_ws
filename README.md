@@ -31,7 +31,7 @@
 
 | 검증 항목 | 결과 | 비교 기준 |
 | :--- | :---: | :--- |
-| 15대 재난 시나리오 × 10회 **엄격 무충돌 복귀** | **`119/150` (79.3%)** · 도착 `143/150` (95.3%) | 이전 Option 2 150회 관측치 (`Ch1=Ch2=0` 비시맨틱 입력에서 현 `415.0 KB` ONNX도 `max_abs_diff = 0.0`으로 Phase 2-B와 출력 동일) |
+| 15대 재난 시나리오 × 10회 **엄격 무충돌 복귀** | **`96/150` (64.0%)** · 도착 `141/150` (94.0%) | Clean 150회 실측치 (`phase2b_strict_clean` `96/150 (64.0%)` · 도착 `140/150 (93.3%)`와 동일 정책, `Ch1=Ch2=0` 입력 `max_abs_diff = 0.0`) |
 | 시맨틱 회피 10-Trial A/B **엄격 무위험 복귀** | **`9/10` (90.0%)** · 저상/가스 위반 **`0회`** · `23.07 s` | Phase 2-B Blind `0/10` (`ab10` 기준, 충돌무관통 `2/10`) · 저상 `5회`/가스 `6회` · `67.79 s` |
 | 시맨틱 공백(`Ch1=Ch2=0`) **비퇴행 일치** | `max_abs_diff = 0.0` | 검증 입력에서 Phase 2-B 1-Ch ONNX 출력과 최대 절대 오차 0 |
 | Option 2 ONNX 크기 / CPU 추론 지연 | `415.0 KB` / `0.121–0.124 ms` | x86 CPU 실측 (`sim` `0.121 ms`, `real_tb3` `0.124 ms`; RPi 4 실측은 미수행) |
@@ -59,7 +59,7 @@
 | # | 목표 | 핵심 구현 | 상태 |
 | :-: | :--- | :--- | :-: |
 | 1 | **2D 시맨틱 SLAM & 3채널 Context-RL** | 단안 RGB(YOLO26n) + 2D LiDAR 투영 퓨전(`/map` 영구 마커) · Frozen 백본 + Pre-Tanh 잔차 + 하드 배리어 25-ray Safety Shield (`ab10` 엄격 무위험 `9/10` vs Blind `0/10`) | ✅ 시뮬 완료 |
-| 2 | **통신 단절 시 비퇴행 온보드 자율 복귀** | Heartbeat 워치독 + LIFO 역추적 + `RollingLocalGrid 2D A*` + Option 2 ONNX (`Ch1=Ch2=0` 비퇴행 `max_abs_diff=0.0`, 150회 관측치 `119/150`; 별도 실행 점수로 성능 향상을 주장하지 않음) | ✅ 완료 |
+| 2 | **통신 단절 시 비퇴행 온보드 자율 복귀** | Heartbeat 워치독 + LIFO 역추적 + `RollingLocalGrid 2D A*` + Option 2 ONNX (`Ch1=Ch2=0` 비퇴행 `max_abs_diff=0.0`, Clean 150회 엄격 `96/150 = 64.0%` · 도착 `141/150 = 94.0%`) | ✅ 완료 |
 | 3 | **극한 재난 환경 강인성 확보** | LiDAR 이웃 각도 잡음 필터(연기) + 동적 잔상 빠른 소거 + 2D LiDAR SVD ICP 슬립 보정 (`3.5 ms`) | ✅ 완료 |
 | 4 | **베이스캠프 정밀 도킹** | ArUco + `solvePnP` 비주얼 서보잉 + 10초 타임아웃 세이프티 가드 | ✅ 완료 |
 | 5 | **저지연 AI 재난 관제** | YOLO26n (GPU FP16 · 최대 15 FPS) + Faster-Whisper (CUDA INT8 · CPU 폴백) | ✅ 완료 |
@@ -69,7 +69,7 @@
 | 구분 | 항목 | 상태 |
 | :--- | :--- | :-: |
 | Phase 3 시맨틱 SLAM & RL (Option 2) | `semantic_map_node` + Frozen-Backbone 2단 직렬 3-Ch ONNX (`415.0 KB`, `0.12 ms`, `max_abs_diff=0.0`) | ✅ 시뮬 완료 |
-| Phase 2-B 자율 복귀 (기저 백본) | `RollingLocalGrid + 2D A*` · `ContextRLStudent` · Layer-0 필터 · 2D ICP (150회 엄격 `69.3%` / Legacy 도착 `99.33%`) | ✅ 완료 |
+| Phase 2-B 자율 복귀 (기저 백본) | `RollingLocalGrid + 2D A*` · `ContextRLStudent` · Layer-0 필터 · 2D ICP (Clean 150회 엄격 `64.0%` / 물리 도착 `93.3%`; 과거 Legacy(충돌 허용) 기록 `149/150 = 99.33%`, 원본 JSON 미보관) | ✅ 완료 |
 | 제어 · 도킹 | Heartbeat 워치독, LIFO 역추적, LiDAR 긴급 정지, ArUco 정밀 도킹 | ✅ 구현 |
 | AI 관제 · 운용 | YOLO26n 탐지, Faster-Whisper 음성 인식, 원터치 런처 `start.py` / `stop.py` | ✅ 실차 검증 |
 | 시뮬레이션 · 벤치마크 | `sim.py` (`slam_toolbox`/Cartographer, `--yolo`), 엄격 무충돌 15종 벤치마크, `run_phase3_semantic_suite.py` | ✅ 구현 |
@@ -98,7 +98,7 @@
 | **① 설계** | [종합 설계 가이드북](docs/DISASTER_RECOVERY_GUIDEBOOK.md) | 전체 구조 · 동작 원리 · 상태 머신 |
 | | [통합 구축 보고서](docs/Disaster_Recovery_TurtleBot3_Integration_Report.md) ([docx](docs/Disaster_Recovery_TurtleBot3_Integration_Report.docx)) | YOLO26n · 오디오 · ArUco 연동 구축 내역 |
 | **② 알고리즘·결과** | [단계별 알고리즘·RL 변천사](docs/알고리즘_및_강화학습_기법_단계별_변천사.md) | Baseline → Phase 3 기법 총정리 |
-| | [자율복귀 원리 해설·벤치마크](docs/재난환경_자율복귀_알고리즘_원리_해설_및_보고서.md) | 15종 150회 A/B 결과 (`99.33%`) · Phase 3 요약 |
+| | [자율복귀 원리 해설·벤치마크](docs/재난환경_자율복귀_알고리즘_원리_해설_및_보고서.md) | 15종 150회 Clean A/B 결과 (엄격 `64.0%` vs `64.0%`, 도착 `93.3%/94.0%`; 과거 Legacy 기록 `99.33%`, 원본 JSON 미보관) · Phase 3 요약 |
 | | [2D 라이다 스캔매칭 보고서](docs/2D_라이다_스캔매칭_및_자율복귀_보고서.md) | ICP 오차 보정 · Layer-0 필터 · 시맨틱 투영 |
 | **③ 차세대** | [시맨틱 SLAM·RL 재학습 보고서](docs/차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md) | 논문 기반 Phase 3 설계·구현·시뮬 검증 완료 |
 | | [Phase 4 후속 연구 검토·설계](docs/Phase4_후속_연구_방향_검토_및_설계.md) | GRU·World Model·Risk-Sensitive RL·Safety Shield 기술 타당성 및 로드맵 |
@@ -122,10 +122,10 @@
 | Heartbeat 워치독 | `/heartbeat` 3.0 s 미수신 시 즉시 정지(v=0, ω=0) 후 원격 명령 차단 | RPi 4 |
 | 가스 워치독 | MQ-2 → ADS1115(I2C) → `/gas/level` ≥ 0.40 이면 동일한 비상 복귀 시퀀스 진입 | RPi 4 |
 | 오도메트리 로거 | 탐색 중 Δd ≥ 0.3 m 또는 \|Δθ\| ≥ 25°마다 (x, y, θ, scan_pts)를 LIFO 스택에 push | RPi 4 |
-| LIFO 백트래킹 & 로컬 A\* | 스택 pop 및 비파괴 위상 지름길, `RollingLocalGrid(0.04m) + 2D A*` 우회, `ESCAPE` 탈출, Regulated Pure Pursuit + Residual TD3 하이브리드 추종 | RPi 4 |
+| LIFO 백트래킹 & 로컬 A\* | 스택 pop 및 비파괴 위상 지름길, `RollingLocalGrid(6.0m×6.0m, 0.04m) + 2D A*` 우회, `BACKTRACKING_HYBRID` 내부 서브모드(`ESCAPE` 탈출 · `DYNAMIC_HOLD` 대기), Regulated Pure Pursuit + Residual TD3 하이브리드 추종 | RPi 4 |
 | LiDAR 스캔 매칭 (ICP) | 경유지 45 cm 이내에서 저장 스캔과 현재 스캔을 대조해 바퀴 슬립 누적 오차를 보정 | RPi 4 |
 | LiDAR 긴급 정지 | 복귀 중 전방 ±20°, 0.12–0.25 m 장애물 감지 시 정지·대기, 해제 시 재개 | RPi 4 |
-| ArUco 정밀 도킹 | 원점 0.5 m 진입 시 ArUco(ID 0, 10 cm)를 `solvePnP`로 추정해 2 cm 이내 도킹 | RPi 4 |
+| ArUco 정밀 도킹 | 원점 0.5 m 진입 시 ArUco(ID 0, 시뮬레이션 `0.10 m = 10 cm` / 실차 `0.05 m = 5 cm`)를 `solvePnP`로 추정해 2 cm 이내 도킹 | RPi 4 |
 | 도킹 세이프티 가드 | 마커 미배치·가림 시 무한 회전 없이 10초 후 정지 및 미션 완료 처리 | RPi 4 |
 | 로컬 블랙박스 | 비상 전환 시 MicroSD에 영상(mp4)과 텔레메트리(csv) 기록 | RPi 4 |
 | 오디오 캡처 | AB13X USB 마이크(`plughw:1,0`, 48 kHz S16_LE mono)를 `arecord`로 읽어 `/audio/raw`로 송신 | RPi 4 |
@@ -291,30 +291,32 @@ flowchart LR
 
 ### 6.2 150회 엄격 무충돌 비퇴행 벤치마크
 
-도착 여부만 보던 기존(Legacy) 기준 대신 **물리 충돌 없음(`debris_collision == False`, `min_debris_dist >= 0.265 m`) 및 벽/장애물 스침 허용 한도(`lidar_collision_steps < 4`)** 로 통일하고, 15개 전 시나리오(150회)에 대해 `phase2b_strict`와 **100% 동일한 잔해 시드·배치(`same_debris = 150/150`)** 로 검증한 결과다([`phase2b_strict/`](benchmark_results/phase2b_strict/), [`phase3_semantic_v3/`](benchmark_results/phase3_semantic_v3/), [`phase3_option2/`](benchmark_results/phase3_option2/)).
+도착 여부만 보던 기존(Legacy) 기준 대신 **물리 충돌 없음(`debris_collision == False`, `min_debris_dist >= 0.265 m`) 및 벽/장애물 스침 허용 한도(`lidar_collision_steps < 4`)** 로 통일하고, 15개 전 시나리오(150회) 무결성 검증(리셋 실패·음수 시간·25cm 초과 성공·`return_path` 점프 0건) 하에 `phase2b_strict_clean`과 **100% 동일한 잔해 시드·배치(`same_debris = 150/150`)** 로 검증한 결과다([`phase2b_strict_clean/`](benchmark_results/phase2b_strict_clean/), [`phase3_semantic_v3/`](benchmark_results/phase3_semantic_v3/), [`phase3_option2_clean/`](benchmark_results/phase3_option2_clean/)).
 
-| # | 시나리오 ID | Baseline<br>(엄격 무충돌) | Phase 2-B Strict<br>(도착 / 엄격 무충돌) | Phase 3 v3 (Option 2 전)<br>(도착 / 엄격 무충돌) | **Phase 3 Option 2 (최신)**<br>**(도착 / 엄격 무충돌)** | Option 2 무충돌 평균시간<br>(전체 평균시간) · 종말오차 |
+| # | 시나리오 ID | Baseline<br>(엄격 무충돌) | Phase 2-B Strict Clean<br>(도착 / 엄격 무충돌) | Phase 3 v3 (Option 2 전)<br>(도착 / 엄격 무충돌) | **Phase 3 Option 2 Clean (최신)**<br>**(도착 / 엄격 무충돌)** | Option 2 무충돌 평균시간<br>(전체 평균시간) · 종말오차 |
 | :-: | :--- | :---: | :---: | :---: | :---: | :---: |
-| **1** | `collapsed` | `5/10` | `10/10` / `7/10` | `10/10` / `7/10` | `10/10` / **`10/10`** | `94.5 s` (`94.5 s`) · `8.3 cm` |
-| **2** | `collapsed_hard` | `1/10` | `10/10` / `8/10` | `9/10` / `7/10` | `10/10` / **`10/10`** | `121.6 s` (`121.6 s`) · `8.3 cm` |
-| **3** | `collapsed_heavy` | `2/10` | `10/10` / `7/10` | `10/10` / `7/10` | `10/10` / **`8/10`** | `105.7 s` (`122.7 s`) · `8.2 cm` |
-| **4** | `collapsed_heavy_hard` | `1/10` | `10/10` / `4/10` | `10/10` / `5/10` | `9/10` / **`7/10`** | `117.3 s` (`147.9 s`) · `8.3 cm` |
-| **5** | `dynamic_crossfire_alley` | `3/10` | `10/10` / `2/10` | `10/10` / `2/10` | `7/10` / `1/10` | `50.3 s` (`148.4 s`) · `7.8 cm` |
-| **6** | `dynamic_gauntlet` | `0/10` | `10/10` / `2/10` | `10/10` / `3/10` | `8/10` / **`3/10`** | `90.0 s` (`174.1 s`) · `8.3 cm` |
-| **7** | `house` | `9/10` | `10/10` / `6/10` | `8/10` / `1/10` | `10/10` / **`6/10`** | `87.9 s` (`109.7 s`) · `8.8 cm` |
-| **8** | `house_hard` | `0/10` | `10/10` / `9/10` | `7/10` / `2/10` | `9/10` / `6/10` | `87.8 s` (`115.4 s`) · `8.7 cm` |
-| **9** | `maze` | `9/10` | `10/10` / `10/10` | `10/10` / `8/10` | `10/10` / **`10/10`** | `26.4 s` (`26.4 s`) · `8.2 cm` |
-| **10** | `maze_hard` | `0/10` | `6/10` / `6/10` | `9/10` / `4/10` | `10/10` / **`10/10`** | `20.8 s` (`20.8 s`) · `8.2 cm` |
-| **11** | `slip_chicane` | `0/10` | `10/10` / `4/10` | `10/10` / `3/10` | `10/10` / **`9/10`** | `117.5 s` (`118.5 s`) · `7.9 cm` |
-| **12** | `smoke_lidar_corruption` | `0/10` | `10/10` / `10/10` | `10/10` / `9/10` | `10/10` / **`10/10`** | `80.5 s` (`80.5 s`) · `7.8 cm` |
-| **13** | `tunnel` | `9/10` | `10/10` / `10/10` | `10/10` / `10/10` | `10/10` / **`10/10`** | `84.2 s` (`84.2 s`) · `8.1 cm` |
-| **14** | `tunnel_hard` | `8/10` | `10/10` / `10/10` | `10/10` / `9/10` | `10/10` / **`10/10`** | `96.9 s` (`96.9 s`) · `8.3 cm` |
-| **15** | `u_pocket_trap` | `3/10` | `10/10` / `9/10` | `10/10` / `10/10` | `10/10` / **`9/10`** | `92.9 s` (`92.8 s`) · `8.5 cm` |
-| **합계** | **150 Trials (`same_debris=150/150`)** | **`50/150 (33.3%)`** | **`146/150 (97.3%)` / `104/150 (69.3%)`** | **`143/150 (95.3%)` / `87/150 (58.0%)`** | **`143/150 (95.3%)` / `119/150 (79.3%)`** | **`85.56 s` (`103.62 s`) · `8.26 cm`** |
+| **1** | `collapsed` | `1/10` | `10/10` / `5/10` | `10/10` / `7/10` | `9/10` / **`5/10`** | `91.5 s` (`135.3 s`) · `13.4 cm` |
+| **2** | `collapsed_hard` | `0/10` | `10/10` / `5/10` | `9/10` / `7/10` | `10/10` / **`5/10`** | `94.5 s` (`105.4 s`) · `10.3 cm` |
+| **3** | `collapsed_heavy` | `0/10` | `10/10` / `8/10` | `10/10` / `7/10` | `10/10` / **`9/10`** | `92.7 s` (`87.0 s`) · `12.5 cm` |
+| **4** | `collapsed_heavy_hard` | `1/10` | `10/10` / `3/10` | `10/10` / `5/10` | `10/10` / **`3/10`** | `131.0 s` (`147.0 s`) · `12.0 cm` |
+| **5** | `dynamic_crossfire_alley` | `0/10` | `5/10` / `0/10` | `10/10` / `2/10` | `7/10` / `0/10` | `-` (`167.4 s`) · `-` |
+| **6** | `dynamic_gauntlet` | `0/10` | `6/10` / `2/10` | `10/10` / `3/10` | `8/10` / **`4/10`** | `111.3 s` (`160.5 s`) · `8.3 cm` |
+| **7** | `house` | `0/10` | `9/10` / `6/10` | `8/10` / `1/10` | `10/10` / `5/10` | `100.9 s` (`113.5 s`) · `8.7 cm` |
+| **8** | `house_hard` | `0/10` | `10/10` / `6/10` | `7/10` / `2/10` | `9/10` / `5/10` | `111.3 s` (`141.6 s`) · `8.7 cm` |
+| **9** | `maze` | `0/10` | `10/10` / `10/10` | `10/10` / `8/10` | `10/10` / **`10/10`** | `22.7 s` (`22.7 s`) · `8.1 cm` |
+| **10** | `maze_hard` | `0/10` | `10/10` / `10/10` | `9/10` / `4/10` | `10/10` / **`10/10`** | `22.6 s` (`22.6 s`) · `8.1 cm` |
+| **11** | `slip_chicane` | `0/10` | `10/10` / `4/10` | `10/10` / `3/10` | `10/10` / **`5/10`** | `109.1 s` (`116.2 s`) · `7.8 cm` |
+| **12** | `smoke_lidar_corruption` | `0/10` | `10/10` / `8/10` | `10/10` / `9/10` | `10/10` / **`8/10`** | `74.9 s` (`76.2 s`) · `7.8 cm` |
+| **13** | `tunnel` | `1/10` | `10/10` / `9/10` | `10/10` / `10/10` | `8/10` / `8/10` | `81.7 s` (`109.4 s`) · `8.3 cm` |
+| **14** | `tunnel_hard` | `0/10` | `10/10` / `10/10` | `10/10` / `9/10` | `10/10` / **`10/10`** | `110.5 s` (`110.5 s`) · `8.2 cm` |
+| **15** | `u_pocket_trap` | `0/10` | `10/10` / `10/10` | `10/10` / `10/10` | `10/10` / `9/10` | `90.0 s` (`89.3 s`) · `8.1 cm` |
+| **합계** | **150 Trials (`same_debris=150/150`)** | **`3/150 (2.0%)`** | **`140/150 (93.3%)` / `96/150 (64.0%)`** | **`143/150 (95.3%)` / `87/150 (58.0%)`** | **`141/150 (94.0%)` / `96/150 (64.0%)`** | **`81.57 s` (`106.97 s`) · `9.08 cm`** |
+
+> **Baseline 열 기준 안내:** 위 표의 `Baseline (엄격 무충돌)` 단일 열(`3/150 = 2.0%`)은 [`phase2b_strict_clean/`](benchmark_results/phase2b_strict_clean/) 및 [`phase3_option2_clean/`](benchmark_results/phase3_option2_clean/) 원본 JSON 기준이다(별도 실행된 [`phase3_semantic_v3/`](benchmark_results/phase3_semantic_v3/) 폴더 내 baseline은 `57/150 = 38.0%`).
 
 - **핵심 분석 (비퇴행 설계 및 결과 해석)**:
-  1. **비시맨틱 퇴행 방지를 위한 구조적 보존**: Option 2는 Phase 2-B 백본을 동결하고 `Ch1=Ch2=0`에서 잔차·쉴드를 소거해 기준 정책 출력을 보존한다(`max_abs_diff = 0.0`). `87/150 → 119/150`은 서로 다른 Gazebo 실행에서 관측된 기술통계이며, 실행 간 비결정성이 있으므로 인과적 성능 향상으로 해석하지 않는다.
-  2. **비시맨틱 구간(`Ch1=Ch2=0`) 동일 정책 및 분산 해석**: `Ch1=Ch2=0` 환경에서는 Option 2 ONNX와 Phase 2-B 1-Ch ONNX가 수학적으로 동일한 정책이다. 따라서 동일 잔해 시드(`--reuse-baseline`) 실행 간 `104/150 (69.3%)` vs `119/150 (79.3%)` 차이 및 `house_hard`(`9/10 → 6/10`) 변동은 Option 2 어댑터의 비시맨틱 성능 개선이 아니라 **동일 정책에 대한 Gazebo 물리 비결정성 분산 범위**다.
+  1. **비시맨틱 퇴행 방지를 위한 구조적 보존**: Option 2는 Phase 2-B 백본을 동결하고 `Ch1=Ch2=0`에서 잔차·쉴드를 소거해 기준 정책 출력을 보존한다(`max_abs_diff = 0.0`). `87/150 → 96/150`은 서로 다른 Gazebo 실행에서 관측된 기술통계이며, 실행 간 비결정성이 있으므로 인과적 성능 향상으로 해석하지 않는다.
+  2. **비시맨틱 구간(`Ch1=Ch2=0`) 동일 정책 및 비퇴행 실증**: `Ch1=Ch2=0` 환경에서는 Option 2 ONNX와 Phase 2-B 1-Ch ONNX가 수학적으로 동일한 정책이다. Clean 150회 동일 잔해 시드(`same_debris=150/150`) 실행에서도 두 정책 모두 엄격 무충돌 **`96/150 (64.0%)`** 으로 완전 비퇴행이 확인되었으며, 도착률(`93.3%` vs `94.0%`) 및 시나리오별 미세 차이는 **동일 정책에 대한 Gazebo 물리 비결정성 분산 범위**다.
 
 <details>
 <summary><strong>[GIF] · [PNG] Non-Regression `dynamic_gauntlet #01` 주행 증거 펼쳐보기</strong></summary>
@@ -741,9 +743,9 @@ python3 scripts/host/run_phase3_semantic_suite.py --mode record-ab
 <details>
 <summary><strong><code>recovery_params.yaml</code> 파라미터 표 펼쳐보기</strong></summary>
 
-[`config/recovery_params.yaml`](src/disaster_recovery/config/recovery_params.yaml)
+[`config/recovery_params.yaml`](src/disaster_recovery/config/recovery_params.yaml) (시뮬레이션 YAML 기준; `--params-file` 미지정 시 [`recovery_controller.py`](src/disaster_recovery/disaster_recovery/recovery_controller.py)·[`aruco_docking.py`](src/disaster_recovery/disaster_recovery/aruco_docking.py) 코드 내장 폴백 기본값 및 실차 [`config/recovery_params_real.yaml`](src/disaster_recovery/config/recovery_params_real.yaml) 값을 함께 표기)
 
-| 파라미터 | 기본값 | 의미 |
+| 파라미터 | 기본값 (`recovery_params.yaml` / 실차 YAML / 코드 폴백) | 의미 |
 | :--- | :-: | :--- |
 | `heartbeat_timeout_sec` | 3.0 | 통신 단절 판정 시간 |
 | `gas_threshold` | 0.40 | 가스 위험 판정값 (`1 − Rs/Rs_air`, ppm 아님 · 현장 보정 필요) |
@@ -751,25 +753,26 @@ python3 scripts/host/run_phase3_semantic_suite.py --mode record-ab
 | `warmup_sec` / `baseline_samples` | 60 / 100 | MQ-2 예열 시간 / 기준 측정 샘플 수 |
 | `rs_air_kohm` | 0.0 | 0보다 크면 저장된 기준값 재사용 |
 | `log_dist_threshold_m` / `log_angle_threshold_deg` | 0.30 / 25.0 | 경유지 기록 간격 (거리 / 회전) |
-| `waypoint_reach_radius_m` / `heading_tolerance_rad` | 0.10 / 0.12 | 경유지 도달 판정 반경 / 정렬 허용 각도 |
-| `linear_speed_max` / `angular_speed_max` | 0.20 / 0.65 | 복귀 속도 상한 (m/s, rad/s) |
-| `kp_linear` / `kp_angular` | 0.60 / 1.40 | 직진 / 회전 비례 제어 게인 |
-| `lidar_min_range_m` / `lidar_max_danger_range_m` | 0.12 / 0.25 | 정지 거리 구간 |
-| `lidar_fov_half_deg` | 20.0 | 전방 감시 반각 |
+| `waypoint_reach_radius_m` / `heading_tolerance_rad` | 0.10 / 0.12 (실차 `0.12 / 0.12`, 코드 폴백 `0.08 / 0.08`) | 경유지 도달 판정 반경 / 정렬 허용 각도 |
+| `linear_speed_max` / `angular_speed_max` | 0.20 / 0.65 (실차 `0.15 / 0.55`, 코드 폴백 `0.12 / 0.45`) | 복귀 속도 상한 (m/s, rad/s) |
+| `kp_linear` / `kp_angular` | 0.60 / 1.40 (실차 `0.55 / 1.30`, 코드 폴백 `0.50 / 1.20`) | 직진 / 회전 비례 제어 게인 |
+| `lidar_min_range_m` / `lidar_max_danger_range_m` | 0.12 / 0.25 (실차 `0.12 / 0.28`) | 정지 거리 구간 |
+| `lidar_fov_half_deg` | 20.0 (실차 `22.0`) | 전방 감시 반각 |
+| `local_grid_size_m` / `local_grid_res_m` / `local_grid_inflation_m` | 6.0 / 0.04 / 0.085 (실차 팽창 `0.095`) | `RollingLocalGrid` 런타임 크기(`6.0m×6.0m`) · 해상도 · 팽창 반경 |
 | `docking_start_distance_m` | 0.50 | ArUco 도킹 전환 거리 |
 | `enable_scan_matching` | true | 2D ICP 스캔 매칭 보정 활성화 |
 | `scan_match_weight` | 0.40 | 상보필터 가중치 (0 = 오도메트리만, 1 = 라이다만) |
-| `scan_match_max_dist_m` | 0.45 | ICP 매칭 발동 반경 |
+| `scan_match_max_dist_m` | 0.45 (코드 폴백 `0.40`) | ICP 매칭 발동 반경 |
 | `enable_hybrid_tracking` / `lookahead_dist_m` | true / 0.45 | Regulated Pure Pursuit 연속 추종 / 전방 주시 거리 |
-| `enable_td3_avoidance` / `td3_clearance_dist_m` | true / 0.42 | Residual TD3 국소 우회 / 장애물 회피 반경 |
-| `td3_max_avoid_steps` | 250 | TD3 우회 최대 스텝 수 (10 Hz 기준 25초) |
+| `enable_td3_avoidance` / `td3_clearance_dist_m` | true / 0.42 (코드 폴백 `0.38`) | Residual TD3 국소 우회 / 장애물 회피 반경 |
+| `td3_max_avoid_steps` | 250 (코드 폴백 `150`) | TD3 우회 최대 스텝 수 (10 Hz 기준 25초) |
 | `use_semantic_rl_policy` | false | `true` 시 Phase 3 3채널 시맨틱 RL 정책 활성화 (`false` = Phase 2-B 1채널 기본) |
 | `semantic_rl_onnx_path` | `""` | 비어 있으면 시뮬 `sim_policy_student_semantic_v3.onnx` / 실차 `real_tb3_policy_student_semantic_v3.onnx` 자동 탐색 |
-| `use_aruco_docking` | false | `true` 시 ArUco 도킹 전환 (`sim.py --yolo`는 `true` 오버라이드) |
+| `use_aruco_docking` | false (실차·코드 폴백 `true`) | `true` 시 ArUco 도킹 전환 (`sim.py --yolo`는 `true` 오버라이드) |
 | `aruco_docking_timeout_sec` | 12.0 | 제어기 측 도킹 2차 백업 타임아웃 |
 | `search_timeout_sec` (aruco_docking) | 10.0 | 마커 미감지 시 미션 완료 처리까지의 시간 |
-| `marker_size_m` / `target_dock_dist_m` | 0.10 / 0.20 | 마커 크기 / 마커 앞 정지 거리 |
-| `camera_rotation_deg` (aruco_docking) | 270 | 카메라 장착 회전 보정 |
+| `marker_size_m` / `target_dock_dist_m` | 0.10 (시뮬) · 0.05 (실차) / 0.20 | ArUco 마커 한 변 크기(시뮬 `10 cm` / 실차 `5 cm`) / 마커 앞 정지 거리 |
+| `camera_rotation_deg` (aruco_docking) | 270 (코드 폴백 `0`) | 카메라 장착 회전 보정 |
 | `alsa_device` / `sample_rate` (audio_capture_node) | `plughw:1,0` / 48000 | USB 마이크 장치 / 샘플레이트 |
 | `chunk_duration_sec` (audio_capture_node) | 0.5 | `/audio/raw` 메시지 1개 길이 |
 
@@ -790,7 +793,7 @@ Host AI 파라미터 (`host_ai_pipeline` 코드 기본값): `yolo_max_fps=15.0`,
 2. **가스 센서 미결선**: 회로 설계와 드라이버는 완료되었으나 실물 결선 전이므로 `gas_stale_triggers_recovery: false`로 둔다.
 3. **블랙박스 Wi-Fi 스트리밍 차단 미구현**: 현재는 로컬 기록만 시작한다.
 4. **통신 단절 중 신규 조난자 비전 탐지 불가 (YOLO Host 의존성)**: `host_ai_pipeline`(YOLO26n)은 Host PC에서 실행되므로, 통신 단절 이후(Return 단계) 시야에 새로 등장한 조난자를 실시간 탐지할 수 없다. 단절 직전까지 `/semantic_map/cached_objects`로 백업된 조난자·저상 장애물 좌표 유지 및 온보드 MQ-2(`/gas/level`) 실시간 가스 감지만 수행하며, 완전 단절 심부 탐지 확장을 위해서는 RPi 4 온보드 경량 비전 가속기(예: NPU/Hailo) 탑재가 필요하다.
-5. **실물 TurtleBot3 Burger Track B 필드 실증 예정**: V100 Phase 2-B(`150회 엄격 69.3% / 도착 97.3%`) 및 Phase 3 Option 2(이전 `150회 엄격 79.3% / 도착 95.3%`, 현 `415.0 KB` ONNX `Ch1=Ch2=0` `max_abs_diff = 0.0`, 10-Trial 시맨틱 A/B 엄격 무위험 `9/10` · 위반 `0회`) 검증을 완료했다. 단, 비시맨틱 입력에서 Phase 2-B와 Option 2는 정책 출력이 동일하므로 해당 150회 별도 실행 관측치를 직접적인 성능 향상 비교로 해석하지 않는다. 실물 RPi 4 온보드 환경에서의 Track B(`real_tb3_policy_student_semantic_v3.onnx`, `415.0 KB`, x86 CPU `0.124 ms`) 추론 지연 실측 및 현장 주행은 실물 결합 시험에서 수행 예정이다.
+5. **실물 TurtleBot3 Burger Track B 필드 실증 예정**: V100 Clean Phase 2-B(`150회 엄격 64.0% / 도착 93.3%`) 및 Phase 3 Option 2(`150회 엄격 64.0% / 도착 94.0%`, 현 `415.0 KB` ONNX `Ch1=Ch2=0` `max_abs_diff = 0.0`, 10-Trial 시맨틱 A/B 엄격 무위험 `9/10` · 위반 `0회`) 검증을 완료했다. 단, 비시맨틱 입력에서 Phase 2-B와 Option 2는 정책 출력이 동일하므로 해당 150회 별도 실행 관측치를 직접적인 성능 향상 비교로 해석하지 않는다. 실물 RPi 4 온보드 환경에서의 Track B(`real_tb3_policy_student_semantic_v3.onnx`, `415.0 KB`, x86 CPU `0.124 ms`) 추론 지연 실측 및 현장 주행은 실물 결합 시험에서 수행 예정이다.
 6. **절차적 환경 잔여 가스 침범률(`real_tb3` TEST 26.7%)**: PPO 쉴드 페널티·`hard_sem` 하드 배리어·`VAL/TEST` 분리·연속 `sem_prox` 적용으로 `real_tb3` `gas_hazard_free_rate`가 `60.0% → 73.3%`(Gazebo `ab10` `9/10` · 가스 위반 `0회`)로 개선되었으나, `1.8×1.8 m` 로컬 패치 시야 한계와 고정 16스텝(1.6초) 단기 윈도우 1D-TCN 문맥으로 인해 절차적 가스 회랑 테스트의 `26.7%`에서는 경계 진입이 남는다. 장기 순환 상태 추론·세계 모델·위험 민감 RL 및 Soft-CBF-QP 확장은 [`docs/Phase4_후속_연구_방향_검토_및_설계.md`](docs/Phase4_후속_연구_방향_검토_및_설계.md) 및 [`docs/Phase4_재검증_연구설계_및_구현계획.md`](docs/Phase4_재검증_연구설계_및_구현계획.md)에 정리했다.
 
 <details>
@@ -799,7 +802,7 @@ Host AI 파라미터 (`host_ai_pipeline` 코드 기본값): `yolo_max_fps=15.0`,
 | 이슈 | 해결 방법 |
 | :--- | :--- |
 | Option 2 쉴드 마스킹·`0.88` 소프트 블렌드 잔존·평가 시드 선택 편향·제어기 `has_nearby_sem` 불리언 분기 | PPO 쉴드 개입 페널티 + `hard_sem` 하드 배리어(`w_blend → 0`) + `VAL_SEEDS(10000..10119)`/`TEST_SEEDS(20000..20119)` 분리 + `recovery_controller.py` 연속 `sem_prox ∈ [0, 1]` 램프 적용 |
-| Phase 3 초기 3-Ch 미세조정(`v3`)의 비시맨틱 환경(`Ch1=Ch2=0`) 엄격 무충돌 퇴행 (`69.3% → 58.0%`) | **Option 2**(동결 Phase 2-B 백본 + Pre-Tanh Zero-Gated Residual + 후단 25-ray Safety Shield) 채택·재학습으로 `Ch1=Ch2=0`에서 `max_abs_diff = 0.0` 완전 일치 복원 및 150회 엄격 무충돌 `119/150 (79.3%)` 검증 (Phase 2-B와 동일 정책의 Gazebo 분산 범위 내) |
+| Phase 3 초기 3-Ch 미세조정(`v3`)의 비시맨틱 환경(`Ch1=Ch2=0`) 엄격 무충돌 퇴행 (`69.3% → 58.0%`) | **Option 2**(동결 Phase 2-B 백본 + Pre-Tanh Zero-Gated Residual + 후단 25-ray Safety Shield) 채택·재학습으로 `Ch1=Ch2=0`에서 `max_abs_diff = 0.0` 완전 일치 복원 및 Clean 150회 엄격 무충돌 `96/150 (64.0%)` 검증 (`phase2b_strict_clean` `96/150 (64.0%)`과 완전 비퇴행 일치) |
 | Phase 2 고정 블렌딩(`0.70·RL`)의 `house` 협소 문틀 진동·지체 | 섹터 여유 거리·협소 패스 여부 기반 **Clearance-Gated Blending** 및 `ESCAPE` 중 시계열 버퍼 유지로 재학습 없이 **`48/50 (96.0%)`**, `house` `8/10 → 9/10` |
 | Phase 1 `house` `~0.28m` 틈새 과차단 & Phase 2 RL 수렴 정체·앙상블 상쇄 | `_virtual_obstacles` `±0.03m`/9s 튜닝으로 **5대 환경 `49/50 (98.0%)`** 달성; Phase 2 V100 **`ret_norm=25` + `nav_dist` + 선택적 DAgger 증류**로 `sim`/`real_tb3` ONNX 추출 및 **공식 Gazebo S2S `47/50 (94.0%)`** 검증 완료 (`#30~#36`) |
 | 붕괴 건물 교착 및 다회차 `corr_y` 오프셋 누적 | `/recovery/reset_episode`로 에피소드 상태 초기화 및 `RollingLocalGrid(0.04m) + 2D A* + 위상 지름길 + ESCAPE` 도입 |
@@ -904,7 +907,7 @@ disaster_recovery_ws/
 │   ├── Phase4_재검증_연구설계_및_구현계획.md
 │   ├── Disaster_Recovery_TurtleBot3_Integration_Report.{md,docx}
 │   └── images/                          # 배너, 3D 쉘, A/B 그래프 & evidence[,_v3,_v4]/(3D 스냅샷·데모 GIF·Option 2 학습 곡선)
-├── benchmark_results/                   # phase2b_strict · phase3_semantic_v3 · phase3_option2 결과 JSON
+├── benchmark_results/                   # phase2b_strict_clean · phase3_option2_clean · phase3_semantic_v3 결과 JSON
 └── src/disaster_recovery/
     ├── package.xml / setup.py / setup.cfg
     ├── config/
