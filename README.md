@@ -32,9 +32,9 @@
 | 검증 항목 | 결과 | 비교 기준 |
 | :--- | :---: | :--- |
 | 15대 재난 시나리오 × 10회 **엄격 무충돌 복귀** | **`119/150` (79.3%)** · 도착 `143/150` (95.3%) | Phase 2-B `104/150` (69.3%) · Phase 3 v3 `87/150` (58.0%) · Baseline `50/150` (33.3%) |
-| 시맨틱 회피 10-Trial A/B **엄격 무위험 복귀** | **`8/10`** · 저상 충돌 `0회` · `35.27 s` | Phase 2-B Blind `0/10` · 저상 충돌 `7회` · `74.90 s` |
+| 시맨틱 회피 10-Trial A/B **엄격 무위험 복귀** | **`8/10`** · 저상 충돌 `0회` · `34.86 s` | Phase 2-B Blind `2/10` · 저상 충돌 `5회` · `56.59 s` |
 | 시맨틱 공백(`Ch1=Ch2=0`) **비퇴행 일치** | `max_abs_diff = 0.0` | 검증 입력에서 Phase 2-B 1-Ch ONNX 출력과 최대 절대 오차 0 |
-| Option 2 ONNX 크기 / CPU 추론 지연 | `414.7 KB` / `0.13 ms` | x86 CPU 실측 (RPi 4 실측은 미수행) |
+| Option 2 ONNX 크기 / CPU 추론 지연 | `412.7 KB` / `0.12 ms` | x86 CPU 실측 (RPi 4 실측은 미수행) |
 | 단위 테스트 | `56 passed` | `src/disaster_recovery/test` |
 
 > [!NOTE]
@@ -249,11 +249,11 @@ stateDiagram-v2
 
 | 단계 | 핵심 제어 구조 | 장점 (Strengths) | 단점 · 한계 (Limitations) | 동일 복합 맵(`Semantic Rescue`) 결과 |
 | :--- | :--- | :--- | :--- | :--- |
-| **Baseline**<br>(`baseline`) | 4계층 반응형 회피 + 단순 TD3 + LIFO 순차 역추적 + 2D ICP | 구조가 단순하고 연산 부하가 가장 낮음; 장애물 없는 단순 통로 직진 복귀 가능 | 전역/국소 격자 플래너(A*) 및 탈출(`ESCAPE`) 부재로 U자 함정·문틀·2차 붕괴에서 정체; 연막/동적 장애물/저상/가스 인지 불가 (`150회 엄격 33.3%`) | `도착 O` / **`저상 충돌·가스 침범 FAIL`**<br>(`low=0.222m`, `gas=0.197m`, `49.13s`) |
-| **Phase 1**<br>(`proposed`) | `RollingLocalGrid(0.04m)` 2D A* + 비파괴 위상 지름길 + `ESCAPE` | 3D 벽면·낙석 우회 및 U자 함정 탈출 정확도 급상승 (정적 장애물 강인) | LiDAR 반사 잡음(연기)과 동적 장애물 잔상에 과차단되어 멈춤; **저상 장애물·유독가스(비물리)·조난자 보호구역 Blind** | `도착 O` / **`저상 충돌 FAIL`**<br>(`low=0.201m`, `gas=0.709m`, `19.60s`) |
-| **Phase 2-A**<br>(`proposed_rl`,<br>`envelope=false`) | 1-Ch Context-RL + A* 고정/단순 블렌딩 | A* 재계획 지연 구간에서 연속 곡선 조향 가능 | 좁은 문틀·2차 붕괴 협소 통로에서 RL 조향이 A* 경로를 간섭해 진동·정체 발생; 저상/가스 Blind | **`정체 TIMEOUT + 저상 충돌 FAIL`**<br>(`low=0.213m`, `err=253.3cm`, `135.54s`) |
-| **Phase 2-B**<br>(`proposed_rl`,<br>`envelope=true`, 1-Ch) | **Layer-0 연기 각도 필터 + 동적 잔상 빠른 소거 + 안전 포락선** + 1-Ch ONNX | 2D LiDAR(`z=0.171m`) 평면에 잡히는 모든 벽·낙석·연기·이동체 회피 상위 (`150회 도착 97.3%` / `엄격 무충돌 69.3%`) | 1채널 2D LiDAR 입력만 사용하므로 **스캔 평면 아래 저상 장애물(`h<0.17m`)과 유독가스·조난자 좌표를 인지 불가** (`ab10` 10회 반복 시 엄격 무위험 `0/10`) | `도착 O` (`60.61s` 장기 우회)<br>(`low=0.340m`, `gas=0.591m`, `ab10 0/10`) |
-| **Phase 3 (Option 2)**<br>(`proposed_rl`,<br>`use_semantic=true`, 3-Ch) | **SLAM `/map` 시맨틱 캐시(`SemanticObjectCache`)** + **Frozen-Backbone Zero-Gated Residual 3-Ch ONNX** | 시맨틱 공백(`Ch1=0, Ch2=0`) 시 Phase 2-B와 **`max_abs_diff=0.0` 완전 일치** (`150회 엄격 무충돌 79.3%`) + 저상 장애물(`Ch1`)·가스/조난자(`Ch2`) 선제 회피 (`ab10 80.0%`, 저상 충돌 `0회`) | 통신 단절 직전까지 탐지·백업된 좌표는 완벽 유지하나, **단절 중 새로 나타난 조난자는 YOLO(Host) 중단으로 추가 탐지 불가** | **`최단시간 무충돌·무피폭 PASS`**<br>(`low=0.471m`, `gas=1.002m`, **`11.76s`**) |
+| **Baseline**<br>(`baseline`) | 4계층 반응형 회피 + 단순 TD3 + LIFO 순차 역추적 + 2D ICP | 구조가 단순하고 연산 부하가 가장 낮음; 장애물 없는 단순 통로 직진 복귀 가능 | 전역/국소 격자 플래너(A*) 및 탈출(`ESCAPE`) 부재로 U자 함정·문틀·2차 붕괴에서 정체; 연막/동적 장애물/저상/가스 인지 불가 (`150회 엄격 33.3%`) | **`저상 충돌 FAIL`**<br>(`low=0.187m`, `gas=0.747m`, `33.38s`) |
+| **Phase 1**<br>(`proposed`) | `RollingLocalGrid(0.04m)` 2D A* + 비파괴 위상 지름길 + `ESCAPE` | 3D 벽면·낙석 우회 및 U자 함정 탈출 정확도 급상승 (정적 장애물 강인) | LiDAR 반사 잡음(연기)과 동적 장애물 잔상에 과차단되어 멈춤; **저상 장애물·유독가스(비물리)·조난자 보호구역 Blind** | **`정체 TIMEOUT + 저상 충돌 FAIL`**<br>(`low=0.212m`, `err=233.7cm`, `135.06s`) |
+| **Phase 2-A**<br>(`proposed_rl`,<br>`envelope=false`) | 1-Ch Context-RL + A* 고정/단순 블렌딩 | A* 재계획 지연 구간에서 연속 곡선 조향 가능 | 좁은 문틀·2차 붕괴 협소 통로에서 RL 조향이 A* 경로를 간섭해 진동·정체 발생; 저상/가스 Blind | `도착 O` / **`저상 충돌·가스 침범 FAIL`**<br>(`low=0.224m`, `gas=0.186m`, `74.86s`) |
+| **Phase 2-B**<br>(`proposed_rl`,<br>`envelope=true`, 1-Ch) | **Layer-0 연기 각도 필터 + 동적 잔상 빠른 소거 + 안전 포락선** + 1-Ch ONNX | 2D LiDAR(`z=0.171m`) 평면에 잡히는 모든 벽·낙석·연기·이동체 회피 상위 (`150회 도착 97.3%` / `엄격 무충돌 69.3%`) | 1채널 2D LiDAR 입력만 사용하므로 **스캔 평면 아래 저상 장애물(`h<0.17m`)과 유독가스·조난자 좌표를 인지 불가** (`ab10` 10회 반복 시 엄격 무위험 `2/10`) | `도착 O` (`19.47s` 우회)<br>(`low=0.345m`, `gas=0.625m`, `ab10 2/10`) |
+| **Phase 3 (Option 2)**<br>(`proposed_rl`,<br>`use_semantic=true`, 3-Ch) | **SLAM `/map` 시맨틱 캐시(`SemanticObjectCache`)** + **Frozen-Backbone Zero-Gated Residual 3-Ch ONNX** | 시맨틱 공백(`Ch1=0, Ch2=0`) 시 Phase 2-B와 **`max_abs_diff=0.0` 완전 일치** + 저상 장애물(`Ch1`)·가스/조난자(`Ch2`) 선제 회피 (`ab10 80.0%`, 저상 충돌 `0회`) | 통신 단절 직전까지 탐지·백업된 좌표는 완벽 유지하나, **단절 중 새로 나타난 조난자는 YOLO(Host) 중단으로 추가 탐지 불가** | **`최단시간 무충돌·무피폭 PASS`**<br>(`low=0.470m`, `gas=0.995m`, **`11.39s`**) |
 
 ```mermaid
 flowchart LR
@@ -310,7 +310,7 @@ flowchart LR
 
 - **핵심 분석 (Option 2 비퇴행 검증 및 성능 향상 요인)**:
   1. **Phase 3 v3 퇴행 구간 완벽 복원 (`+21.3%p`, `87/150 → 119/150`)**: 기존 Phase 3 v3에서 급락했던 `house`(`1/10 → 6/10`, Phase 2-B와 동률), `house_hard`(`2/10 → 6/10`), `maze`(`8/10 → 10/10`), `maze_hard`(`4/10 → 10/10`), `smoke_lidar_corruption`(`9/10 → 10/10`), `tunnel_hard`(`9/10 → 10/10`)가 Zero-Gated Residual 구조(`Ch1=0, Ch2=0`에서 `max_abs_diff = 0.0`)를 통해 일제히 복원되었다.
-  2. **Phase 2-B Strict 대비 `+10.0%p` (`+15건`) 추가 개선**: 고정된 `phase2b_strict` 잔해 시드(`--reuse-baseline`) 재검증에서 `collapsed`(`7/10 → 10/10`), `collapsed_hard`(`8/10 → 10/10`), `collapsed_heavy`(`7/10 → 8/10`), `collapsed_heavy_hard`(`4/10 → 7/10`), `maze_hard`(`6/10 → 10/10`), `slip_chicane`(`4/10 → 9/10`)의 무충돌 통과율이 향상되어 전체 엄격 무충돌 성공률이 **`79.3%` (`119/150`)** 에 도달했다(단, Gazebo 물리 비결정성으로 인해 `house_hard`는 Phase 2-B `9/10` 대비 `6/10`, `dynamic_crossfire_alley`는 `2/10` 대비 `1/10`을 기록했다).
+  2. **비시맨틱 구간(`Ch1=0, Ch2=0`) 동일 정책 확인 및 Gazebo 분산**: `Ch1=0, Ch2=0` 환경에서는 `non_regression_max_abs_diff = 0.0`이므로 Option 2 ONNX와 Phase 2-B 1-Ch ONNX가 수학적으로 동일한 정책이다. 따라서 동일 잔해 시드(`--reuse-baseline`) 실행 간 `104/150 (69.3%)` vs `119/150 (79.3%)` 차이(및 `house_hard` `9/10 → 6/10` 변동)는 Option 2 어댑터의 비시맨틱 성능 개선이 아니라 **동일 정책에 대한 Gazebo 물리 비결정성(타이밍·접촉) 분산 범위**를 나타낸다.
 
 <details>
 <summary><strong>[GIF] · [PNG] Non-Regression `dynamic_gauntlet #01` 주행 증거 펼쳐보기</strong></summary>
@@ -333,7 +333,7 @@ flowchart LR
 | :---: | :---: |
 | <img src="docs/images/evidence/comp5_semantic_rescue_map.gif" width="100%" alt="[GIF] 5-Stage Semantic Rescue Arena Comparison"> | <img src="docs/images/evidence/comp5_semantic_rviz_coords.png" width="100%" alt="[PNG] RViz2 and YOLO26n Stamped Semantic Map Coordinates"> |
 
-- **결과 판독**: `Baseline`(`low=0.222m`, `gas=0.197m`)과 `Phase 1`(`low=0.201m`)은 저상 장애물에 충돌하고, `Phase 2-A`는 2차 낙석 뒤에서 정체 타임아웃(`135.54s`, `low=0.213m`)된다. `Phase 2-B`는 3D 낙석을 크게 돌며 `60.61s` 만에 귀환(`low=0.340m`, `gas=0.591m`)한 반면, **`Phase 3 (Option 2)`는 `/map`에 캐싱된 저상·가스 좌표를 3채널 잔차 어댑터로 반영해 충분한 안전 마진(`low=0.471m`, `gas=1.002m`)을 유지하며 `11.76s`(`5.15×` 단축) 만에 복귀(`PASS`)** 했다.
+- **결과 판독**: `Baseline`(`low=0.187m`), `Phase 1`(`low=0.212m`, 타임아웃 `135.06s`), `Phase 2-A`(`low=0.224m`, `gas=0.186m`)는 저상 장애물 충돌 또는 가스 침범으로 실패했다. `Phase 2-B`는 3D 낙석을 회피해 `19.47s` 만에 귀환(`low=0.345m`, `gas=0.625m`)한 반면, **`Phase 3 (Option 2)`는 `/map`에 캐싱된 저상·가스 좌표를 3채널 잔차 어댑터와 후단 Safety Shield로 반영해 더 넓은 안전 마진(`low=0.470m`, `gas=0.995m`)을 유지하며 `11.39s` 만에 최단시간 복귀(`PASS`)** 했다.
 
 ### 7.2 극한 3대 시나리오 5단계 비교
 
@@ -362,12 +362,12 @@ flowchart LR
 
 | 평가 지표 (`10 Trials`) | Phase 2-B Blind<br>(`use_semantic_rl_policy:=false`) | Phase 3 Option 2 Semantic-Aware<br>(`use_semantic_rl_policy:=true`) | 개선 폭 |
 | :--- | :---: | :---: | :---: |
-| **도착 성공률 (Arrival)** | `6/10` (`60.0%`) | **`8/10` (`80.0%`)** | **`+20.0%p`** |
-| **무충돌 복귀 성공률 (Collision-Free)** | `1/10` (`10.0%`) | **`8/10` (`80.0%`)** | **`+70.0%p` (`8.0×`)** |
-| **엄격 위험무관통 성공률 (Strict Hazard-Free)** | `0/10` (`0.0%`) | **`8/10` (`80.0%`)** | **`+80.0%p` (`0% → 80%`)** |
-| **저상 장애물 충돌 / 가스 구역 침범 횟수** | 저상 충돌 `7회` / 가스 침범 `6회` | **저상 충돌 `0회` / 가스 침범 `1회`** | **저상 충돌 완전 제거 (`7 → 0`)** |
-| **평균 최소 이격 (저상 장애물 / 가스 중심)** | `0.3425 m` / `0.6072 m` | **`0.5466 m` / `0.7868 m`** | **`+20.41 cm` / `+17.96 cm`** |
-| **평균 복귀 소요 시간** | `74.90 s` | **`35.27 s`** | **`2.12×` 단축 (`-39.63 s`)** |
+| **도착 성공률 (Arrival)** | `8/10` (`80.0%`) | **`8/10` (`80.0%`)** | `0.0%p` |
+| **무충돌 복귀 성공률 (Collision-Free)** | `3/10` (`30.0%`) | **`8/10` (`80.0%`)** | **`+50.0%p` (`2.67×`)** |
+| **엄격 위험무관통 성공률 (Strict Hazard-Free)** | `2/10` (`20.0%`) | **`8/10` (`80.0%`)** | **`+60.0%p` (`4.0×`)** |
+| **저상 장애물 충돌 / 가스 구역 침범 횟수** | 저상 충돌 `5회` / 가스 침범 `6회` | **저상 충돌 `0회` / 가스 침범 `1회`** | **저상 충돌 완전 제거 (`5 → 0`)** |
+| **평균 최소 이격 (저상 장애물 / 가스 중심)** | `0.2664 m` / `0.3622 m` | **`0.5591 m` / `0.7853 m`** | **`+29.27 cm` / `+42.31 cm`** |
+| **평균 복귀 소요 시간** | `56.59 s` | **`34.86 s`** | **`1.62×` 단축 (`-21.73 s`)** |
 
 | `[GIF]` Blind vs Semantic-Aware A/B 실주행 비교 | `[PNG]` 10-Trial 시맨틱 A/B 정량 비교 그래프 (`Option 2`) |
 | :---: | :---: |
@@ -415,11 +415,12 @@ Phase 2-B 1채널 격자를 **3채널 ( $12\times 12\times 3 = 432$ 셀 + 544차
 
 | 비교 항목 | 후보 1 (Option 1): Hard Channel Gating<br>(Dual-ONNX 런타임 조건부 스위칭) | 후보 2 (Option 2): Frozen Phase 2-B Backbone + Zero-Gated Residual Adapter (**최종 채택**) |
 | :--- | :--- | :--- |
-| **핵심 구조** | 제어기(`recovery_controller`)가 매 스텝 $\max(\lvert Ch_1 \rvert, \lvert Ch_2 \rvert)$ 를 검사하여 `0`이면 Phase 2-B 1-Ch ONNX를, `> 0`이면 Phase 3 3-Ch ONNX를 교차 호출 | 단일 통합 ONNX 내부에 **동결(Frozen)된 Phase 2-B 1-Ch 백본**과 **Zero-Gated Residual 시맨틱 어댑터**를 병렬 결합 (`--arch frozen_residual`) |
-| **수식 정의** | $\pi(s) = \pi_{\text{P2B}}(s_{\text{1ch}})$ ( $\lVert Ch_{1:2} \rVert_\infty = 0$ ) <br> $\pi(s) = \pi_{\text{P3}}(s_{\text{3ch}})$ (그 외) | $a = \tanh\Big(\text{atanh}\big(\pi_{\text{P2B}}(s_{\text{1ch}})\big) + g(Ch_1,Ch_2)\cdot \Delta_{\text{sem}}(s_{\text{3ch}})\Big)$ <br>단, $g(Ch_1,Ch_2) = \text{clamp}\left(\frac{\max(\lvert Ch_1 \rvert, \lvert Ch_2 \rvert)}{10^{-4}}, 0, 1\right)$ |
-| **비시맨틱 구간(`Ch1=0, Ch2=0`) 비퇴행성** | 1-Ch ONNX를 직접 실행하므로 일치 (`max_abs_diff = 0.0`) | 게이트 $g(0,0) = 0$ 이 되어 잔차 항이 정확히 소거되므로 **단일 ONNX 내부에서 수학적으로 완전 일치 (`non_regression_max_abs_diff = 0.0`)** |
-| **시맨틱 경계 진입·이탈 연속성** | **불연속 (치명적 한계)**: 로컬 코스트맵( $1.8\times 1.8\text{ m}$ ) 경계에 저상 장애물·가스가 걸칠 때마다 서로 다른 잠재 표현을 가진 두 정책 간 **하드 스위칭 채터링(조향 급변)** 발생 | **연속·일관성 유지**: 시맨틱 위험 구간( $g=1$ )에서도 동결된 Phase 2-B 백본이 기저 벽면·문틀 정렬 조향( $\text{atanh}(\pi_{\text{P2B}})$ )을 계속 담당하고, 어댑터는 시맨틱 회피에 필요한 잔차( $\Delta_{\text{sem}}$ )만 연속 가산 |
-| **배포 복잡도** | 런타임에 ONNX 세션 2개 동시 로드 및 모드 전환 관리 필요 | **단일 ONNX 파일 (`414.7 KB`, CPU 추론 `0.13 ms`)** 로 드롭인 교체 |
+| **핵심 구조** | 제어기(`recovery_controller`)가 매 스텝 $\max(\lvert Ch_1 \rvert, \lvert Ch_2 \rvert)$ 를 검사하여 `0`이면 Phase 2-B 1-Ch ONNX를, `> 0`이면 Phase 3 3-Ch ONNX를 교차 호출 | 단일 통합 ONNX 내부에 **동결(Frozen)된 Phase 2-B 1-Ch 백본** + **Zero-Gated Pre-Tanh Residual 어댑터** + **후단 `SemanticCorridorSafetyHead` 안전 쉴드** 를 2단 직렬 결합 (`--arch frozen_residual`) |
+| **수식 정의** | $\pi(s) = \pi_{\text{P2B}}(s_{\text{1ch}})$ ( $\lVert Ch_{1:2} \rVert_\infty = 0$ ) <br> $\pi(s) = \pi_{\text{P3}}(s_{\text{3ch}})$ (그 외) | $a_{\text{cand}} = \text{scale}\big(\tanh(z_{\text{P2B}}(s_{\text{1ch}}) + g_{\text{res}} \cdot \Delta_{\text{sem}}(s_{\text{sem}}))\big)$ <br> $a_{\text{final}} = \mathcal{S}_{\text{safe}}(s, a_{\text{cand}}, g_{\text{safe}})$ (후단 25-ray 코리더 쉴드) |
+| **이중 게이트** | $\max(\lvert Ch_1 \rvert, \lvert Ch_2 \rvert) = 0$ 이진 스위칭 | **잔차 게이트(전방위 패치 피크)**: $g_{\text{res}} = \text{clamp}((\max(\lvert Ch_1 \rvert, \lvert Ch_2 \rvert) - 10^{-4})/0.04, 0, 1)$ <br> **쉴드 게이트(전방 코리더 비용)**: $g_{\text{safe}} = \text{clamp}((\max(c_{\text{sem}}) - 0.08)/0.14, 0, 1) \cdot \text{scale\_gate}$ |
+| **비시맨틱 구간(`Ch1=0, Ch2=0`) 비퇴행성** | 1-Ch ONNX를 직접 실행하므로 일치 (`max_abs_diff = 0.0`) | $g_{\text{res}} = g_{\text{safe}} = 0$ 이 되어 잔차·쉴드와 시맨틱 기울기가 모두 소거되므로 **단일 ONNX 내부에서 수학적으로 완전 일치 (`non_regression_max_abs_diff = 0.0`)** |
+| **시맨틱 경계 진입·이탈 연속성** | **불연속 (치명적 한계)**: 로컬 코스트맵( $1.8\times 1.8\text{ m}$ ) 경계에 저상 장애물·가스가 걸칠 때마다 서로 다른 잠재 표현을 가진 두 정책 간 **하드 스위칭 채터링(조향 급변)** 발생 | **연속·일관성 유지**: 시맨틱 구간에서도 `pre-tanh` 공간 연속 램프로 잔차를 가산하고 후단 25-ray 쉴드가 제동·회피를 보정한다(단, 상위 제어기 `recovery_controller.py`의 `has_nearby_sem` 불리언 분기는 별도 존재) |
+| **배포 복잡도** | 런타임에 ONNX 세션 2개 동시 로드 및 모드 전환 관리 필요 | **단일 ONNX 파일 (`412.7 KB`, CPU 추론 `0.12 ms`)** 로 드롭인 교체 |
 | **최종 결정** | ❌ **기각** (경계 스위칭 불연속 및 이중 모델 관리 한계) | ✅ **채택** (수학적 비퇴행 보장 + 단일 네트워크 연속 잔차 제어) |
 
 ### 9.3 Option 2 V100 Dual-Track 학습 및 ONNX 검증
@@ -428,10 +429,10 @@ Phase 2-B 1채널 격자를 **3채널 ( $12\times 12\times 3 = 432$ 셀 + 544차
 
 | 트랙 (ONNX 모델) | 크기 / 아키텍처 | `Ch1=0, Ch2=0`<br>`max_abs_diff` | Unseen SR | Base-6 SR | Dropout Fallback SR | Semantic-2 SR | Low-Obs Contact-Free | Gas Hazard-Free / Victim Corridor | CPU 추론 지연 (mean / p95) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **`sim`**<br>([`sim_policy_student_semantic_v3.onnx`](src/disaster_recovery/config/sim_policy_student_semantic_v3.onnx)) | `414.7 KB`<br>`frozen_residual` | **`0.0`** | **`98.3%`** | **`98.9%`** | **`98.3%`** | **`96.7%`** | **`100.0%`** | `60.0%` / **`93.3%`** | **`0.1325 ms`** / `0.1471 ms` |
-| **`real_tb3`**<br>([`real_tb3_policy_student_semantic_v3.onnx`](src/disaster_recovery/config/real_tb3_policy_student_semantic_v3.onnx)) | `414.7 KB`<br>`frozen_residual` | **`0.0`** | **`95.8%`** | **`96.7%`** | **`97.5%`** | **`93.3%`** | **`86.7%`** | `26.7%`* / **`100.0%`** | **`0.1295 ms`** / `0.1402 ms` |
+| **`sim`**<br>([`sim_policy_student_semantic_v3.onnx`](src/disaster_recovery/config/sim_policy_student_semantic_v3.onnx)) | `412.7 KB`<br>`frozen_residual` | **`0.0`** | **`96.7%`** | **`97.8%`** | **`97.5%`** | **`93.3%`** | **`86.7%`** | **`73.3%`** / **`100.0%`** | **`0.1184 ms`** / `0.1332 ms` |
+| **`real_tb3`**<br>([`real_tb3_policy_student_semantic_v3.onnx`](src/disaster_recovery/config/real_tb3_policy_student_semantic_v3.onnx)) | `412.7 KB`<br>`frozen_residual` | **`0.0`** | **`93.3%`** | **`93.3%`** | **`95.8%`** | **`93.3%`** | **`93.3%`** | **`60.0%`** / **`86.7%`** | **`0.1173 ms`** / `0.1252 ms` |
 
-> *주: `real_tb3` 트랙은 강한 바닥 마찰 변이·슬립 도메인 무작위화 환경에서 체크포인트 선정 기준(`unseen_sr`)이 타임아웃 방지를 위한 전진 돌파를 우선함에 따라 절차적 Holdout 내 `gas_hazard_free_rate`가 `26.7%`(`seed 202` 최고 `60.0%`)로 `sim` 트랙(`60.0%`, Gazebo `ab10` 실증 `90.0%` 가스 무침범) 대비 보수적 트레이드오프를 보인다.*
+> *주: 학습 중 체크포인트 선정과 최종 Holdout 평가가 동일한 120개 절차적 시드(`EVAL_SEEDS = 10000..10119`)를 사용하므로 위 Holdout 지표에는 선택 편향(selection bias)이 포함될 수 있다. 독립 물리 검증은 §8 Gazebo `ab10` (`8/10` 엄격 무위험) 및 §7.1 `comp5` (`11.39s` PASS)를 참조한다.*
 
 | `[PNG]` Option 2 V100 `sim` 트랙 학습 곡선 | `[PNG]` Option 2 V100 `real_tb3` 트랙 학습 곡선 | `[PNG]` Option 2 Final Student 3D Rollout (`PASS`) |
 | :---: | :---: | :---: |
@@ -756,8 +757,8 @@ Host AI 파라미터 (`host_ai_pipeline` 코드 기본값): `yolo_max_fps=15.0`,
 2. **가스 센서 미결선**: 회로 설계와 드라이버는 완료되었으나 실물 결선 전이므로 `gas_stale_triggers_recovery: false`로 둔다.
 3. **블랙박스 Wi-Fi 스트리밍 차단 미구현**: 현재는 로컬 기록만 시작한다.
 4. **통신 단절 중 신규 조난자 비전 탐지 불가 (YOLO Host 의존성)**: `host_ai_pipeline`(YOLO26n)은 Host PC에서 실행되므로, 통신 단절 이후(Return 단계) 시야에 새로 등장한 조난자를 실시간 탐지할 수 없다. 단절 직전까지 `/semantic_map/cached_objects`로 백업된 조난자·저상 장애물 좌표 유지 및 온보드 MQ-2(`/gas/level`) 실시간 가스 감지만 수행하며, 완전 단절 심부 탐지 확장을 위해서는 RPi 4 온보드 경량 비전 가속기(예: NPU/Hailo) 탑재가 필요하다.
-5. **실물 TurtleBot3 Burger Track B 필드 실증 예정**: V100 Phase 2-B(`150회 엄격 69.3% / 도착 97.3%`) 및 Phase 3 Option 2(`150회 엄격 79.3% / 도착 95.3%`, 10-Trial 시맨틱 A/B 엄격 무위험 `80.0%`) 검증을 완료했으며, 실물 RPi 4 온보드 환경에서의 Track B(`real_tb3_policy_student_semantic_v3.onnx`, `414.7 KB`, x86 CPU `0.130 ms`) 추론 지연 실측 및 현장 주행은 실물 결합 시험에서 수행 예정이다.
-6. **Phase 3 `real_tb3` 트랙 슬립-가스 회피 트레이드오프**: `sim` 트랙은 Holdout `gas_victim_corridor 93.3%`(`gas_hazard_free_rate 60.0%`) 및 Gazebo `ab10` 저상 충돌 `0회` / 가스 침범 `1/10`을 달성했으나, 강한 슬립이 부여된 `real_tb3` 트랙은 타임아웃 방지를 위한 전진 돌파를 우선함에 따라 Holdout `gas_hazard_free_rate`가 `26.7%`(`gas_victim_corridor` 도착률 `100.0%`)로 후속 다목적 체크포인트 선정(`unseen_sr + gas_hazard_free_rate`) 고도화 여지가 남아 있다.
+5. **실물 TurtleBot3 Burger Track B 필드 실증 예정**: V100 Phase 2-B(`150회 엄격 69.3% / 도착 97.3%`) 및 Phase 3 Option 2(`150회 엄격 79.3% / 도착 95.3%`, 10-Trial 시맨틱 A/B 엄격 무위험 `80.0%`) 검증을 완료했으며, 실물 RPi 4 온보드 환경에서의 Track B(`real_tb3_policy_student_semantic_v3.onnx`, `412.7 KB`, x86 CPU `0.117 ms`) 추론 지연 실측 및 현장 주행은 실물 결합 시험에서 수행 예정이다.
+6. **Phase 3 잔여 가스 침범률(`real_tb3` 40.0%) 및 제어기 이산 분기**: 후단 Safety Shield 배치 및 복합 체크포인트 선정으로 `real_tb3` `gas_hazard_free_rate`가 `26.7% → 60.0%`로 개선되었으나, 로컬 패치($1.8 \times 1.8\,\text{m}$) 시야 한계, `0.88` 소프트 블렌딩 잔존(12%), 쉴드 개입 페널티 부재로 40.0% 가스 경계 침범이 남는다. 또한 상위 제어기 `recovery_controller.py`의 `has_nearby_sem` 불리언 분기(`eff_max_alpha: 0.70→0.82`, 슬루율 `0.15→0.25`, 반대 조향 가드 해제)는 별도 이산 전환으로 남아 있다.
 
 <details>
 <summary><strong>해결된 이슈 (25건) 펼쳐보기</strong></summary>

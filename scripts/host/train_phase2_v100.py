@@ -78,7 +78,7 @@ class SemanticCorridorSafetyHead(nn.Module):
     Ch 1 & Ch 2 are zero (Modality Dropout / Base-6 regimes) or when sem_kernel_scale == 0.0.
     """
 
-    def __init__(self, num_rays: int = 25):
+    def __init__(self, num_rays: int = 25, persistent_gate: bool = False):
         super().__init__()
         m = int(num_rays)
         phi = torch.linspace(-1.55, 1.55, m, dtype=torch.float32)
@@ -117,7 +117,7 @@ class SemanticCorridorSafetyHead(nn.Module):
         )
         self.register_buffer("k_ch1_t", k_ch1.T.contiguous(), persistent=False)  # (144, M)
         self.register_buffer("k_ch2_t", k_ch2.T.contiguous(), persistent=False)  # (144, M)
-        self.register_buffer("scale_gate", torch.zeros(1, dtype=torch.float32), persistent=False)
+        self.register_buffer("scale_gate", torch.zeros(1, dtype=torch.float32), persistent=bool(persistent_gate))
 
     def set_scale(self, scale: float) -> None:
         self.scale_gate.fill_(float(scale))
@@ -165,7 +165,8 @@ class SemanticCorridorSafetyHead(nn.Module):
         front_brake = torch.sigmoid((0.24 - front_min) * 80.0)
         v_raw = torch.clamp(0.18 - 0.10 * (phi_opt.abs() / 1.55), min=0.07, max=0.18)
         v_reflex = (1.0 - front_brake) * v_raw + front_brake * torch.clamp(v_raw, max=0.04)
-        v_out = (1.0 - sem_gate) * base_act[:, 0] + sem_gate * v_reflex
+        v_blend = 0.88 * sem_gate * (1.0 - front_brake) + sem_gate * front_brake
+        v_out = (1.0 - v_blend) * base_act[:, 0] + v_blend * v_reflex
         return torch.stack(
             [torch.clamp(v_out, TB3_MIN_V, TB3_MAX_V), torch.clamp(w_out, -TB3_MAX_W, TB3_MAX_W)],
             dim=-1,
@@ -418,23 +419,24 @@ def load_phase2b_student_weights_from_onnx(base_student: _BaseDistilledEdgeStude
 class FrozenBackboneSemanticTeacher(nn.Module):
     """
     Option 2 Architecture (Teacher): Frozen Phase 2-B 1-Ch Teacher Backbone +
-    Zero-Gated Residual Semantic Adapter + Trainable Semantic Critic.
-    Guarantees bit-exact Phase 2-B invariance whenever Ch 1 & Ch 2 are absent (0).
+    Zero-Gated Pre-Tanh Residual Semantic Adapter + Post-Residual SemanticCorridorSafetyHead.
+    Guarantees exact Phase 2-B parity and zero semantic actor/critic gradients whenever Ch 1 & Ch 2 are 0.
     """
 
     def __init__(self, hidden_dim: int = 128, patch_channels: int = 3):
         super().__init__()
         self.hidden_dim = int(hidden_dim)
         self.patch_channels = int(patch_channels)
+        self.sem_channels = max(1, self.patch_channels - 1)
         self.base = _BaseTemporalContextActorCritic(hidden_dim=self.hidden_dim)
         for p in self.base.parameters():
             p.requires_grad_(False)
         self.base.eval()
 
         fused_dim = STEP_FEAT_DIM + self.hidden_dim + 48
-        self.sem_safety_head = SemanticCorridorSafetyHead()
+        self.sem_safety_head = SemanticCorridorSafetyHead(persistent_gate=True)
         self.sem_spatial = nn.Sequential(
-            nn.Conv2d(self.patch_channels, 12, kernel_size=3, padding=1),
+            nn.Conv2d(self.sem_channels, 12, kernel_size=3, padding=1),
             nn.ReLU(),
             nn.Conv2d(12, 24, kernel_size=3, stride=2, padding=1),
             nn.ReLU(),
@@ -532,41 +534,41 @@ class FrozenBackboneSemanticTeacher(nn.Module):
         b = obs_hist.shape[0]
         with torch.no_grad():
             base_fused = self.base.encode(obs_hist, aligned_patch[:, 0:1, :, :])
-            base_mean_pre = torch.clamp(self.base.actor_net(base_fused), -3.5, 3.5)
-            base_act = scale_raw_action(torch.tanh(base_mean_pre))
+            base_pre = self.base.actor_net(base_fused)
 
-        safe_act = self.sem_safety_head(obs_hist, aligned_patch, base_act)
-        sem_feat = self.sem_spatial(aligned_patch)
-
-        ch12_peak = aligned_patch[:, 1:, :, :].reshape(b, -1).max(dim=1).values
+        sem_patch = aligned_patch[:, 1:, :, :]
+        ch12_peak = sem_patch.abs().reshape(b, -1).max(dim=1).values
         sem_gate = torch.clamp((ch12_peak - 1e-4) / 0.04, 0.0, 1.0).unsqueeze(-1)
+        sem_feat = sem_gate * self.sem_spatial(sem_patch)
 
-        v_mid = 0.5 * (TB3_MIN_V + TB3_MAX_V)
-        v_half = 0.5 * (TB3_MAX_V - TB3_MIN_V)
-        raw_s = torch.stack(
-            [
-                torch.clamp((safe_act[:, 0] - v_mid) / v_half, -0.999, 0.999),
-                torch.clamp(safe_act[:, 1] / TB3_MAX_W, -0.999, 0.999),
-            ],
-            dim=-1,
-        )
-        safe_pre = 0.5 * torch.log((1.0 + raw_s) / (1.0 - raw_s))
-        res_pre = torch.clamp(self.sem_res_mlp(torch.cat([base_fused, sem_feat, safe_act], dim=-1)), -2.5, 2.5)
-        mean_pre = torch.clamp(safe_pre + sem_gate * res_pre, -3.5, 3.5)
+        res_pre = 2.5 * torch.tanh(self.sem_res_mlp(torch.cat([base_fused, sem_feat, base_pre], dim=-1)))
+        cand_pre = base_pre + sem_gate * res_pre
         value = self.critic_net(torch.cat([base_fused, sem_feat], dim=-1)).squeeze(-1)
-        return mean_pre, value
+        return cand_pre, value
+
+    def apply_safety_shield(
+        self,
+        obs_hist: torch.Tensor,
+        local_patch: torch.Tensor,
+        raw_action: torch.Tensor,
+    ) -> torch.Tensor:
+        aligned_patch = self._align_patch_channels(local_patch)
+        return self.sem_safety_head(obs_hist, aligned_patch, raw_action)
 
     def forward_base(self, obs_hist: torch.Tensor, local_patch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         aligned_patch = self._align_patch_channels(local_patch)
         with torch.no_grad():
             base_fused = self.base.encode(obs_hist, aligned_patch[:, 0:1, :, :])
-            base_act = scale_raw_action(torch.tanh(torch.clamp(self.base.actor_net(base_fused), -3.5, 3.5)))
+            base_act = scale_raw_action(torch.tanh(self.base.actor_net(base_fused)))
             base_val = self.base.critic_net(base_fused).squeeze(-1)
         return base_act, base_val
 
     def forward(self, obs_hist: torch.Tensor, local_patch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        mean_pre, value = self._compute_mean_pre_and_value(obs_hist, local_patch)
-        return scale_raw_action(torch.tanh(mean_pre)), value
+        aligned_patch = self._align_patch_channels(local_patch)
+        cand_pre, value = self._compute_mean_pre_and_value(obs_hist, aligned_patch)
+        cand_act = scale_raw_action(torch.tanh(cand_pre))
+        safe_act = self.sem_safety_head(obs_hist, aligned_patch, cand_act)
+        return safe_act, value
 
     def get_action_and_value(
         self,
@@ -575,7 +577,8 @@ class FrozenBackboneSemanticTeacher(nn.Module):
         action_taken: Optional[torch.Tensor] = None,
         deterministic: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        mean_pre, value = self._compute_mean_pre_and_value(obs_hist, local_patch)
+        cand_pre, value = self._compute_mean_pre_and_value(obs_hist, local_patch)
+        mean_pre = torch.clamp(cand_pre, -3.5, 3.5)
         std = torch.exp(torch.clamp(self.log_std, -2.8, -0.2)).unsqueeze(0)
         dist = torch.distributions.Normal(mean_pre, std)
 
@@ -601,13 +604,14 @@ class FrozenBackboneSemanticTeacher(nn.Module):
 class FrozenBackboneSemanticStudent(nn.Module):
     """
     Option 2 Architecture (ONNX Edge Student): Frozen Phase 2-B 1-Ch Student Weights +
-    Zero-Gated Residual Semantic Adapter + Differentiable SemanticCorridorSafetyHead.
-    Whenever Ch 1 & Ch 2 are 0, outputs match Phase 2-B 1-Ch Student ONNX identically.
+    Zero-Gated Pre-Tanh Residual Semantic Adapter + Post-Residual SemanticCorridorSafetyHead.
+    Matches Teacher pre-tanh composition and matches Phase 2-B 1-Ch Student ONNX identically whenever Ch 1 & Ch 2 are 0.
     """
 
     def __init__(self, patch_channels: int = 3, base_onnx_path: Optional[str] = None):
         super().__init__()
         self.patch_channels = int(patch_channels)
+        self.sem_channels = max(1, self.patch_channels - 1)
         self.flat_input_dim = compute_flat_input_dim(self.patch_channels)
         self.base = _BaseDistilledEdgeStudent(patch_channels=1)
         if base_onnx_path and os.path.exists(base_onnx_path):
@@ -616,9 +620,9 @@ class FrozenBackboneSemanticStudent(nn.Module):
             p.requires_grad_(False)
         self.base.eval()
 
-        self.sem_safety_head = SemanticCorridorSafetyHead()
+        self.sem_safety_head = SemanticCorridorSafetyHead(persistent_gate=True)
         self.sem_spatial = nn.Sequential(
-            nn.Conv2d(self.patch_channels, 12, kernel_size=3, padding=1),
+            nn.Conv2d(self.sem_channels, 12, kernel_size=3, padding=1),
             nn.ReLU(),
             nn.Conv2d(12, 16, kernel_size=3, stride=2, padding=1),
             nn.ReLU(),
@@ -675,31 +679,21 @@ class FrozenBackboneSemanticStudent(nn.Module):
         base_t_feat = self.base.tcn(hist.transpose(1, 2))
         base_s_feat = self.base.spatial(patch[:, 0:1, :, :])
         cur = hist[:, -1, :]
-        base_out_pre = self.base.head(torch.cat([cur, base_t_feat, base_s_feat], dim=-1))
-        base_act = scale_raw_action(torch.tanh(base_out_pre))
+        base_pre = self.base.head(torch.cat([cur, base_t_feat, base_s_feat], dim=-1))
 
         if self.patch_channels < 3:
-            return base_act
+            return scale_raw_action(torch.tanh(base_pre))
 
-        ch12_peak = patch[:, 1:, :, :].reshape(b, -1).max(dim=1).values
+        sem_patch = patch[:, 1:, :, :]
+        ch12_peak = sem_patch.abs().reshape(b, -1).max(dim=1).values
         sem_gate = torch.clamp((ch12_peak - 1e-4) / 0.04, 0.0, 1.0).unsqueeze(-1)
-        safe_act = self.sem_safety_head(hist, patch, base_act)
+        sem_feat = sem_gate * self.sem_spatial(sem_patch)
 
-        sem_feat = self.sem_spatial(patch)
-        res_in = torch.cat([cur, base_t_feat, base_s_feat, sem_feat, safe_act], dim=-1)
-        res_raw = self.sem_res_head(res_in)
-        res_delta = torch.stack(
-            [0.14 * torch.tanh(res_raw[:, 0]), 0.60 * torch.tanh(res_raw[:, 1])],
-            dim=-1,
-        )
-        out = safe_act + sem_gate * res_delta
-        return torch.stack(
-            [
-                torch.clamp(out[:, 0], TB3_MIN_V, TB3_MAX_V),
-                torch.clamp(out[:, 1], -TB3_MAX_W, TB3_MAX_W),
-            ],
-            dim=-1,
-        )
+        res_in = torch.cat([cur, base_t_feat, base_s_feat, sem_feat, base_pre], dim=-1)
+        res_pre = 2.5 * torch.tanh(self.sem_res_head(res_in))
+        cand_pre = base_pre + sem_gate * res_pre
+        cand_act = scale_raw_action(torch.tanh(cand_pre))
+        return self.sem_safety_head(hist, patch, cand_act)
 
 
 def export_student_onnx(
@@ -1325,6 +1319,8 @@ def train_teacher_seed(
 
     history: List[Dict[str, object]] = []
     best_unseen_sr = -1.0
+    peak_unseen_sr = -1.0
+    best_sem_score = -1.0
     best_base_6_sr = 0.0
     best_dropout_fallback_sr = 0.0
     best_semantic_2_sr = 0.0
@@ -1381,7 +1377,12 @@ def train_teacher_seed(
                 logp_buf[t] = log_prob
                 val_buf[t] = value
 
-                obs_next, patch_next, rewards, dones, info = env.step(action)
+                env_action = (
+                    model.apply_safety_shield(obs_hist, local_patch, action)
+                    if hasattr(model, "apply_safety_shield")
+                    else action
+                )
+                obs_next, patch_next, rewards, dones, info = env.step(env_action)
                 rew_buf[t] = rewards
                 done_buf[t] = dones.float()
                 total_steps += num_envs
@@ -1541,12 +1542,25 @@ def train_teacher_seed(
             }
             history.append(rec)
 
-            improved = (
-                unseen_sr > best_unseen_sr + 0.002
-                or (abs(unseen_sr - best_unseen_sr) <= 0.002 and (abs(gen_gap) < abs(best_gap) or float(ev["mean_return"]) > best_ret + 1.0))
-            )
+            peak_unseen_sr = max(peak_unseen_sr, unseen_sr)
+            if env.patch_channels >= 3 and env.use_semantic_channels:
+                cand_sem_score = unseen_sr + 0.15 * low_obs_cf + 0.12 * gas_haz_cf
+                improved = (unseen_sr >= peak_unseen_sr - 0.025) and (
+                    cand_sem_score > best_sem_score + 0.002
+                    or (
+                        abs(cand_sem_score - best_sem_score) <= 0.002
+                        and (abs(gen_gap) < abs(best_gap) or float(ev["mean_return"]) > best_ret + 1.0)
+                    )
+                )
+            else:
+                cand_sem_score = unseen_sr
+                improved = (
+                    unseen_sr > best_unseen_sr + 0.002
+                    or (abs(unseen_sr - best_unseen_sr) <= 0.002 and (abs(gen_gap) < abs(best_gap) or float(ev["mean_return"]) > best_ret + 1.0))
+                )
             if improved:
                 best_unseen_sr = unseen_sr
+                best_sem_score = cand_sem_score
                 best_base_6_sr = base_6_sr
                 best_dropout_fallback_sr = dropout_fb_sr
                 best_semantic_2_sr = sem_2_sr
@@ -1776,10 +1790,9 @@ def distill_ensemble_to_onnx(
                 idx = p_tr[start : start + 2048]
                 xb = x_all[idx].to(device)
                 yb = y_all[idx].to(device)
-                # Data augmentation: slight Gaussian input jitter on LiDAR channels during distillation
+                # Data augmentation: slight Gaussian input jitter on LiDAR history during distillation
                 xb_aug = xb.clone()
-                if not use_frozen_res:
-                    xb_aug[:, : HISTORY_LEN * STEP_FEAT_DIM] += torch.randn_like(xb_aug[:, : HISTORY_LEN * STEP_FEAT_DIM]) * 0.008
+                xb_aug[:, : HISTORY_LEN * STEP_FEAT_DIM] += torch.randn_like(xb_aug[:, : HISTORY_LEN * STEP_FEAT_DIM]) * 0.008
                 pred = student(xb_aug)
                 # Normalize action scale: v range 0.30, w range 1.30
                 scale = torch.tensor([1.0 / 0.30, 1.0 / 1.30], device=device)

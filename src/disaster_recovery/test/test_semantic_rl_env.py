@@ -598,27 +598,63 @@ def test_frozen_residual_option2_exact_phase2b_parity_and_semantic_grad():
 
     assert all(not p.requires_grad for p in opt2_teacher.base.parameters())
     assert any(p.requires_grad for p in opt2_teacher.sem_res_mlp.parameters())
+    # Verify persistent scale_gate survives state_dict serialization
+    assert "sem_safety_head.scale_gate" in opt2_teacher.state_dict()
+    reloaded_teacher = FrozenBackboneSemanticTeacher(hidden_dim=128, patch_channels=3).to(device)
+    reloaded_teacher.load_state_dict(opt2_teacher.state_dict())
+    assert float(reloaded_teacher.sem_safety_head.scale_gate.item()) == 1.0
 
     obs_hist = torch.randn((8, HISTORY_LEN, STEP_FEAT_DIM), dtype=torch.float32, device=device)
     patch_zero12 = torch.zeros((8, 3, PATCH_SIZE, PATCH_SIZE), dtype=torch.float32, device=device)
     patch_zero12[:, 0:1, :, :] = torch.rand((8, 1, PATCH_SIZE, PATCH_SIZE), dtype=torch.float32)
 
+    # Zero-gate must prevent ANY semantic actor/critic gradients on Ch1=Ch2=0
+    opt2_teacher.train()
+    opt2_teacher.zero_grad(set_to_none=True)
+    with torch.no_grad():
+        torch.nn.init.normal_(opt2_teacher.sem_res_mlp[-1].weight, mean=0.0, std=0.02)
+    act_zero_tr, val_zero_tr = opt2_teacher(obs_hist, patch_zero12)
+    (act_zero_tr.sum() + val_zero_tr.sum()).backward()
+    for mod in (opt2_teacher.sem_spatial, opt2_teacher.sem_res_mlp):
+        for p in mod.parameters():
+            assert p.grad is None or float(p.grad.abs().max().item()) == 0.0
+
+    # Even with non-zero residual weights, Ch1=Ch2=0 outputs must match base_teacher bit-exactly
+    opt2_teacher.eval()
     with torch.no_grad():
         base_act_1ch, _ = base_teacher(obs_hist, patch_zero12[:, 0:1])
         opt2_act_zero, _ = opt2_teacher(obs_hist, patch_zero12)
-    assert torch.allclose(base_act_1ch, opt2_act_zero, atol=1e-5)
+    assert torch.allclose(base_act_1ch, opt2_act_zero, atol=1e-6)
 
-    # Zero-gate must prevent semantic gradients on Ch1=Ch2=0 while allowing active gradients on Ch1/Ch2 > 0
+    # Active Ch1/Ch2 > 0 must propagate non-zero gradients into sem_spatial and sem_res_mlp
     opt2_teacher.train()
+    opt2_teacher.zero_grad(set_to_none=True)
     patch_sem = patch_zero12.clone()
     patch_sem[:, 1:3, 4:8, 4:8] = 0.85
-    with torch.no_grad():
-        torch.nn.init.normal_(opt2_teacher.sem_res_mlp[-1].weight, mean=0.0, std=0.02)
     act_sem, val_sem = opt2_teacher(obs_hist, patch_sem)
     (act_sem.sum() + val_sem.sum()).backward()
     assert opt2_teacher.sem_spatial[0].weight.grad is not None
     assert float(opt2_teacher.sem_spatial[0].weight.grad.abs().sum().item()) > 0.0
+    assert opt2_teacher.sem_res_mlp[-1].weight.grad is not None
+    assert float(opt2_teacher.sem_res_mlp[-1].weight.grad.abs().sum().item()) > 0.0
     assert all(p.grad is None for p in opt2_teacher.base.parameters())
+
+    # Post-residual Safety Shield check: adversarial forward residual must still be slowed when forward hazard is active
+    obs_haz = torch.zeros((1, HISTORY_LEN, STEP_FEAT_DIM), dtype=torch.float32, device=device)
+    obs_haz[:, :, :24] = 1.0  # clear 2D LiDAR
+    obs_haz[:, :, 26] = 1.0   # goal straight ahead
+    patch_fwd_haz = torch.zeros((1, 3, PATCH_SIZE, PATCH_SIZE), dtype=torch.float32, device=device)
+    patch_fwd_haz[:, 1, 7:10, 5:7] = 1.0  # Ch1 low obstacle directly ahead
+    with torch.no_grad():
+        # Force residual to try driving straight ahead full speed
+        adv_teacher = FrozenBackboneSemanticTeacher(hidden_dim=128, patch_channels=3).to(device)
+        adv_teacher.load_warm_start(base_teacher)
+        adv_teacher.sem_res_mlp[-1].bias.copy_(torch.tensor([5.0, 0.0]))
+        adv_teacher.enable_semantic_kernel(0.0)
+        unshielded_v = float(adv_teacher(obs_haz, patch_fwd_haz)[0][0, 0].item())
+        adv_teacher.enable_semantic_kernel(1.0)
+        shielded_act = adv_teacher(obs_haz, patch_fwd_haz)[0]
+        assert abs(float(shielded_act[0, 1].item())) > 0.05 or float(shielded_act[0, 0].item()) < unshielded_v
 
     # Student ONNX exact parity check against Phase 2-B sim_policy_student.onnx
     base_onnx = os.path.join(WS_ROOT, "src", "disaster_recovery", "config", "sim_policy_student.onnx")
@@ -631,6 +667,7 @@ def test_frozen_residual_option2_exact_phase2b_parity_and_semantic_grad():
         torch.nn.init.normal_(opt2_student.sem_res_head[-1].weight, mean=0.0, std=0.05)
     opt2_student.eval()
     assert all(not p.requires_grad for p in opt2_student.base.parameters())
+    assert "sem_safety_head.scale_gate" in opt2_student.state_dict()
 
     with tempfile.TemporaryDirectory() as tmpdir:
         out_onnx = os.path.join(tmpdir, "opt2_test.onnx")
@@ -647,5 +684,5 @@ def test_frozen_residual_option2_exact_phase2b_parity_and_semantic_grad():
         y_opt2_zero = opt2_sess.run(None, {opt2_sess.get_inputs()[0].name: flat_3_zero})[0]
         y_opt2_sem = opt2_sess.run(None, {opt2_sess.get_inputs()[0].name: flat_3_sem})[0]
 
-        assert float(np.max(np.abs(y_opt2_zero - y_base))) < 1e-5
+        assert float(np.max(np.abs(y_opt2_zero - y_base))) < 1e-6
         assert float(np.max(np.abs(y_opt2_sem - y_base))) > 1e-3
