@@ -425,7 +425,7 @@ Phase 2-B 1채널 격자를 3채널(`12×12×3 = 432`셀 + 544차원 시계열 �
 Teacher(`FrozenBackboneSemanticTeacher`)와 배포 ONNX Student(`FrozenBackboneSemanticStudent`)는 `atanh` 왕복 없이 동일한 `pre-tanh` 잔차 합성 및 후단 Safety Shield 구조를 사용한다 ([`train_phase2_v100.py`](scripts/host/train_phase2_v100.py)).
 
 $$
-a_{\text{cand}} = \operatorname{scale}\left(\tanh\left(z_{\text{P2B}}(s_{\text{1ch}}) + g_{\text{res}} \cdot \Delta_{\text{sem}}(s_{\text{sem}})\right)\right)
+a_{\text{cand}} = \mathrm{scale}\left(\tanh\left(z_{\text{P2B}}(s_{\text{1ch}}) + g_{\text{res}} \cdot \Delta_{\text{sem}}(s_{\text{sem}})\right)\right)
 $$
 
 $$
@@ -435,13 +435,13 @@ $$
 - **잔차 게이트** (`g_res`, 전방위 12×12 패치 `Ch1, Ch2` 피크 기준):
 
 $$
-g_{\text{res}} = \operatorname{clamp}\left(\frac{\max(\lvert Ch_1 \rvert, \lvert Ch_2 \rvert) - 10^{-4}}{0.04}, 0, 1\right)
+g_{\text{res}} = \mathrm{clamp}\left(\frac{\max(\lvert Ch_1 \rvert, \lvert Ch_2 \rvert) - 10^{-4}}{0.04}, 0, 1\right)
 $$
 
 - **안전 쉴드 게이트** (`g_safe`, 전방 25-ray 코리더 투영 비용 `c_sem` 기준, `γ_gate`는 영속 버퍼 `scale_gate`로 ONNX 상수 `1.0`):
 
 $$
-g_{\text{safe}} = \operatorname{clamp}\left(\frac{\max(c_{\text{sem}}) - 0.08}{0.14}, 0, 1\right) \cdot \gamma_{\text{gate}}
+g_{\text{safe}} = \mathrm{clamp}\left(\frac{\max(c_{\text{sem}}) - 0.08}{0.14}, 0, 1\right) \cdot \gamma_{\text{gate}}
 $$
 
 ### 9.3 Option 2 V100 Dual-Track 학습 및 ONNX 검증
