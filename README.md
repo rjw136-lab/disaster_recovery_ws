@@ -31,7 +31,7 @@
 
 | 검증 항목 | 결과 | 비교 기준 |
 | :--- | :---: | :--- |
-| 15대 재난 시나리오 × 10회 **엄격 무충돌 복귀** | **`119/150` (79.3%)** · 도착 `143/150` (95.3%) | Phase 2-B `104/150` (69.3%) · Phase 3 v3 `87/150` (58.0%) · Baseline `50/150` (33.3%) |
+| 15대 재난 시나리오 × 10회 **엄격 무충돌 복귀** | **`119/150` (79.3%)** · 도착 `143/150` (95.3%) | 참고 실행: Phase 2-B `104/150`, Phase 3 v3 `87/150`, Baseline `50/150` (동일 조건의 짝지은 비교가 아니며, Phase 2-B와 Option 2는 비시맨틱 입력에서 정책 출력이 동일함) |
 | 시맨틱 회피 10-Trial A/B **엄격 무위험 복귀** | **`8/10`** · 저상 충돌 `0회` · `34.86 s` | Phase 2-B Blind `2/10` · 저상 충돌 `5회` · `56.59 s` |
 | 시맨틱 공백(`Ch1=Ch2=0`) **비퇴행 일치** | `max_abs_diff = 0.0` | 검증 입력에서 Phase 2-B 1-Ch ONNX 출력과 최대 절대 오차 0 |
 | Option 2 ONNX 크기 / CPU 추론 지연 | `412.7 KB` / `0.12 ms` | x86 CPU 실측 (RPi 4 실측은 미수행) |
@@ -59,7 +59,7 @@
 | # | 목표 | 핵심 기술 (최신 패치 반영) | 상태 |
 | :-: | :--- | :--- | :-: |
 | 1 | **2D 시맨틱 SLAM & Option 2 3채널 Context-RL** | 단안 RGB(YOLO26n) + 2D LiDAR 투영 퓨전(`/map` 조난자·장애물·가스·음성 영구 마커) + **Frozen Phase 2-B 백본 + Zero-Gated Residual 시맨틱 어댑터** (`max_abs_diff = 0.0`, 10-Trial A/B 엄격 무위험 `80.0%` vs Blind `0.0%`, 저상 충돌 `0회`) | ✅ 시뮬 완료 |
-| 2 | **통신 단절 시 비퇴행 온보드 자율 복귀** | Heartbeat 워치독 + LIFO 역추적 + 계층형 제어(`RollingLocalGrid 2D A*` · `Option 2 Context-RL ONNX` · Clearance-Gate, **150회 엄격 무충돌 `119/150 = 79.3%` / 도착 `95.3%`**, Phase 2-B `69.3%` 대비 `+10.0%p`) | ✅ 완료 |
+| 2 | **통신 단절 시 비퇴행 온보드 자율 복귀** | Heartbeat 워치독 + LIFO 역추적 + 계층형 제어(`RollingLocalGrid 2D A*` · `Option 2 Context-RL ONNX` · Clearance-Gate, **150회 엄격 무충돌 관측치 `119/150 = 79.3%` / 도착 `95.3%`** (비시맨틱 구간은 Phase 2-B와 정책 출력 일치; 별도 실행 점수로 성능 향상을 주장하지 않음)) | ✅ 완료 |
 | 3 | **극한 재난 환경 강인성 확보** | LiDAR 이웃 각도 잡음 필터(연기·분진 대응) + 개방 광선 잔상 빠른 소거(동적 장애물 대응) + 2D LiDAR SVD ICP 슬립 보정(3.5 ms) | ✅ 완료 |
 | 4 | **베이스캠프 정밀 도킹** | ArUco + `solvePnP` 비주얼 서보잉, 10초 타임아웃 세이프티 가드 | ✅ 완료 |
 | 5 | **저지연 AI 재난 관제** | YOLO26n (GPU FP16 · 최대 15 FPS) + Faster-Whisper (CUDA INT8 · CPU 자동 폴백) GPU 통합 가속 | ✅ 완료 |
@@ -68,7 +68,7 @@
 
 | 구분 | 항목 | 상태 |
 | :--- | :--- | :-: |
-| Phase 3 시맨틱 SLAM & RL (Option 2) | 단안 RGB + 2D LiDAR 퓨전 `semantic_map_node`, **Frozen-Backbone Zero-Gated Residual 3-Ch ONNX** (`414.7 KB`, `0.13 ms`, `max_abs_diff=0.0`, 10-Trial 시맨틱 A/B 엄격 무위험 `80.0%`, 150회 엄격 무충돌 **`79.3%`**) | ✅ 시뮬 완료 |
+| Phase 3 시맨틱 SLAM & RL (Option 2) | 단안 RGB + 2D LiDAR 퓨전 `semantic_map_node`, **Frozen-Backbone Zero-Gated Residual 3-Ch ONNX** (`412.7 KB`, `0.12 ms`, `max_abs_diff=0.0`, 10-Trial 시맨틱 A/B 엄격 무위험 `80.0%`, 150회 엄격 무충돌 **`79.3%`**) | ✅ 시뮬 완료 |
 | Phase 2-B 자율 복귀 (기저 백본) | `RollingLocalGrid + 2D A*` · `ContextRLStudent` · Layer-0 필터 · 2D ICP (150회 엄격 무충돌 `69.3%` / 도착 `97.3%`, Legacy 도착 기준 `99.33%`) | ✅ 완료 |
 | 제어 · 도킹 | Heartbeat 워치독, LIFO 백트래킹, LiDAR 긴급 정지, ArUco 정밀 도킹(+10s 세이프티 가드) | ✅ 구현 |
 | AI 관제 · 운용 | YOLO26n 탐지, Faster-Whisper 음성 인식, 원터치 런처 `start.py` / `stop.py` | ✅ 실차 검증 |
@@ -308,8 +308,8 @@ flowchart LR
 | **15** | `u_pocket_trap` | `3/10` | `10/10` / `9/10` | `10/10` / `10/10` | `10/10` / **`9/10`** | `92.9 s` (`92.8 s`) · `8.5 cm` |
 | **합계** | **150 Trials (`same_debris=150/150`)** | **`50/150 (33.3%)`** | **`146/150 (97.3%)` / `104/150 (69.3%)`** | **`143/150 (95.3%)` / `87/150 (58.0%)`** | **`143/150 (95.3%)` / `119/150 (79.3%)`** | **`85.56 s` (`103.62 s`) · `8.26 cm`** |
 
-- **핵심 분석 (Option 2 비퇴행 검증 및 성능 향상 요인)**:
-  1. **Phase 3 v3 퇴행 구간 완벽 복원 (`+21.3%p`, `87/150 → 119/150`)**: 기존 Phase 3 v3에서 급락했던 `house`(`1/10 → 6/10`, Phase 2-B와 동률), `house_hard`(`2/10 → 6/10`), `maze`(`8/10 → 10/10`), `maze_hard`(`4/10 → 10/10`), `smoke_lidar_corruption`(`9/10 → 10/10`), `tunnel_hard`(`9/10 → 10/10`)가 Zero-Gated Residual 구조(`Ch1=0, Ch2=0`에서 `max_abs_diff = 0.0`)를 통해 일제히 복원되었다.
+- **핵심 분석 (Option 2 비퇴행 설계 및 결과 해석)**:
+  1. **비시맨틱 퇴행 방지를 위한 구조적 보존**: Option 2는 Phase 2-B 백본을 동결하고 `Ch1=0, Ch2=0`에서 잔차·쉴드를 소거해 기준 정책 출력을 보존한다(`max_abs_diff = 0.0`). `87/150 → 119/150`은 서로 다른 Gazebo 실행에서 관측된 기술통계이며, 실행 간 비결정성이 있으므로 `+21.3%p`의 인과적 성능 향상으로 해석하지 않는다.
   2. **비시맨틱 구간(`Ch1=0, Ch2=0`) 동일 정책 확인 및 Gazebo 분산**: `Ch1=0, Ch2=0` 환경에서는 `non_regression_max_abs_diff = 0.0`이므로 Option 2 ONNX와 Phase 2-B 1-Ch ONNX가 수학적으로 동일한 정책이다. 따라서 동일 잔해 시드(`--reuse-baseline`) 실행 간 `104/150 (69.3%)` vs `119/150 (79.3%)` 차이(및 `house_hard` `9/10 → 6/10` 변동)는 Option 2 어댑터의 비시맨틱 성능 개선이 아니라 **동일 정책에 대한 Gazebo 물리 비결정성(타이밍·접촉) 분산 범위**를 나타낸다.
 
 <details>
@@ -765,7 +765,7 @@ Host AI 파라미터 (`host_ai_pipeline` 코드 기본값): `yolo_max_fps=15.0`,
 
 | 이슈 | 해결 방법 |
 | :--- | :--- |
-| Phase 3 초기 3-Ch 미세조정(`v3`)의 비시맨틱 환경(`Ch1=0, Ch2=0`) 엄격 무충돌 퇴행 (`69.3% → 58.0%`) | **Option 1(Hard Channel Gating)** 의 경계 스위칭 불연속 한계를 분석·기각하고, **Option 2(Frozen Phase 2-B Backbone + Zero-Gated Residual Semantic Adapter)** 를 채택·재학습해 `Ch1=0, Ch2=0`에서 `max_abs_diff = 0.0` 수학적 일치 및 **150회 엄격 무충돌 `119/150 (79.3%)` (`+21.3%p` 회복, Phase 2-B 대비 `+10.0%p`)** 달성 |
+| Phase 3 초기 3-Ch 미세조정(`v3`)의 비시맨틱 환경(`Ch1=0, Ch2=0`) 엄격 무충돌 퇴행 (`69.3% → 58.0%`) | **Option 1(Hard Channel Gating)** 의 경계 스위칭 불연속 한계를 분석·기각하고, **Option 2(Frozen Phase 2-B Backbone + Zero-Gated Residual Semantic Adapter)** 를 채택·재학습해 `Ch1=0, Ch2=0`에서 `max_abs_diff = 0.0` 수학적 일치 및 **150회 엄격 무충돌 `119/150 (79.3%)` 관측** (비시맨틱 구간은 Phase 2-B와 정책 출력 일치; 별도 실행 간 성공률 차이는 성능 향상으로 해석하지 않음) |
 | Phase 2 고정 블렌딩(`0.70·RL`)의 `house` 협소 문틀 진동·지체 | 섹터 여유 거리·협소 패스 여부 기반 **Clearance-Gated Blending** 및 `ESCAPE` 중 시계열 버퍼 유지로 재학습 없이 **`48/50 (96.0%)`**, `house` `8/10 → 9/10` |
 | Phase 1 `house` `~0.28m` 틈새 과차단 & Phase 2 RL 수렴 정체·앙상블 상쇄 | `_virtual_obstacles` `±0.03m`/9s 튜닝으로 **5대 환경 `49/50 (98.0%)`** 달성; Phase 2 V100 **`ret_norm=25` + `nav_dist` + 선택적 DAgger 증류**로 `sim`/`real_tb3` ONNX 추출 및 **공식 Gazebo S2S `47/50 (94.0%)`** 검증 완료 (`#30~#36`) |
 | 붕괴 건물 교착 및 다회차 `corr_y` 오프셋 누적 | `/recovery/reset_episode`로 에피소드 상태 초기화 및 `RollingLocalGrid(0.04m) + 2D A* + 위상 지름길 + ESCAPE` 도입 |
@@ -877,8 +877,8 @@ disaster_recovery_ws/
     │   ├── debris_obstacle.sdf          # Gazebo 시뮬레이션용 낙하 붕괴 잔해(Debris) SDF 모델
     │   ├── sim_policy_student.onnx      # Phase 2-B Track A 시뮬용 1ch 신경망 (231.6 KB)
     │   ├── real_tb3_policy_student.onnx # Phase 2-B Track B 실물 TB3용 1ch 신경망 (231.6 KB)
-    │   ├── sim_policy_student_semantic_v3.onnx      # Phase 3 Option 2 Track A 시뮬용 3ch 신경망 (414.7 KB, frozen_residual)
-    │   ├── real_tb3_policy_student_semantic_v3.onnx # Phase 3 Option 2 Track B 실물 TB3용 3ch 신경망 (414.7 KB, frozen_residual)
+    │   ├── sim_policy_student_semantic_v3.onnx      # Phase 3 Option 2 Track A 시뮬용 3ch 신경망 (412.7 KB, frozen_residual)
+    │   ├── real_tb3_policy_student_semantic_v3.onnx # Phase 3 Option 2 Track B 실물 TB3용 3ch 신경망 (412.7 KB, frozen_residual)
     │   ├── recovery_td3.onnx            # Phase 1.5 TD3 Baseline ONNX 신경망 (99.1 KB)
     │   ├── recovery_td3.pth             # PyTorch 학습 가중치 체크포인트
     │   ├── camera_info_sample.yaml      # 예시값 (직접 캘리브레이션 값으로 교체 권장)
