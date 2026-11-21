@@ -200,7 +200,7 @@ flowchart TB
 
 ### Stage 3 (Phase 4-C & 4-A 통합): 4채널 비퇴행 CVaR-Lagrangian Residual RL
 
-**목적**: `A* + RPP + Soft-CBF-QP (No RL)` 베이스라인이 해결하지 못하는 **고슬립 꼬리 위험(`real_tb3` 가스 침범 40%)**, **비선형 동적 교차**, **CBF 급개입에 의한 정체**를 선제적 다단계 RL 정책으로 극복하고, RL의 고유한 학술적 기여를 입증한다.
+**목적**: `A* + RPP + Soft-CBF-QP (No RL)` 베이스라인이 해결하지 못하는 **고슬립 꼬리 위험(`real_tb3` TEST 가스 침범 26.7%)**, **비선형 동적 교차**, **CBF 급개입에 의한 정체**를 선제적 다단계 RL 정책으로 극복하고, RL의 고유한 학술적 기여를 입증한다.
 
 #### 3.1 학습 환경 고도화 (`scripts/host/rl_procedural_env.py`)
 1. **4채널 패치 확장 (`PATCH_CHANNELS = 4`)**:
@@ -298,7 +298,7 @@ flowchart TB
 | **Stage 1** | 동적 추적기 $1.0\,\text{s}$ 예측 오차(ADE/FDE) & 정적 오탐률 | 미구현 | ADE/FDE **$\le 0.14\,\text{m}$**, 회전 중 정적 벽 오탐률 **$\le 3\%$**, CPU 지연 **$\le 0.30\,\text{ms}$** |
 | **Stage 2** | Gazebo `#7 house`, `#8 house_hard` 엄격 무충돌 성공률 | `6/10 (60.0%)`, `6/10 (60.0%)` | 각 **`>= 9/10 (90.0%)`**, QP 풀이 지연 **$\le 0.25\,\text{ms}$**, 안전 구간 오개입률 **$\le 3\%$** |
 | **Stage 2~3** | Gazebo `#5 dynamic_crossfire_alley`, `#6 dynamic_gauntlet` | `1/10 (10.0%)`, `3/10 (30.0%)` | `#5` **`>= 7/10 (70.0%)`**, `#6` **`>= 7/10 (70.0%)`** (엄격 무충돌 기준) |
-| **Stage 3** | V100 Holdout `real_tb3` `gas_hazard_free_rate` & 비퇴행 오차 | Val `60.0%` / Test `68.3%`, diff `0.0` | Gas-Free **`>= 85.0%`**, `Ch1=Ch2=Ch3=0` **`max_abs_diff == 0.0`** |
+| **Stage 3** | V100 Holdout `real_tb3` `gas_hazard_free_rate` & 비퇴행 오차 | Val `66.7%` / Test `73.3%` (침범 `26.7%`), diff `0.0` | Gas-Free **`>= 85.0%`**, `Ch1=Ch2=Ch3=0` **`max_abs_diff == 0.0`** |
 | **Stage 4** | Gazebo 15종(150회) 종합 엄격 무충돌 성공률 | `119/150 (79.3%)` | **`>= 138/150 (92.0%)`** (기존 100% 7종 무퇴행 유지) |
 | **Stage 4** | 실물 TurtleBot3 Burger (RPi 4) 온보드 실증 | 미수행 | 총 연산 지연(추적+ONNX+CBF) **`<= 2.0 ms`** (`10~20 Hz` 안정 유지), Wi-Fi 단절 복귀 연속 10회 성공 |
 

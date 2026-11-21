@@ -102,6 +102,7 @@
 | | [2D 라이다 스캔매칭 보고서](docs/2D_라이다_스캔매칭_및_자율복귀_보고서.md) | ICP 오차 보정 · Layer-0 필터 · 시맨틱 투영 |
 | **③ 차세대** | [시맨틱 SLAM·RL 재학습 보고서](docs/차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md) | 논문 기반 Phase 3 설계·구현·시뮬 검증 완료 |
 | | [Phase 4 후속 연구 검토·설계](docs/Phase4_후속_연구_방향_검토_및_설계.md) | GRU·World Model·Risk-Sensitive RL·Safety Shield 기술 타당성 및 로드맵 |
+| | [Phase 4 재검증 연구설계·구현계획](docs/Phase4_재검증_연구설계_및_구현계획.md) | 코드·실측 기반 비판적 재검증, Soft-CBF-QP·CVaR-RL 수식 및 5자 Ablation 마스터 블루프린트 |
 | **④ 설치·운용** | [WSL 네트워크 설정](docs/WSL_NETWORK_SETUP.md) | 미러드 네트워킹 · ROS 2 · CUDA |
 | | [회로·카메라 캘리브레이션](docs/CIRCUIT_AND_CALIBRATION.md) | MQ-2 분압 회로 · 카메라 보정 |
 | | [ArUco 도킹 가이드](docs/TURTLEBOT3_ARUCO_GUIDE.md) | 마커 생성 · 도킹 절차 |
@@ -782,7 +783,7 @@ Host AI 파라미터 (`host_ai_pipeline` 코드 기본값): `yolo_max_fps=15.0`,
 3. **블랙박스 Wi-Fi 스트리밍 차단 미구현**: 현재는 로컬 기록만 시작한다.
 4. **통신 단절 중 신규 조난자 비전 탐지 불가 (YOLO Host 의존성)**: `host_ai_pipeline`(YOLO26n)은 Host PC에서 실행되므로, 통신 단절 이후(Return 단계) 시야에 새로 등장한 조난자를 실시간 탐지할 수 없다. 단절 직전까지 `/semantic_map/cached_objects`로 백업된 조난자·저상 장애물 좌표 유지 및 온보드 MQ-2(`/gas/level`) 실시간 가스 감지만 수행하며, 완전 단절 심부 탐지 확장을 위해서는 RPi 4 온보드 경량 비전 가속기(예: NPU/Hailo) 탑재가 필요하다.
 5. **실물 TurtleBot3 Burger Track B 필드 실증 예정**: V100 Phase 2-B(`150회 엄격 69.3% / 도착 97.3%`) 및 Phase 3 Option 2(이전 `150회 엄격 79.3% / 도착 95.3%`, 현 `415.0 KB` ONNX `Ch1=Ch2=0` `max_abs_diff = 0.0`, 10-Trial 시맨틱 A/B 엄격 무위험 `9/10` · 위반 `0회`) 검증을 완료했다. 단, 비시맨틱 입력에서 Phase 2-B와 Option 2는 정책 출력이 동일하므로 해당 150회 별도 실행 관측치를 직접적인 성능 향상 비교로 해석하지 않는다. 실물 RPi 4 온보드 환경에서의 Track B(`real_tb3_policy_student_semantic_v3.onnx`, `415.0 KB`, x86 CPU `0.124 ms`) 추론 지연 실측 및 현장 주행은 실물 결합 시험에서 수행 예정이다.
-6. **절차적 환경 잔여 가스 침범률(`real_tb3` TEST 26.7%)**: PPO 쉴드 페널티·`hard_sem` 하드 배리어·`VAL/TEST` 분리·연속 `sem_prox` 적용으로 `real_tb3` `gas_hazard_free_rate`가 `60.0% → 73.3%`(Gazebo `ab10` `9/10` · 가스 위반 `0회`)로 개선되었으나, `1.8×1.8 m` 로컬 패치 시야 한계와 메모리리스 MLP 문맥으로 인해 절차적 가스 회랑 테스트의 `26.7%`에서는 경계 진입이 남는다. 장기 순환 상태 추론·세계 모델·위험 민감 RL 확장은 [`docs/Phase4_후속_연구_방향_검토_및_설계.md`](docs/Phase4_후속_연구_방향_검토_및_설계.md)에 정리했다.
+6. **절차적 환경 잔여 가스 침범률(`real_tb3` TEST 26.7%)**: PPO 쉴드 페널티·`hard_sem` 하드 배리어·`VAL/TEST` 분리·연속 `sem_prox` 적용으로 `real_tb3` `gas_hazard_free_rate`가 `60.0% → 73.3%`(Gazebo `ab10` `9/10` · 가스 위반 `0회`)로 개선되었으나, `1.8×1.8 m` 로컬 패치 시야 한계와 고정 16스텝(1.6초) 단기 윈도우 1D-TCN 문맥으로 인해 절차적 가스 회랑 테스트의 `26.7%`에서는 경계 진입이 남는다. 장기 순환 상태 추론·세계 모델·위험 민감 RL 및 Soft-CBF-QP 확장은 [`docs/Phase4_후속_연구_방향_검토_및_설계.md`](docs/Phase4_후속_연구_방향_검토_및_설계.md) 및 [`docs/Phase4_재검증_연구설계_및_구현계획.md`](docs/Phase4_재검증_연구설계_및_구현계획.md)에 정리했다.
 
 <details>
 <summary><strong>해결된 이슈 (26건) 펼쳐보기</strong></summary>
@@ -892,6 +893,7 @@ disaster_recovery_ws/
 │   ├── 재난환경_자율복귀_알고리즘_원리_해설_및_보고서.md
 │   ├── 차세대_고도화_시맨틱_SLAM_및_RL_재학습_계획.md
 │   ├── Phase4_후속_연구_방향_검토_및_설계.md
+│   ├── Phase4_재검증_연구설계_및_구현계획.md
 │   ├── Disaster_Recovery_TurtleBot3_Integration_Report.{md,docx}
 │   └── images/                          # 배너, 3D 쉘, A/B 그래프 & evidence[,_v3,_v4]/(3D 스냅샷·데모 GIF·Option 2 학습 곡선)
 ├── benchmark_results/                   # phase2b_strict · phase3_semantic_v3 · phase3_option2 결과 JSON
