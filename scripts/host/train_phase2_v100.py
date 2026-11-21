@@ -68,7 +68,9 @@ from disaster_recovery.rl_context_policy import (  # noqa: E402
 
 SEMANTIC_PATCH_CHANNELS = 3
 SEMANTIC_FLAT_INPUT_DIM = HISTORY_LEN * STEP_FEAT_DIM + SEMANTIC_PATCH_CHANNELS * PATCH_SIZE * PATCH_SIZE  # 544 + 432 = 976
-EVAL_SEEDS = np.arange(10000, 10120, dtype=np.int64)
+VAL_SEEDS = np.arange(10000, 10120, dtype=np.int64)
+TEST_SEEDS = np.arange(20000, 20120, dtype=np.int64)
+EVAL_SEEDS = VAL_SEEDS  # Backward-compatible alias for validation seeds
 
 
 class SemanticCorridorSafetyHead(nn.Module):
@@ -81,6 +83,7 @@ class SemanticCorridorSafetyHead(nn.Module):
     def __init__(self, num_rays: int = 25, persistent_gate: bool = False):
         super().__init__()
         m = int(num_rays)
+        self.center_idx = m // 2
         phi = torch.linspace(-1.55, 1.55, m, dtype=torch.float32)
         bin_angs = torch.linspace(0.0, 2.0 * math.pi, 24 + 1, dtype=torch.float32)[:-1]
         dtheta = bin_angs[:, None] - phi[None, :]  # (24, M)
@@ -132,11 +135,13 @@ class SemanticCorridorSafetyHead(nn.Module):
 
         ch1_f = local_patch[:, 1, :, :].reshape(b, PATCH_SIZE * PATCH_SIZE)
         ch2_f = local_patch[:, 2, :, :].reshape(b, PATCH_SIZE * PATCH_SIZE)
-        cost_ch1 = torch.matmul(ch1_f, self.k_ch1_t) * 3.8
+        cost_ch1 = torch.matmul(ch1_f, self.k_ch1_t) * 3.80
         cost_ch2 = torch.matmul(ch2_f, self.k_ch2_t) * 2.95
         sem_cost = cost_ch1 + cost_ch2
         sem_peak = sem_cost.max(dim=1).values
         sem_gate = torch.clamp((sem_peak - 0.08) / 0.14, 0.0, 1.0) * self.scale_gate
+        fwd_sem_cost = sem_cost[:, self.center_idx - 1 : self.center_idx + 2].max(dim=1).values
+        hard_sem = torch.sigmoid((fwd_sem_cost - 2.80) * 4.0) * sem_gate
 
         x_fwd = bins_m.unsqueeze(-1) * self.cos_dt
         y_lat = bins_m.unsqueeze(-1) * self.sin_dt_abs
@@ -158,14 +163,14 @@ class SemanticCorridorSafetyHead(nn.Module):
         phi_opt = torch.matmul(probs, self.phi_col).squeeze(-1)
 
         w_reflex = torch.clamp(phi_opt * 1.08, -TB3_MAX_W, TB3_MAX_W)
-        w_blend = 0.88 * sem_gate
+        w_blend = (0.88 + 0.12 * hard_sem) * sem_gate
         w_out = (1.0 - w_blend) * base_act[:, 1] + w_blend * w_reflex
 
         front_min = torch.minimum(bins_m[:, 0], torch.minimum(bins_m[:, 1], bins_m[:, 23]))
         front_brake = torch.sigmoid((0.24 - front_min) * 80.0)
         v_raw = torch.clamp(0.18 - 0.10 * (phi_opt.abs() / 1.55), min=0.07, max=0.18)
         v_reflex = (1.0 - front_brake) * v_raw + front_brake * torch.clamp(v_raw, max=0.04)
-        v_blend = 0.88 * sem_gate * (1.0 - front_brake) + sem_gate * front_brake
+        v_blend = (0.88 + 0.12 * torch.maximum(front_brake, hard_sem)) * sem_gate
         v_out = (1.0 - v_blend) * base_act[:, 0] + v_blend * v_reflex
         return torch.stack(
             [torch.clamp(v_out, TB3_MIN_V, TB3_MAX_V), torch.clamp(w_out, -TB3_MAX_W, TB3_MAX_W)],
@@ -800,9 +805,10 @@ def evaluate_policy_on_holdout(
     patch_channels: int = PATCH_CHANNELS,
     use_semantic_channels: Optional[bool] = None,
     include_fallback_eval: bool = True,
+    eval_seeds: Optional[np.ndarray] = None,
 ) -> Dict[str, object]:
     """
-    Deterministic evaluation over unseen holdout seeds (10000..10119, 15/regime across 8 regimes).
+    Deterministic evaluation over unseen seeds (VAL_SEEDS=10000..10119 or independent TEST_SEEDS=20000..20119).
     Computes:
       - base_6_sr: mean SR across the 6 base regimes (>=95% target)
       - dropout_fallback_sr: mean SR when Ch1 & Ch2 are zeroed (>=94% target)
@@ -810,26 +816,27 @@ def evaluate_policy_on_holdout(
       - low_obs_contact_free_rate: fraction of low_obstacle_field episodes passing with zero low-obstacle contact (>=85% target)
       - gas_hazard_free_rate: fraction of gas_victim_corridor episodes passing without entering hazard zones
     """
-    eval_seeds = EVAL_SEEDS if (patch_channels >= 3 and (use_semantic_channels is not False)) else EVAL_SEEDS[:90]
+    base_seed_arr = VAL_SEEDS if eval_seeds is None else np.asarray(eval_seeds, dtype=np.int64)
+    seeds_arr = base_seed_arr if (patch_channels >= 3 and (use_semantic_channels is not False)) else base_seed_arr[:90]
     env = VectorDisasterEnv(
-        num_envs=len(eval_seeds),
+        num_envs=len(seeds_arr),
         track=track,
         device=device,
         max_steps=max_steps,
         mode="eval",
-        base_seed=10000,
+        base_seed=int(seeds_arr[0]),
         patch_channels=patch_channels,
         use_semantic_channels=use_semantic_channels,
-        include_semantic_regimes=(len(eval_seeds) > 90),
+        include_semantic_regimes=(len(seeds_arr) > 90),
     )
-    obs_hist, local_patch = env.reset_envs(eval_seeds=eval_seeds)
-    finished = torch.zeros(len(eval_seeds), dtype=torch.bool, device=device)
-    reached = torch.zeros(len(eval_seeds), dtype=torch.bool, device=device)
-    crashed = torch.zeros(len(eval_seeds), dtype=torch.bool, device=device)
-    ever_hit_low = torch.zeros(len(eval_seeds), dtype=torch.bool, device=device)
-    ever_in_haz = torch.zeros(len(eval_seeds), dtype=torch.bool, device=device)
-    ep_ret = torch.zeros(len(eval_seeds), dtype=torch.float32, device=device)
-    ep_steps = torch.zeros(len(eval_seeds), dtype=torch.float32, device=device)
+    obs_hist, local_patch = env.reset_envs(eval_seeds=seeds_arr)
+    finished = torch.zeros(len(seeds_arr), dtype=torch.bool, device=device)
+    reached = torch.zeros(len(seeds_arr), dtype=torch.bool, device=device)
+    crashed = torch.zeros(len(seeds_arr), dtype=torch.bool, device=device)
+    ever_hit_low = torch.zeros(len(seeds_arr), dtype=torch.bool, device=device)
+    ever_in_haz = torch.zeros(len(seeds_arr), dtype=torch.bool, device=device)
+    ep_ret = torch.zeros(len(seeds_arr), dtype=torch.float32, device=device)
+    ep_steps = torch.zeros(len(seeds_arr), dtype=torch.float32, device=device)
     regimes = env.regime.clone()
 
     for _ in range(max_steps):
@@ -886,6 +893,7 @@ def evaluate_policy_on_holdout(
             patch_channels=patch_channels,
             use_semantic_channels=True,
             include_fallback_eval=False,
+            eval_seeds=seeds_arr,
         )
         dropout_fallback_sr = float(fb_res["unseen_sr"])
     else:
@@ -1377,13 +1385,16 @@ def train_teacher_seed(
                 logp_buf[t] = log_prob
                 val_buf[t] = value
 
-                env_action = (
-                    model.apply_safety_shield(obs_hist, local_patch, action)
-                    if hasattr(model, "apply_safety_shield")
-                    else action
-                )
+                if hasattr(model, "apply_safety_shield"):
+                    env_action = model.apply_safety_shield(obs_hist, local_patch, action)
+                    dv_norm = (env_action[:, 0] - action[:, 0]) / max(1e-6, TB3_MAX_V - TB3_MIN_V)
+                    dw_norm = (env_action[:, 1] - action[:, 1]) / max(1e-6, TB3_MAX_W)
+                    shield_pen = 0.15 * (dv_norm * dv_norm + dw_norm * dw_norm)
+                else:
+                    env_action = action
+                    shield_pen = 0.0
                 obs_next, patch_next, rewards, dones, info = env.step(env_action)
-                rew_buf[t] = rewards
+                rew_buf[t] = rewards - shield_pen
                 done_buf[t] = dones.float()
                 total_steps += num_envs
 
@@ -1891,12 +1902,21 @@ def distill_ensemble_to_onnx(
         out_np = sess.run(None, {in_name: flat_np})[0]
         return torch.from_numpy(out_np).to(h.device)
 
+    ev_onnx_val = evaluate_policy_on_holdout(
+        track,
+        device,
+        onnx_policy_fn,
+        patch_channels=env.patch_channels,
+        use_semantic_channels=env.use_semantic_channels,
+        eval_seeds=VAL_SEEDS,
+    )
     ev_onnx = evaluate_policy_on_holdout(
         track,
         device,
         onnx_policy_fn,
         patch_channels=env.patch_channels,
         use_semantic_channels=env.use_semantic_channels,
+        eval_seeds=TEST_SEEDS,
     )
 
     # Single-thread CPU Latency benchmark (1000 forward passes)
@@ -1912,9 +1932,11 @@ def distill_ensemble_to_onnx(
 
     onnx_size_kb = os.path.getsize(out_onnx_path) / 1024.0
     print(
-        f"  [ONNX VERIFIED {track}] size={onnx_size_kb:.1f}KB | Unseen SR={ev_onnx['unseen_sr']*100:.1f}% "
+        f"  [ONNX VERIFIED {track}|TEST_SEEDS 20000..20119] size={onnx_size_kb:.1f}KB | Unseen SR={ev_onnx['unseen_sr']*100:.1f}% "
         f"(Base6={ev_onnx['base_6_sr']*100:.1f}% | Fallback={ev_onnx['dropout_fallback_sr']*100:.1f}% "
-        f"| Sem2={ev_onnx['semantic_2_sr']*100:.1f}% | LowObsCF={ev_onnx['low_obs_contact_free_rate']*100:.1f}%) "
+        f"| Sem2={ev_onnx['semantic_2_sr']*100:.1f}% | LowObsCF={ev_onnx['low_obs_contact_free_rate']*100:.1f}% "
+        f"| GasHF={ev_onnx['gas_hazard_free_rate']*100:.1f}%) "
+        f"| VAL_SR={ev_onnx_val['unseen_sr']*100:.1f}% VAL_GasHF={ev_onnx_val['gas_hazard_free_rate']*100:.1f}% "
         f"| CPU Lat mean={lat_arr.mean():.3f}ms p95={np.percentile(lat_arr, 95):.3f}ms "
         f"| Regimes={ {k: round(v*100,1) for k,v in ev_onnx['per_regime'].items()} }",
         flush=True,
@@ -1928,7 +1950,9 @@ def distill_ensemble_to_onnx(
         "flat_input_dim": flat_dim,
         "val_mse_pass1": round(val1, 6),
         "val_mse_dagger": round(val2, 6),
+        "eval_split": {"val_seeds": "10000..10119", "test_seeds": "20000..20119"},
         "onnx_eval": ev_onnx,
+        "onnx_val_eval": ev_onnx_val,
         "cpu_latency_ms": {
             "mean": round(float(lat_arr.mean()), 4),
             "p95": round(float(np.percentile(lat_arr, 95)), 4),

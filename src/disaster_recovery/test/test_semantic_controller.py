@@ -304,6 +304,9 @@ def test_use_semantic_rl_policy_switch_and_yaml_configs():
     assert compute_rl_blend_weight(0.24, 1.2, False, min_side=0.40, has_nearby_semantic=True) == 0.0
     assert compute_rl_blend_weight(0.60, 1.2, False, min_side=0.16, has_nearby_semantic=True) == 0.0
     w_base = compute_rl_blend_weight(0.60, 1.10, False, min_side=0.45, has_nearby_semantic=False)
+    w_mid = compute_rl_blend_weight(0.60, 1.10, False, min_side=0.45, semantic_proximity=0.5)
     w_sem = compute_rl_blend_weight(0.60, 1.10, False, min_side=0.45, has_nearby_semantic=True)
     assert abs(w_base - 0.70) < 1e-6
-    assert w_sem > w_base
+    assert abs(w_mid - 0.76) < 1e-6
+    assert abs(w_sem - 0.82) < 1e-6
+    assert w_base < w_mid < w_sem

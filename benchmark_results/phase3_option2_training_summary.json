@@ -1,37 +1,37 @@
 {
   "sim": {
     "total_steps": 10616832,
-    "total_episodes": 68817,
-    "wall_time_s": 834.4,
+    "total_episodes": 68319,
+    "wall_time_s": 844.8,
     "seeds": [
       {
         "track": "sim",
         "seed": 101,
         "patch_channels": 3,
         "total_steps": 3538944,
-        "total_episodes": 23152,
-        "best_unseen_sr": 1.0,
+        "total_episodes": 23184,
+        "best_unseen_sr": 0.9750000238418579,
         "best_base_6_sr": 1.0,
-        "best_dropout_fallback_sr": 0.9916667342185974,
-        "best_semantic_2_sr": 1.0,
+        "best_dropout_fallback_sr": 1.0,
+        "best_semantic_2_sr": 0.9000000357627869,
         "best_low_obs_contact_free_rate": 1.0,
-        "best_gas_hazard_free_rate": 0.7333333492279053,
+        "best_gas_hazard_free_rate": 0.6666666865348816,
         "early_stopped_at": null,
-        "elapsed_s": 278.0,
+        "elapsed_s": 280.9,
         "stage_videos": [
           {
-            "mp4": "/hdd/evidence/training_v5_option2/phase3_sim_early_upd24.mp4",
+            "mp4": "/hdd/evidence/training_v6_option2/phase3_sim_early_upd24.mp4",
             "png": "/ws/disaster_recovery_ws/docs/images/evidence_v4/phase3_sim_early_upd24.png",
             "outcome": "PASS",
             "steps": 182,
             "ffprobe": "{\n    \"programs\": [\n\n    ],\n    \"streams\": [\n        {\n            \"width\": 1280,\n            \"height\": 720,\n            \"duration\": \"15.833333\",\n            \"nb_frames\": \"190\"\n        }\n    ]\n}"
           },
           {
-            "mp4": "/hdd/evidence/training_v5_option2/phase3_sim_mid_upd48.mp4",
+            "mp4": "/hdd/evidence/training_v6_option2/phase3_sim_mid_upd48.mp4",
             "png": "/ws/disaster_recovery_ws/docs/images/evidence_v4/phase3_sim_mid_upd48.png",
             "outcome": "PASS",
-            "steps": 183,
-            "ffprobe": "{\n    \"programs\": [\n\n    ],\n    \"streams\": [\n        {\n            \"width\": 1280,\n            \"height\": 720,\n            \"duration\": \"15.916667\",\n            \"nb_frames\": \"191\"\n        }\n    ]\n}"
+            "steps": 187,
+            "ffprobe": "{\n    \"programs\": [\n\n    ],\n    \"streams\": [\n        {\n            \"width\": 1280,\n            \"height\": 720,\n            \"duration\": \"16.250000\",\n            \"nb_frames\": \"195\"\n        }\n    ]\n}"
           }
         ]
       },
@@ -40,15 +40,15 @@
         "seed": 202,
         "patch_channels": 3,
         "total_steps": 3538944,
-        "total_episodes": 22240,
-        "best_unseen_sr": 0.98333340883255,
+        "total_episodes": 22042,
+        "best_unseen_sr": 0.9750000238418579,
         "best_base_6_sr": 0.9888889193534851,
         "best_dropout_fallback_sr": 1.0,
-        "best_semantic_2_sr": 0.9666666984558105,
+        "best_semantic_2_sr": 0.9333333969116211,
         "best_low_obs_contact_free_rate": 1.0,
         "best_gas_hazard_free_rate": 0.6666666865348816,
         "early_stopped_at": null,
-        "elapsed_s": 207.2,
+        "elapsed_s": 207.6,
         "stage_videos": []
       },
       {
@@ -56,38 +56,64 @@
         "seed": 303,
         "patch_channels": 3,
         "total_steps": 3538944,
-        "total_episodes": 23425,
-        "best_unseen_sr": 0.9666666984558105,
-        "best_base_6_sr": 0.9555555582046509,
-        "best_dropout_fallback_sr": 0.9750000238418579,
-        "best_semantic_2_sr": 1.0,
+        "total_episodes": 23093,
+        "best_unseen_sr": 0.9500000476837158,
+        "best_base_6_sr": 0.9666666984558105,
+        "best_dropout_fallback_sr": 0.9583333730697632,
+        "best_semantic_2_sr": 0.9000000357627869,
         "best_low_obs_contact_free_rate": 1.0,
-        "best_gas_hazard_free_rate": 0.7333333492279053,
+        "best_gas_hazard_free_rate": 0.6666666865348816,
         "early_stopped_at": null,
-        "elapsed_s": 215.4,
+        "elapsed_s": 214.9,
         "stage_videos": []
       }
     ],
     "distilled_onnx": {
       "onnx_path": "/ws/disaster_recovery_ws/src/disaster_recovery/config/sim_policy_student_semantic_v3.onnx",
-      "onnx_size_kb": 412.7,
+      "onnx_size_kb": 415.0,
       "arch": "frozen_residual",
       "non_regression_max_abs_diff": 0.0,
       "patch_channels": 3,
       "flat_input_dim": 976,
-      "val_mse_pass1": 0.000606,
-      "val_mse_dagger": 0.000772,
+      "val_mse_pass1": 0.000741,
+      "val_mse_dagger": 0.00089,
+      "eval_split": {
+        "val_seeds": "10000..10119",
+        "test_seeds": "20000..20119"
+      },
       "onnx_eval": {
-        "unseen_sr": 0.9666666984558105,
+        "unseen_sr": 0.9416667222976685,
         "base_6_sr": 0.9777777791023254,
-        "dropout_fallback_sr": 0.9750000238418579,
-        "semantic_2_sr": 0.9333333969116211,
+        "dropout_fallback_sr": 0.98333340883255,
+        "semantic_2_sr": 0.8333333730697632,
         "low_obs_contact_free_rate": 0.8666667342185974,
-        "gas_hazard_free_rate": 0.7333333492279053,
+        "gas_hazard_free_rate": 0.6666666865348816,
         "collision_rate": 0.02500000223517418,
-        "timeout_rate": 0.008333299309015274,
-        "mean_return": 141.34039306640625,
-        "mean_steps": 156.4250030517578,
+        "timeout_rate": 0.033333275467157364,
+        "mean_return": 137.5398712158203,
+        "mean_steps": 161.20001220703125,
+        "per_regime": {
+          "collapsed_debris": 1.0,
+          "tight_corridor": 1.0,
+          "dynamic_crossing": 0.9333333969116211,
+          "plinth_slip_drift": 0.9333333969116211,
+          "u_pocket_culdesac": 1.0,
+          "chicane_door_pinch": 1.0,
+          "low_obstacle_field": 0.8666667342185974,
+          "gas_victim_corridor": 0.8000000715255737
+        }
+      },
+      "onnx_val_eval": {
+        "unseen_sr": 0.9500000476837158,
+        "base_6_sr": 0.9777777791023254,
+        "dropout_fallback_sr": 0.98333340883255,
+        "semantic_2_sr": 0.8666667342185974,
+        "low_obs_contact_free_rate": 0.9333333969116211,
+        "gas_hazard_free_rate": 0.6666666865348816,
+        "collision_rate": 0.02500000223517418,
+        "timeout_rate": 0.02499995008111,
+        "mean_return": 138.98223876953125,
+        "mean_steps": 160.1750030517578,
         "per_regime": {
           "collapsed_debris": 0.8666667342185974,
           "tight_corridor": 1.0,
@@ -95,58 +121,58 @@
           "plinth_slip_drift": 1.0,
           "u_pocket_culdesac": 1.0,
           "chicane_door_pinch": 1.0,
-          "low_obstacle_field": 0.8666667342185974,
-          "gas_victim_corridor": 1.0
+          "low_obstacle_field": 0.9333333969116211,
+          "gas_victim_corridor": 0.8000000715255737
         }
       },
       "cpu_latency_ms": {
-        "mean": 0.1184,
-        "p95": 0.1332,
-        "p99": 0.149
+        "mean": 0.1207,
+        "p95": 0.1275,
+        "p99": 0.1386
       }
     },
     "student_3d_video": {
-      "mp4": "/hdd/evidence/training_v5_option2/phase3_sim_final_student.mp4",
+      "mp4": "/hdd/evidence/training_v6_option2/phase3_sim_final_student.mp4",
       "png": "/ws/disaster_recovery_ws/docs/images/evidence_v4/phase3_sim_final_student.png",
       "outcome": "PASS",
-      "steps": 184,
-      "ffprobe": "{\n    \"programs\": [\n\n    ],\n    \"streams\": [\n        {\n            \"width\": 1280,\n            \"height\": 720,\n            \"duration\": \"16.000000\",\n            \"nb_frames\": \"192\"\n        }\n    ]\n}"
+      "steps": 189,
+      "ffprobe": "{\n    \"programs\": [\n\n    ],\n    \"streams\": [\n        {\n            \"width\": 1280,\n            \"height\": 720,\n            \"duration\": \"16.416667\",\n            \"nb_frames\": \"197\"\n        }\n    ]\n}"
     },
     "learning_curve_png": "/ws/disaster_recovery_ws/docs/images/evidence_v4/phase3_learning_curves_sim.png"
   },
   "real_tb3": {
     "total_steps": 10616832,
-    "total_episodes": 69188,
-    "wall_time_s": 842.4,
+    "total_episodes": 68200,
+    "wall_time_s": 848.0,
     "seeds": [
       {
         "track": "real_tb3",
         "seed": 101,
         "patch_channels": 3,
         "total_steps": 3538944,
-        "total_episodes": 23462,
-        "best_unseen_sr": 0.9916667342185974,
+        "total_episodes": 22943,
+        "best_unseen_sr": 0.9666666984558105,
         "best_base_6_sr": 1.0,
         "best_dropout_fallback_sr": 1.0,
-        "best_semantic_2_sr": 0.9666666984558105,
-        "best_low_obs_contact_free_rate": 1.0,
-        "best_gas_hazard_free_rate": 0.7333333492279053,
+        "best_semantic_2_sr": 0.8666667342185974,
+        "best_low_obs_contact_free_rate": 0.9333333969116211,
+        "best_gas_hazard_free_rate": 0.6666666865348816,
         "early_stopped_at": null,
-        "elapsed_s": 280.3,
+        "elapsed_s": 280.1,
         "stage_videos": [
           {
-            "mp4": "/hdd/evidence/training_v5_option2/phase3_real_tb3_early_upd24.mp4",
+            "mp4": "/hdd/evidence/training_v6_option2/phase3_real_tb3_early_upd24.mp4",
             "png": "/ws/disaster_recovery_ws/docs/images/evidence_v4/phase3_real_tb3_early_upd24.png",
+            "outcome": "PASS",
+            "steps": 172,
+            "ffprobe": "{\n    \"programs\": [\n\n    ],\n    \"streams\": [\n        {\n            \"width\": 1280,\n            \"height\": 720,\n            \"duration\": \"15.000000\",\n            \"nb_frames\": \"180\"\n        }\n    ]\n}"
+          },
+          {
+            "mp4": "/hdd/evidence/training_v6_option2/phase3_real_tb3_mid_upd48.mp4",
+            "png": "/ws/disaster_recovery_ws/docs/images/evidence_v4/phase3_real_tb3_mid_upd48.png",
             "outcome": "PASS",
             "steps": 174,
             "ffprobe": "{\n    \"programs\": [\n\n    ],\n    \"streams\": [\n        {\n            \"width\": 1280,\n            \"height\": 720,\n            \"duration\": \"15.166667\",\n            \"nb_frames\": \"182\"\n        }\n    ]\n}"
-          },
-          {
-            "mp4": "/hdd/evidence/training_v5_option2/phase3_real_tb3_mid_upd48.mp4",
-            "png": "/ws/disaster_recovery_ws/docs/images/evidence_v4/phase3_real_tb3_mid_upd48.png",
-            "outcome": "PASS",
-            "steps": 175,
-            "ffprobe": "{\n    \"programs\": [\n\n    ],\n    \"streams\": [\n        {\n            \"width\": 1280,\n            \"height\": 720,\n            \"duration\": \"15.250000\",\n            \"nb_frames\": \"183\"\n        }\n    ]\n}"
           }
         ]
       },
@@ -155,15 +181,15 @@
         "seed": 202,
         "patch_channels": 3,
         "total_steps": 3538944,
-        "total_episodes": 22622,
+        "total_episodes": 22218,
         "best_unseen_sr": 0.98333340883255,
         "best_base_6_sr": 1.0,
-        "best_dropout_fallback_sr": 0.9916667342185974,
+        "best_dropout_fallback_sr": 1.0,
         "best_semantic_2_sr": 0.9333333969116211,
         "best_low_obs_contact_free_rate": 1.0,
         "best_gas_hazard_free_rate": 0.6666666865348816,
         "early_stopped_at": null,
-        "elapsed_s": 212.6,
+        "elapsed_s": 211.6,
         "stage_videos": []
       },
       {
@@ -171,69 +197,95 @@
         "seed": 303,
         "patch_channels": 3,
         "total_steps": 3538944,
-        "total_episodes": 23104,
-        "best_unseen_sr": 0.9666666984558105,
-        "best_base_6_sr": 0.9777777791023254,
-        "best_dropout_fallback_sr": 0.9750000238418579,
-        "best_semantic_2_sr": 0.9333333969116211,
+        "total_episodes": 23039,
+        "best_unseen_sr": 0.9416667222976685,
+        "best_base_6_sr": 0.9555555582046509,
+        "best_dropout_fallback_sr": 0.9666666984558105,
+        "best_semantic_2_sr": 0.9000000357627869,
         "best_low_obs_contact_free_rate": 0.9333333969116211,
-        "best_gas_hazard_free_rate": 0.7333333492279053,
+        "best_gas_hazard_free_rate": 0.6666666865348816,
         "early_stopped_at": null,
-        "elapsed_s": 217.7,
+        "elapsed_s": 216.0,
         "stage_videos": []
       }
     ],
     "distilled_onnx": {
       "onnx_path": "/ws/disaster_recovery_ws/src/disaster_recovery/config/real_tb3_policy_student_semantic_v3.onnx",
-      "onnx_size_kb": 412.7,
+      "onnx_size_kb": 415.0,
       "arch": "frozen_residual",
       "non_regression_max_abs_diff": 0.0,
       "patch_channels": 3,
       "flat_input_dim": 976,
-      "val_mse_pass1": 0.001142,
-      "val_mse_dagger": 0.001302,
+      "val_mse_pass1": 0.001133,
+      "val_mse_dagger": 0.001111,
+      "eval_split": {
+        "val_seeds": "10000..10119",
+        "test_seeds": "20000..20119"
+      },
       "onnx_eval": {
-        "unseen_sr": 0.9333333969116211,
-        "base_6_sr": 0.9333333373069763,
-        "dropout_fallback_sr": 0.9583333730697632,
-        "semantic_2_sr": 0.9333333969116211,
+        "unseen_sr": 0.9416667222976685,
+        "base_6_sr": 0.9555555582046509,
+        "dropout_fallback_sr": 0.9333333969116211,
+        "semantic_2_sr": 0.9000000357627869,
         "low_obs_contact_free_rate": 0.9333333969116211,
-        "gas_hazard_free_rate": 0.6000000238418579,
-        "collision_rate": 0.03333333507180214,
-        "timeout_rate": 0.03333326801657677,
-        "mean_return": 136.7711639404297,
-        "mean_steps": 164.7166748046875,
+        "gas_hazard_free_rate": 0.7333333492279053,
+        "collision_rate": 0.0,
+        "timeout_rate": 0.05833327770233154,
+        "mean_return": 140.05917358398438,
+        "mean_steps": 174.5416717529297,
         "per_regime": {
-          "collapsed_debris": 0.8666667342185974,
-          "tight_corridor": 0.9333333969116211,
+          "collapsed_debris": 0.9333333969116211,
+          "tight_corridor": 1.0,
           "dynamic_crossing": 1.0,
-          "plinth_slip_drift": 0.8666667342185974,
+          "plinth_slip_drift": 0.9333333969116211,
           "u_pocket_culdesac": 0.9333333969116211,
-          "chicane_door_pinch": 1.0,
-          "low_obstacle_field": 1.0,
+          "chicane_door_pinch": 0.9333333969116211,
+          "low_obstacle_field": 0.9333333969116211,
           "gas_victim_corridor": 0.8666667342185974
         }
       },
+      "onnx_val_eval": {
+        "unseen_sr": 0.9500000476837158,
+        "base_6_sr": 0.9888889193534851,
+        "dropout_fallback_sr": 0.9583333730697632,
+        "semantic_2_sr": 0.8333333730697632,
+        "low_obs_contact_free_rate": 0.9333333969116211,
+        "gas_hazard_free_rate": 0.6666666865348816,
+        "collision_rate": 0.008333333767950535,
+        "timeout_rate": 0.041666618548333645,
+        "mean_return": 139.31729125976562,
+        "mean_steps": 169.5500030517578,
+        "per_regime": {
+          "collapsed_debris": 1.0,
+          "tight_corridor": 1.0,
+          "dynamic_crossing": 1.0,
+          "plinth_slip_drift": 0.9333333969116211,
+          "u_pocket_culdesac": 1.0,
+          "chicane_door_pinch": 1.0,
+          "low_obstacle_field": 0.9333333969116211,
+          "gas_victim_corridor": 0.7333333492279053
+        }
+      },
       "cpu_latency_ms": {
-        "mean": 0.1173,
-        "p95": 0.1252,
-        "p99": 0.1381
+        "mean": 0.1238,
+        "p95": 0.1345,
+        "p99": 0.1458
       }
     },
     "student_3d_video": {
-      "mp4": "/hdd/evidence/training_v5_option2/phase3_real_tb3_final_student.mp4",
+      "mp4": "/hdd/evidence/training_v6_option2/phase3_real_tb3_final_student.mp4",
       "png": "/ws/disaster_recovery_ws/docs/images/evidence_v4/phase3_real_tb3_final_student.png",
       "outcome": "PASS",
-      "steps": 179,
-      "ffprobe": "{\n    \"programs\": [\n\n    ],\n    \"streams\": [\n        {\n            \"width\": 1280,\n            \"height\": 720,\n            \"duration\": \"15.583333\",\n            \"nb_frames\": \"187\"\n        }\n    ]\n}"
+      "steps": 174,
+      "ffprobe": "{\n    \"programs\": [\n\n    ],\n    \"streams\": [\n        {\n            \"width\": 1280,\n            \"height\": 720,\n            \"duration\": \"15.166667\",\n            \"nb_frames\": \"182\"\n        }\n    ]\n}"
     },
     "learning_curve_png": "/ws/disaster_recovery_ws/docs/images/evidence_v4/phase3_learning_curves_real_tb3.png"
   },
   "gpu_telemetry": {
-    "mean_gpu_util": 33.76276397705078,
-    "max_gpu_util": 57.0,
-    "max_vram_mib": 1128.0,
-    "mean_power_w": 59.86543273925781,
+    "mean_gpu_util": 33.9226188659668,
+    "max_gpu_util": 63.0,
+    "max_vram_mib": 1126.0,
+    "mean_power_w": 58.26401901245117,
     "max_temp_c": 33.0
   }
 }

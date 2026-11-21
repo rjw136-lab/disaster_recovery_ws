@@ -686,3 +686,8 @@ def test_frozen_residual_option2_exact_phase2b_parity_and_semantic_grad():
 
         assert float(np.max(np.abs(y_opt2_zero - y_base))) < 1e-6
         assert float(np.max(np.abs(y_opt2_sem - y_base))) > 1e-3
+
+    # Verify Validation / Independent Test seed split has zero overlap
+    from train_phase2_v100 import TEST_SEEDS, VAL_SEEDS
+    assert len(set(VAL_SEEDS.tolist()).intersection(set(TEST_SEEDS.tolist()))) == 0
+    assert len(VAL_SEEDS) == 120 and len(TEST_SEEDS) == 120

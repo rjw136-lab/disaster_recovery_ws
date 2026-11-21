@@ -791,7 +791,7 @@ class VectorDisasterEnv:
                 if explicit_reg is not None:
                     f_reg = explicit_reg
                 elif self.mode == "eval":
-                    if self.include_semantic_regimes and seed >= 10090:
+                    if self.include_semantic_regimes and (seed % 10000) >= 90:
                         f_reg = NUM_BASE_REGIMES + (seed % len(SEMANTIC_REGIME_NAMES))
                     else:
                         f_reg = seed % NUM_BASE_REGIMES

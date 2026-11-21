@@ -363,9 +363,15 @@ def compute_rl_blend_weight(
     max_alpha: float = 0.70,
     min_side: Optional[float] = None,
     has_nearby_semantic: bool = False,
+    semantic_proximity: Optional[float] = None,
 ) -> float:
-    """Gate RL blend weight to 0 in narrow pinches/doorways while preserving RL speed in open corridors."""
-    eff_max_alpha = max(max_alpha, 0.82) if has_nearby_semantic else max_alpha
+    """Gate RL blend weight to 0 in narrow pinches/doorways while smoothly ramping authority near semantic hazards."""
+    if semantic_proximity is None:
+        sem_prox = 1.0 if has_nearby_semantic else 0.0
+    else:
+        sem_prox = max(0.0, min(1.0, float(semantic_proximity)))
+    boost_cap = max(max_alpha, 0.82)
+    eff_max_alpha = max_alpha + (boost_cap - max_alpha) * sem_prox
     if used_tight_pass or front_min < 0.28 or side_clearance < 0.62:
         return 0.0
     if min_side is not None and min_side < 0.19:
@@ -767,19 +773,34 @@ class RecoveryController(Node):
             return [], []
         return self.semantic_cache.get_channel_tuples()
 
+    def _compute_semantic_proximity(
+        self,
+        sem_obs: Sequence[Tuple[float, float, float]],
+        sem_haz: Sequence[Tuple[float, float, float]],
+        outer_reach_m: float = 1.20,
+        inner_reach_m: float = 0.65,
+    ) -> float:
+        """Return continuous semantic proximity in [0.0, 1.0] from nearest cached obstacle/hazard clearance."""
+        max_prox = 0.0
+        span = max(1e-6, outer_reach_m - inner_reach_m)
+        for items in (sem_obs, sem_haz):
+            for ox, oy, rad in items:
+                clearance = math.hypot(ox - self.current_x, oy - self.current_y) - float(rad)
+                if clearance < outer_reach_m:
+                    prox = max(0.0, min(1.0, (outer_reach_m - clearance) / span))
+                    if prox > max_prox:
+                        max_prox = prox
+        return float(max_prox)
+
     def _has_nearby_semantic_item(
         self,
         sem_obs: Sequence[Tuple[float, float, float]],
         sem_haz: Sequence[Tuple[float, float, float]],
         reach_m: float = 0.95,
     ) -> bool:
-        for ox, oy, rad in sem_obs:
-            if math.hypot(ox - self.current_x, oy - self.current_y) <= reach_m + rad:
-                return True
-        for hx, hy, rad in sem_haz:
-            if math.hypot(hx - self.current_x, hy - self.current_y) <= reach_m + rad:
-                return True
-        return False
+        return self._compute_semantic_proximity(
+            sem_obs, sem_haz, outer_reach_m=reach_m, inner_reach_m=max(0.10, reach_m - 0.30)
+        ) > 0.0
 
     def cb_reset_episode(self, msg: Bool):
         """Reset inter-trial odometry correction, waypoint stack, and local planner cleanly."""
@@ -1155,10 +1176,10 @@ class RecoveryController(Node):
 
                     front_min, left_min, right_min, _ = self.local_planner.last_clearances
                     sem_obs, sem_haz = self._get_active_semantic_channels()
-                    has_nearby_sem = (
-                        self._has_nearby_semantic_item(sem_obs, sem_haz)
+                    sem_prox = (
+                        self._compute_semantic_proximity(sem_obs, sem_haz)
                         if self.use_semantic_rl_policy
-                        else False
+                        else 0.0
                     )
                     df_dt = 0.0
                     if (
@@ -1232,7 +1253,7 @@ class RecoveryController(Node):
                                 side_clearance=left_min + right_min,
                                 used_tight_pass=self.local_planner.last_used_tight_pass,
                                 min_side=(min(left_min, right_min) if self.is_phase2b else None),
-                                has_nearby_semantic=has_nearby_sem,
+                                semantic_proximity=sem_prox,
                             )
                             if (
                                 self.is_phase2b
@@ -1247,7 +1268,7 @@ class RecoveryController(Node):
                                 alpha_rl = 0.0
                             else:
                                 delta_a = alpha_rl - self._prev_alpha_rl
-                                max_step_a = 0.25 if has_nearby_sem else 0.15
+                                max_step_a = 0.15 + 0.10 * sem_prox
                                 if abs(delta_a) > max_step_a:
                                     alpha_rl = self._prev_alpha_rl + (max_step_a if delta_a > 0.0 else -max_step_a)
                             self._prev_alpha_rl = alpha_rl
@@ -1271,16 +1292,16 @@ class RecoveryController(Node):
                             alpha_astar = 1.0 - alpha_rl
                             v_blend = max(-0.10, min(self.v_max, alpha_rl * v_rl + alpha_astar * v_cmd))
                             w_blend = max(-self.w_max, min(self.w_max, alpha_rl * w_rl + alpha_astar * w_cmd))
-                            if self.is_phase2b and (
+                            wall_push_guard = (
                                 (left_min < 0.32 and w_rl > w_cmd + 0.05)
                                 or (right_min < 0.32 and w_rl < w_cmd - 0.05)
-                                or (
-                                    (not has_nearby_sem)
-                                    and w_rl * w_cmd < -0.04
-                                    and abs(w_rl - w_cmd) > 0.50
-                                )
-                            ):
+                            )
+                            opp_steer_conflict = (w_rl * w_cmd < -0.04) and (abs(w_rl - w_cmd) > 0.50)
+                            if self.is_phase2b and wall_push_guard:
                                 v_cmd = min(v_blend, v_cmd)
+                            elif self.is_phase2b and opp_steer_conflict:
+                                v_cmd = (1.0 - sem_prox) * min(v_blend, v_cmd) + sem_prox * v_blend
+                                w_cmd = (1.0 - sem_prox) * w_cmd + sem_prox * w_blend
                             else:
                                 v_cmd = v_blend
                                 w_cmd = w_blend
