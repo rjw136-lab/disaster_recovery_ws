@@ -47,6 +47,8 @@ def _build_ego_grid_xy() -> Tuple[np.ndarray, np.ndarray]:
 
 
 _EGO_GRID_X, _EGO_GRID_Y = _build_ego_grid_xy()
+_EGO_FLAT_X = _EGO_GRID_X.ravel()
+_EGO_FLAT_Y = _EGO_GRID_Y.ravel()
 
 
 @dataclass
@@ -162,14 +164,17 @@ def fit_circle_taubin(
     if n < 3:
         return None
 
-    m = pts.mean(axis=0)
-    x = pts[:, 0].astype(np.float64) - float(m[0])
-    y = pts[:, 1].astype(np.float64) - float(m[1])
+    pts64 = np.asarray(pts, dtype=np.float64)
+    inv_n = 1.0 / float(n)
+    m0 = float(pts64[:, 0].sum()) * inv_n
+    m1 = float(pts64[:, 1].sum()) * inv_n
+    x = pts64[:, 0] - m0
+    y = pts64[:, 1] - m1
     z = x * x + y * y
 
-    Mxx = float(np.mean(x * x))
-    Myy = float(np.mean(y * y))
-    Mxy = float(np.mean(x * y))
+    Mxx = float((x * x).sum()) * inv_n
+    Myy = float((y * y).sum()) * inv_n
+    Mxy = float((x * y).sum()) * inv_n
     tr = Mxx + Myy
     if tr < 1e-10:
         return None
@@ -178,9 +183,9 @@ def fit_circle_taubin(
     lam_min = max(0.0, 0.5 * (tr - disc_cov))
     spread_ratio = lam_min / max(lam_max, 1e-12)
 
-    Mxz = float(np.mean(x * z))
-    Myz = float(np.mean(y * z))
-    Mzz = float(np.mean(z * z))
+    Mxz = float((x * z).sum()) * inv_n
+    Myz = float((y * z).sum()) * inv_n
+    Mzz = float((z * z).sum()) * inv_n
     Mz = tr
     Cov_xy = Mxx * Myy - Mxy * Mxy
     Var_z = Mzz - Mz * Mz
@@ -221,13 +226,14 @@ def fit_circle_taubin(
         return None
 
     radius = math.sqrt(r2)
-    cx = float(m[0]) + dx
-    cy = float(m[1]) + dy
+    cx = m0 + dx
+    cy = m1 + dy
     if not (math.isfinite(cx) and math.isfinite(cy) and math.isfinite(radius)):
         return None
 
-    dists = np.hypot(pts[:, 0].astype(np.float64) - cx, pts[:, 1].astype(np.float64) - cy)
-    rmse = float(np.sqrt(np.mean((dists - radius) ** 2)))
+    dists = np.hypot(x - dx, y - dy)
+    diff_r = dists - radius
+    rmse = math.sqrt(float((diff_r * diff_r).sum()) * inv_n)
     return cx, cy, radius, spread_ratio, rmse
 
 
@@ -248,11 +254,13 @@ def correct_cluster_center_and_radius(
     radius + outward ray-direction surface-arc bias compensation:
         p_center = p_mean + kappa_arc * r_hat * e_r
     """
-    if pts.shape[0] < 3:
+    n_pts = pts.shape[0]
+    if n_pts < 3:
         return None
 
-    mean_x = float(np.mean(pts[:, 0]))
-    mean_y = float(np.mean(pts[:, 1]))
+    inv_n = 1.0 / float(n_pts)
+    mean_x = float(pts[:, 0].sum()) * inv_n
+    mean_y = float(pts[:, 1].sum()) * inv_n
     vx = mean_x - float(robot_xy[0])
     vy = mean_y - float(robot_xy[1])
     ray_len = math.hypot(vx, vy)
@@ -293,6 +301,12 @@ def _hungarian_min_cost(cost: np.ndarray) -> List[Tuple[int, int]]:
     n_rows, n_cols = cost.shape
     if n_rows == 0 or n_cols == 0:
         return []
+    if n_rows == 1 and n_cols == 1:
+        return [(0, 0)]
+    if n_rows == 2 and n_cols == 2:
+        if (cost[0, 0] + cost[1, 1]) <= (cost[0, 1] + cost[1, 0]):
+            return [(0, 0), (1, 1)]
+        return [(0, 1), (1, 0)]
 
     transposed = False
     if n_rows > n_cols:
@@ -443,8 +457,19 @@ class DynamicObstacleTracker:
         self.origin_iy = 0
 
         self._dilate_mask_buf = np.zeros((self.n, self.n), dtype=bool)
-        self._carve_mask_buf = np.zeros((self.n, self.n), dtype=bool)
-        self._ray_fracs = np.linspace(0.06, 0.90, 28, dtype=np.float32)[:, None]
+        self._dilate_mh_buf = np.zeros((self.n, self.n), dtype=bool)
+        df_init = (0.95 - 0.03) / 63.0
+        self._ray_fracs_init = (
+            np.linspace(0.03, 0.95, 64, dtype=np.float32)[:, None],
+            np.linspace(0.03 + 0.5 * df_init, 0.95 + 0.5 * df_init, 64, dtype=np.float32)[:, None],
+        )
+        df_steady = (0.95 - 0.03) / 31.0
+        self._ray_fracs_steady = tuple(
+            np.linspace(0.03 + k * df_steady * 0.25, 0.95 + k * df_steady * 0.25, 32, dtype=np.float32)[:, None]
+            for k in range(4)
+        )
+        self._extrap_cache_stamp: Optional[float] = None
+        self._extrap_cache_states: Dict[int, Tuple[np.ndarray, np.ndarray]] = {}
 
         self._R = np.eye(2, dtype=np.float64) * (self.meas_noise_std_m ** 2)
         self._H = np.array([[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]], dtype=np.float64)
@@ -453,6 +478,19 @@ class DynamicObstacleTracker:
             h: damped_cv_matrices(h, beta=self.beta, q_acc=self.q_acc_base)
             for h in self.ch3_horizons
         }
+        f_list, ft_list, q_list = [], [], []
+        for h in self.ch3_horizons:
+            Fh, Qh = self._ch3_fq_cache[h]
+            f_list.append(Fh)
+            ft_list.append(Fh.T)
+            q_list.append(Qh)
+        self._ch3_F_batch = np.stack(f_list, axis=0) if f_list else np.empty((0, 4, 4))
+        self._ch3_FT_batch = np.stack(ft_list, axis=0) if ft_list else np.empty((0, 4, 4))
+        self._ch3_Q_batch = np.stack(q_list, axis=0) if q_list else np.empty((0, 4, 4))
+        self._ch3_w_arr = np.asarray(self.ch3_weights, dtype=np.float32)
+        self._step_fq_cache: Dict[float, Tuple[np.ndarray, np.ndarray]] = {}
+        for h_pre in (0.05, 0.10, 0.15, 0.20):
+            self._step_fq_cache[round(h_pre, 4)] = damped_cv_matrices(h_pre, beta=self.beta, q_acc=self.q_acc_base)
 
         self.tracks: Dict[int, TrackedObstacle] = {}
         self._next_track_id = 1
@@ -477,6 +515,8 @@ class DynamicObstacleTracker:
         self.tracks.clear()
         self._next_track_id = 1
         self._last_scan_stamp = None
+        self._extrap_cache_stamp = None
+        self._extrap_cache_states.clear()
         self.last_did_update = False
         self.scan_update_count = 0
         self.extrap_tick_count = 0
@@ -543,23 +583,24 @@ class DynamicObstacleTracker:
         """
         s = self.static_occ >= np.float32(self.static_occ_thresh)
         m = self._dilate_mask_buf
+        mh = self._dilate_mh_buf
         np.copyto(m, s)
         m[1:, :] |= s[:-1, :]
         m[:-1, :] |= s[1:, :]
-        mh = m.copy()
+        np.copyto(mh, m)
         mh[:, 1:] |= m[:, :-1]
         mh[:, :-1] |= m[:, 1:]
         if abs(float(omega)) > self.omega_rot_guard_rad_s:
-            m2 = mh.copy()
-            m2[1:, :] |= mh[:-1, :]
-            m2[:-1, :] |= mh[1:, :]
-            mh = m2.copy()
-            mh[:, 1:] |= m2[:, :-1]
-            mh[:, :-1] |= m2[:, 1:]
+            np.copyto(m, mh)
+            m[1:, :] |= mh[:-1, :]
+            m[:-1, :] |= mh[1:, :]
+            np.copyto(mh, m)
+            mh[:, 1:] |= m[:, :-1]
+            mh[:, :-1] |= m[:, 1:]
 
         inb = (ix >= 0) & (ix < self.n) & (iy >= 0) & (iy < self.n)
-        ix_c = np.clip(ix, 0, self.n - 1)
-        iy_c = np.clip(iy, 0, self.n - 1)
+        ix_c = ix.clip(0, self.n - 1)
+        iy_c = iy.clip(0, self.n - 1)
         return inb & mh[ix_c, iy_c]
 
     def _sample_observed_free(
@@ -589,12 +630,14 @@ class DynamicObstacleTracker:
             obs = np.maximum(obs, obs_ext)
         return obs
 
-    def _point_near_active_track(self, wx: np.ndarray, wy: np.ndarray, gate_m: float) -> np.ndarray:
+    def _point_near_confirmed_track(self, wx: np.ndarray, wy: np.ndarray, gate_m: float) -> np.ndarray:
         if not self.tracks:
             return np.zeros(len(wx), dtype=bool)
         g2 = gate_m * gate_m
         near = np.zeros(len(wx), dtype=bool)
         for trk in self.tracks.values():
+            if not trk.is_confirmed:
+                continue
             r_allow = gate_m + trk.radius
             d2 = (wx - trk.x) ** 2 + (wy - trk.y) ** 2
             near |= d2 <= (r_allow * r_allow if r_allow * r_allow > g2 else g2)
@@ -606,10 +649,10 @@ class DynamicObstacleTracker:
         cand_pts_w: np.ndarray,
         n_rays_total: int,
         is_full_360: bool,
-    ) -> List[Tuple[np.ndarray, np.ndarray]]:
+    ) -> List[Tuple[np.ndarray, Optional[Tuple[int, int]], Optional[Tuple[Tuple[int, int], Tuple[int, int]]]]]:
         """
         O(N) 1D angular sequential clustering with 1-2 ray dropout gap allowance
-        and 0 deg / 359 deg wrap-around merge. Returns list of (world_pts, member_positions).
+        and 0 deg / 359 deg wrap-around merge. Returns zero-copy slice descriptors.
         """
         m = len(cand_idx)
         if m == 0:
@@ -619,31 +662,47 @@ class DynamicObstacleTracker:
         dthresh2 = self.cluster_dist_thresh_m * self.cluster_dist_thresh_m
 
         if m == 1:
-            split_indices: List[int] = []
+            ranges_se: List[Tuple[int, int]] = [(0, 1)]
         else:
             gaps = cand_idx[1:] - cand_idx[:-1]
             diff = cand_pts_w[1:] - cand_pts_w[:-1]
             d2 = diff[:, 0] * diff[:, 0] + diff[:, 1] * diff[:, 1]
-            breaks = np.flatnonzero((gaps > max_idx_diff) | (d2 >= dthresh2))
-            split_indices = (breaks + 1).tolist()
-
-        clusters: List[np.ndarray] = np.split(np.arange(m), split_indices) if split_indices else [np.arange(m)]
+            breaks = ((gaps > max_idx_diff) | (d2 >= dthresh2)).nonzero()[0]
+            if len(breaks) == 0:
+                ranges_se = [(0, m)]
+            else:
+                b_list = breaks.tolist()
+                ranges_se = []
+                prev = 0
+                for b in b_list:
+                    ranges_se.append((prev, b + 1))
+                    prev = b + 1
+                ranges_se.append((prev, m))
 
         # 0 deg / 359 deg wrap-around merge preserving arc endpoint ordering
-        if is_full_360 and len(clusters) >= 2:
-            first_c = clusters[0]
-            last_c = clusters[-1]
-            i_first = int(cand_idx[first_c[0]])
-            i_last = int(cand_idx[last_c[-1]])
-            wrap_gap = (i_first + n_rays_total) - i_last
+        merged_wrap = False
+        if is_full_360 and len(ranges_se) >= 2:
+            s0, e0 = ranges_se[0]
+            sl, el = ranges_se[-1]
+            wrap_gap = (int(cand_idx[s0]) + n_rays_total) - int(cand_idx[el - 1])
             if 1 <= wrap_gap <= max_idx_diff:
-                dx = float(cand_pts_w[first_c[0], 0] - cand_pts_w[last_c[-1], 0])
-                dy = float(cand_pts_w[first_c[0], 1] - cand_pts_w[last_c[-1], 1])
+                dx = float(cand_pts_w[s0, 0] - cand_pts_w[el - 1, 0])
+                dy = float(cand_pts_w[s0, 1] - cand_pts_w[el - 1, 1])
                 if (dx * dx + dy * dy) < dthresh2:
-                    merged = np.concatenate([last_c, first_c])
-                    clusters = [merged] + clusters[1:-1]
+                    merged_wrap = True
 
-        return [(cand_pts_w[c_ids], c_ids) for c_ids in clusters]
+        out: List[Tuple[np.ndarray, Optional[Tuple[int, int]], Optional[Tuple[Tuple[int, int], Tuple[int, int]]]]] = []
+        if merged_wrap:
+            s0, e0 = ranges_se[0]
+            sl, el = ranges_se[-1]
+            pts_w = np.concatenate((cand_pts_w[sl:el], cand_pts_w[s0:e0]), axis=0)
+            out.append((pts_w, None, ((sl, el), (s0, e0))))
+            for s_i, e_i in ranges_se[1:-1]:
+                out.append((cand_pts_w[s_i:e_i], (s_i, e_i), None))
+        else:
+            for s_i, e_i in ranges_se:
+                out.append((cand_pts_w[s_i:e_i], (s_i, e_i), None))
+        return out
 
     def _update_background_grids(
         self,
@@ -653,6 +712,7 @@ class DynamicObstacleTracker:
         ranges: np.ndarray,
         cos_lut: np.ndarray,
         sin_lut: np.ndarray,
+        r_valid: np.ndarray,
         wx_valid: np.ndarray,
         wy_valid: np.ndarray,
         ix_valid: np.ndarray,
@@ -673,43 +733,53 @@ class DynamicObstacleTracker:
         rx_f = np.float32(rx)
         ry_f = np.float32(ry)
 
-        # Combine open max-range rays and clipped hit rays into ONE vectorized ray-carve pass
-        end_x_list: List[np.ndarray] = []
-        end_y_list: List[np.ndarray] = []
+        # Unified strided ray-carving: stride=2 (64 steps) on initial 2 scans for instant 100%
+        # corridor coverage, then stride=4 (90 rays, 32 staggered steps) per steady-state scan.
+        if self.scan_update_count <= 2:
+            stride = 2
+            parity = self.scan_update_count % 2
+            fracs = self._ray_fracs_init[parity]
+        else:
+            stride = 4
+            parity = self.scan_update_count % 4
+            fracs = self._ray_fracs_steady[parity]
 
-        open_mask = (~np.isfinite(ranges)) | (ranges > np.float32(self.lidar_max_range_m - 0.05))
-        if np.any(open_mask):
-            max_r_o = np.float32(self.lidar_max_range_m - 0.10)
-            lx_o = max_r_o * cos_lut[open_mask]
-            ly_o = max_r_o * sin_lut[open_mask]
-            end_x_list.append(rx_f + np.float32(c) * lx_o - np.float32(s) * ly_o)
-            end_y_list.append(ry_f + np.float32(s) * lx_o + np.float32(c) * ly_o)
+        r_sub = ranges[parity::stride]
+        c_sub = cos_lut[parity::stride]
+        s_sub = sin_lut[parity::stride]
+        valid_r = np.isfinite(r_sub) & (r_sub >= np.float32(self.lidar_min_range_m))
+        max_r_o = np.float32(min(0.5 * self.grid_size_m - self.res, self.lidar_max_range_m - 0.10))
+        r_carve = np.where(
+            valid_r & (r_sub <= np.float32(self.lidar_max_range_m - 0.05)),
+            np.minimum(r_sub * np.float32(0.90), np.maximum(np.float32(0.0), r_sub - np.float32(0.06))),
+            max_r_o,
+        )
+        active_rays = r_carve > np.float32(0.16)
+        if active_rays.any():
+            rc = r_carve[active_rays]
+            lx = rc * c_sub[active_rays]
+            ly = rc * s_sub[active_rays]
+            if abs(rth) <= 1e-6:
+                ex_all = rx_f + lx
+                ey_all = ry_f + ly
+            else:
+                ex_all = rx_f + np.float32(c) * lx - np.float32(s) * ly
+                ey_all = ry_f + np.float32(s) * lx + np.float32(c) * ly
+            min_gx = np.float32(self.origin_ix * self.res + 0.001)
+            max_gx = np.float32((self.origin_ix + self.n) * self.res - 0.001)
+            min_gy = np.float32(self.origin_iy * self.res + 0.001)
+            max_gy = np.float32((self.origin_iy + self.n) * self.res - 0.001)
+            ex_all = np.minimum(max_gx, np.maximum(min_gx, ex_all))
+            ey_all = np.minimum(max_gy, np.maximum(min_gy, ey_all))
 
-        if len(wx_valid) > 0:
-            dx_w = wx_valid - rx_f
-            dy_w = wy_valid - ry_f
-            d_w = np.hypot(dx_w, dy_w)
-            carve_mask = d_w > np.float32(0.16)
-            if np.any(carve_mask):
-                dw_c = d_w[carve_mask]
-                scale = np.minimum(np.float32(0.90), np.maximum(np.float32(0.0), dw_c - np.float32(0.06)) / dw_c)
-                end_x_list.append(rx_f + dx_w[carve_mask] * scale)
-                end_y_list.append(ry_f + dy_w[carve_mask] * scale)
-
-        if end_x_list:
-            ex_all = np.concatenate(end_x_list) if len(end_x_list) > 1 else end_x_list[0]
-            ey_all = np.concatenate(end_y_list) if len(end_y_list) > 1 else end_y_list[0]
-            ray_x = rx_f + self._ray_fracs * (ex_all[None, :] - rx_f)
-            ray_y = ry_f + self._ray_fracs * (ey_all[None, :] - ry_f)
-            ix_f = np.floor(ray_x * inv_res).astype(np.int32) - self.origin_ix
-            iy_f = np.floor(ray_y * inv_res).astype(np.int32) - self.origin_iy
-            mf = (ix_f >= 0) & (ix_f < self.n) & (iy_f >= 0) & (iy_f < self.n)
-            flat_idx = ix_f[mf] * self.n + iy_f[mf]
-            cm = self._carve_mask_buf
-            cm.fill(False)
-            cm.ravel()[flat_idx] = True
-            self.observed_free[cm] = 1.0
-            self.static_occ[cm] *= np.float32(0.85)
+            ray_x = rx_f + fracs * (ex_all - rx_f)[None, :]
+            ray_y = ry_f + fracs * (ey_all - ry_f)[None, :]
+            shift_off = 1024
+            ix_f = (ray_x * inv_res - np.float32(self.origin_ix - shift_off)).astype(np.int32) - shift_off
+            iy_f = (ray_y * inv_res - np.float32(self.origin_iy - shift_off)).astype(np.int32) - shift_off
+            flat_idx = (ix_f * self.n + iy_f).ravel()
+            self.observed_free.ravel()[flat_idx] = 1.0
+            self.static_occ.ravel()[flat_idx] = 0.0
 
         if len(wx_valid) > 0:
             # Dynamic masking: exclude hit cells within confirmed track radius + 0.08 m
@@ -725,20 +795,23 @@ class DynamicObstacleTracker:
                 iy_u = iy_valid[update_mask]
                 was_free = pre_obs_free_valid[update_mask] >= np.float32(self.observed_free_thresh)
 
-                # Unseen / non-free hits immediately establish static_occ >= 0.75;
-                # previously-free hits build slowly (+0.34/tick) so moving objects can confirm
-                # within 2 ticks before being absorbed, whereas new static drops solidify by tick 3.
+                # Never-free hits establish static_occ = 1.0 & clear observed_free immediately;
+                # previously-free hits build static_occ slowly (+0.34/tick) and gently decay
+                # observed_free (*0.80) so overlapping dynamic cylinders confirm on tick 2
+                # while stationary objects still solidify into static_occ >= 0.75 by tick 3.
                 never_free = ~was_free
                 if np.any(never_free):
-                    self.static_occ[ix_u[never_free], iy_u[never_free]] = 1.0
+                    ix_nf = ix_u[never_free]
+                    iy_nf = iy_u[never_free]
+                    self.static_occ[ix_nf, iy_nf] = 1.0
+                    self.observed_free[ix_nf, iy_nf] = 0.0
                 if np.any(was_free):
                     ix_wf = ix_u[was_free]
                     iy_wf = iy_u[was_free]
                     self.static_occ[ix_wf, iy_wf] = np.minimum(
                         np.float32(1.0), self.static_occ[ix_wf, iy_wf] + np.float32(0.34)
                     )
-
-                self.observed_free[ix_u, iy_u] = 0.0
+                    self.observed_free[ix_wf, iy_wf] *= np.float32(0.80)
 
         sx = int(math.floor(rx / self.res)) - self.origin_ix
         sy = int(math.floor(ry / self.res)) - self.origin_iy
@@ -760,11 +833,19 @@ class DynamicObstacleTracker:
         # 1. Predict all existing tracks using exact damped-CV F(dt) and adaptive q_acc Q(dt)
         pred_states: Dict[int, np.ndarray] = {}
         pred_covs: Dict[int, np.ndarray] = {}
+        dt_key = round(dt, 4)
+        cached_step = self._step_fq_cache.get(dt_key)
+        if cached_step is None:
+            cached_step = damped_cv_matrices(dt, beta=self.beta, q_acc=self.q_acc_base)
+            if len(self._step_fq_cache) < 32:
+                self._step_fq_cache[dt_key] = cached_step
+        F_dt, Q_dt_base = cached_step
         for tid in track_ids:
             trk = self.tracks[tid]
             s0 = np.array([trk.x, trk.y, trk.vx, trk.vy], dtype=np.float64)
-            q_eff = self.q_acc_base * trk.q_acc_scale
-            s_p, P_p = propagate_state_cov(s0, trk.P_4x4, dt, beta=self.beta, q_acc=q_eff)
+            s_p = F_dt @ s0
+            P_p = F_dt @ trk.P_4x4 @ F_dt.T + trk.q_acc_scale * Q_dt_base
+            P_p = 0.5 * (P_p + P_p.T)
             if freeze_velocity:
                 s_p[2] = trk.vx
                 s_p[3] = trk.vy
@@ -779,20 +860,31 @@ class DynamicObstacleTracker:
             big_cost = 1e6
             cost_mat = np.full((n_trk, n_det), big_cost, dtype=np.float64)
             gate_d2 = self.gating_dist_m * self.gating_dist_m
+            inv_S_list: List[Optional[np.ndarray]] = [None] * n_trk
+            r_var = self.meas_noise_std_m * self.meas_noise_std_m
             for r_i, tid in enumerate(track_ids):
                 s_p = pred_states[tid]
-                S = pred_covs[tid][:2, :2] + self._R
-                det_S = float(S[0, 0] * S[1, 1] - S[0, 1] * S[1, 0])
+                P_p = pred_covs[tid]
+                s00 = float(P_p[0, 0]) + r_var
+                s01 = float(P_p[0, 1])
+                s11 = float(P_p[1, 1]) + r_var
+                det_S = s00 * s11 - s01 * s01
                 if det_S <= 1e-12:
                     continue
-                inv_S = np.array([[S[1, 1], -S[0, 1]], [-S[1, 0], S[0, 0]]], dtype=np.float64) / det_S
+                inv_det = 1.0 / det_S
+                i00 = s11 * inv_det
+                i01 = -s01 * inv_det
+                i11 = s00 * inv_det
+                inv_S_list[r_i] = np.array([[i00, i01], [i01, i11]], dtype=np.float64)
+                px_p = float(s_p[0])
+                py_p = float(s_p[1])
                 for c_j, (zx, zy, z_r) in enumerate(detections):
-                    yx = zx - float(s_p[0])
-                    yy = zy - float(s_p[1])
+                    yx = zx - px_p
+                    yy = zy - py_p
                     d2 = yx * yx + yy * yy
                     if d2 > gate_d2:
                         continue
-                    maha2 = yx * (inv_S[0, 0] * yx + inv_S[0, 1] * yy) + yy * (inv_S[1, 0] * yx + inv_S[1, 1] * yy)
+                    maha2 = yx * (i00 * yx + i01 * yy) + yy * (i01 * yx + i11 * yy)
                     if maha2 <= 25.0:
                         cost_mat[r_i, c_j] = maha2 + 0.5 * d2
 
@@ -806,11 +898,8 @@ class DynamicObstacleTracker:
                     s_p = pred_states[tid]
                     P_p = pred_covs[tid]
 
-                    z = np.array([zx, zy], dtype=np.float64)
-                    y = z - s_p[:2]
-                    S = P_p[:2, :2] + self._R
-                    det_S = float(S[0, 0] * S[1, 1] - S[0, 1] * S[1, 0])
-                    inv_S = np.array([[S[1, 1], -S[0, 1]], [-S[1, 0], S[0, 0]]], dtype=np.float64) / max(det_S, 1e-12)
+                    y = np.array([zx - float(s_p[0]), zy - float(s_p[1])], dtype=np.float64)
+                    inv_S = inv_S_list[r_i]
                     nis = float(y @ inv_S @ y)
 
                     # Innovation-triggered 3x q_acc expansion if turnaround jump exceeds 95% chi2 threshold
@@ -823,9 +912,11 @@ class DynamicObstacleTracker:
                             beta=self.beta,
                             q_acc=self.q_acc_base * self.q_acc_adapt_mult,
                         )
-                        S = P_p[:2, :2] + self._R
-                        det_S = float(S[0, 0] * S[1, 1] - S[0, 1] * S[1, 0])
-                        inv_S = np.array([[S[1, 1], -S[0, 1]], [-S[1, 0], S[0, 0]]], dtype=np.float64) / max(det_S, 1e-12)
+                        s00 = float(P_p[0, 0]) + r_var
+                        s01 = float(P_p[0, 1])
+                        s11 = float(P_p[1, 1]) + r_var
+                        inv_det = 1.0 / max(s00 * s11 - s01 * s01, 1e-12)
+                        inv_S = np.array([[s11 * inv_det, -s01 * inv_det], [-s01 * inv_det, s00 * inv_det]], dtype=np.float64)
 
                     K = P_p[:, :2] @ inv_S
                     if freeze_velocity:
@@ -837,8 +928,7 @@ class DynamicObstacleTracker:
                         P_new = P_p
                     else:
                         s_new = s_p + K @ y
-                        I_KH = self._I4 - K @ self._H
-                        P_new = I_KH @ P_p @ I_KH.T + K @ self._R @ K.T
+                        P_new = P_p - K @ (P_p[:2, :])
                         P_new = 0.5 * (P_new + P_new.T)
 
                     vx_new, vy_new = float(s_new[2]), float(s_new[3])
@@ -967,6 +1057,8 @@ class DynamicObstacleTracker:
         dt = (stamp_f - self._last_scan_stamp) if self._last_scan_stamp is not None else 0.20
         dt = max(1e-3, min(1.5, float(dt)))
         self._last_scan_stamp = stamp_f
+        self._extrap_cache_stamp = None
+        self._extrap_cache_states.clear()
         self.last_did_update = True
         self.scan_update_count += 1
 
@@ -986,7 +1078,7 @@ class DynamicObstacleTracker:
             & (ranges >= np.float32(self.lidar_min_range_m))
             & (ranges <= np.float32(self.lidar_max_range_m))
         )
-        valid_idx = np.flatnonzero(valid_mask)
+        valid_idx = valid_mask.nonzero()[0]
         if len(valid_idx) == 0:
             self._update_background_grids(
                 rx,
@@ -995,6 +1087,7 @@ class DynamicObstacleTracker:
                 ranges,
                 cos_lut,
                 sin_lut,
+                np.empty(0, dtype=np.float32),
                 np.empty(0, dtype=np.float32),
                 np.empty(0, dtype=np.float32),
                 np.empty(0, dtype=np.int32),
@@ -1013,8 +1106,9 @@ class DynamicObstacleTracker:
         wy = np.float32(ry) + s * lx + c * ly
 
         inv_res = np.float32(1.0 / self.res)
-        ix = np.floor(wx * inv_res).astype(np.int32) - self.origin_ix
-        iy = np.floor(wy * inv_res).astype(np.int32) - self.origin_iy
+        shift_off = 1024
+        ix = (wx * inv_res - np.float32(self.origin_ix - shift_off)).astype(np.int32) - shift_off
+        iy = (wy * inv_res - np.float32(self.origin_iy - shift_off)).astype(np.int32) - shift_off
 
         # Snapshot pre-update observed_free BEFORE ray-carving updates current hits
         pre_obs_free = self._sample_observed_free(
@@ -1023,30 +1117,39 @@ class DynamicObstacleTracker:
 
         # Condition (1): Exclude points falling inside dilated static_occ >= 0.75 mask
         in_static = self._check_static_mask_at_cells(ix, iy, omega=omega)
-        non_static_sel = np.flatnonzero(~in_static)
+        non_static_sel = (~in_static).nonzero()[0]
 
         detections: List[Tuple[float, float, float]] = []
         if len(non_static_sel) >= self.min_cluster_points:
             cand_ray_idx = valid_idx[non_static_sel]
-            cand_pts_w = np.column_stack((wx[non_static_sel], wy[non_static_sel])).astype(np.float64)
+            cand_pts_w = np.empty((len(non_static_sel), 2), dtype=np.float64)
+            cand_pts_w[:, 0] = wx[non_static_sel]
+            cand_pts_w[:, 1] = wy[non_static_sel]
             cand_obs_free = pre_obs_free[non_static_sel]
-            cand_near_trk = self._point_near_active_track(
+            cand_near_trk = self._point_near_confirmed_track(
                 wx[non_static_sel], wy[non_static_sel], gate_m=self.gating_dist_m
             )
 
             raw_clusters = self._extract_clusters(
                 cand_ray_idx, cand_pts_w, n_rays_total=n_rays, is_full_360=is_full_360
             )
-            for cl_pts, cl_member_ids in raw_clusters:
+            free_mask_all = cand_obs_free >= np.float32(self.observed_free_thresh)
+            for cl_pts, seg_se, wrap_se in raw_clusters:
                 # NOTE: Never impose n_c <= 35; only lower bound n_c >= 3
-                if cl_pts.shape[0] < self.min_cluster_points:
+                n_cl = cl_pts.shape[0]
+                if n_cl < self.min_cluster_points:
                     continue
 
                 # Condition (2): New emergence in verified free-space OR near confirmed dynamic track
-                cl_free = cand_obs_free[cl_member_ids]
-                frac_free = float(np.mean(cl_free >= self.observed_free_thresh))
-                matches_confirmed = bool(np.any(cand_near_trk[cl_member_ids]))
-                if frac_free < 0.50 and not matches_confirmed:
+                if seg_se is not None:
+                    s_i, e_i = seg_se
+                    n_free = int(free_mask_all[s_i:e_i].sum())
+                    matches_confirmed = bool(cand_near_trk[s_i:e_i].any())
+                else:
+                    (sl, el), (s0, e0) = wrap_se  # type: ignore[misc]
+                    n_free = int(free_mask_all[sl:el].sum()) + int(free_mask_all[s0:e0].sum())
+                    matches_confirmed = bool(cand_near_trk[sl:el].any() or cand_near_trk[s0:e0].any())
+                if (n_free / float(n_cl)) < 0.50 and not matches_confirmed:
                     continue
 
                 chord_len = math.hypot(
@@ -1071,9 +1174,11 @@ class DynamicObstacleTracker:
         self._kf_step_and_associate(detections, dt, stamp_f, freeze_velocity=freeze_velocity)
 
         self._update_background_grids(
-            rx, ry, rth, ranges, cos_lut, sin_lut, wx, wy, ix, iy, pre_obs_free
+            rx, ry, rth, ranges, cos_lut, sin_lut, r_val, wx, wy, ix, iy, pre_obs_free
         )
 
+        if abs(t_eval - stamp_f) <= 1e-6:
+            return list(self.tracks.values())
         return self.get_extrapolated_tracks(now_sec=t_eval, confirmed_only=False)
 
     # Convenience alias matching planner conventions
@@ -1097,10 +1202,10 @@ class DynamicObstacleTracker:
             stamp_out = float(now_sec)
 
         out: List[TrackedObstacle] = []
-        for trk in self.tracks.values():
-            if confirmed_only and not trk.is_confirmed:
-                continue
-            if dt_extrap <= 1e-6:
+        if dt_extrap <= 1e-6:
+            for trk in self.tracks.values():
+                if confirmed_only and not trk.is_confirmed:
+                    continue
                 out.append(
                     TrackedObstacle(
                         track_id=trk.track_id,
@@ -1120,15 +1225,24 @@ class DynamicObstacleTracker:
                         vel_history=trk.vel_history,
                     )
                 )
-            else:
+        else:
+            dt_k = round(dt_extrap, 4)
+            cached_ext = self._step_fq_cache.get(dt_k)
+            if cached_ext is None:
+                cached_ext = damped_cv_matrices(dt_extrap, beta=self.beta, q_acc=self.q_acc_base)
+                if len(self._step_fq_cache) < 32:
+                    self._step_fq_cache[dt_k] = cached_ext
+            F_e, Q_e_base = cached_ext
+            self._extrap_cache_states.clear()
+            self._extrap_cache_stamp = stamp_out
+            for tid, trk in self.tracks.items():
+                if confirmed_only and not trk.is_confirmed:
+                    continue
                 s0 = np.array([trk.x, trk.y, trk.vx, trk.vy], dtype=np.float64)
-                s_e, P_e = propagate_state_cov(
-                    s0,
-                    trk.P_4x4,
-                    dt_extrap,
-                    beta=self.beta,
-                    q_acc=self.q_acc_base * trk.q_acc_scale,
-                )
+                s_e = F_e @ s0
+                P_e = F_e @ trk.P_4x4 @ F_e.T + trk.q_acc_scale * Q_e_base
+                P_e = 0.5 * (P_e + P_e.T)
+                self._extrap_cache_states[tid] = (s_e, P_e)
                 out.append(
                     TrackedObstacle(
                         track_id=trk.track_id,
@@ -1155,6 +1269,8 @@ class DynamicObstacleTracker:
         Apply an SE(2) world-frame transform increment delta_T = (d_tx, d_ty, d_th)
         to all tracked obstacles, velocity histories, covariances, and background grids.
         """
+        self._extrap_cache_stamp = None
+        self._extrap_cache_states.clear()
         c = math.cos(d_th)
         s = math.sin(d_th)
         R2 = np.array([[c, -s], [s, c]], dtype=np.float64)
@@ -1260,33 +1376,152 @@ class DynamicObstacleTracker:
         ch3 = np.zeros((PATCH_SIZE, PATCH_SIZE), dtype=np.float32)
         if not self.tracks:
             return ch3
-        confirmed = self.get_extrapolated_tracks(now_sec=now_sec, confirmed_only=True)
-        if not confirmed:
-            return ch3
+
+        use_default_h = horizons is None and weights is None
+        eps = float(self.ch3_eps)
+        c = math.cos(rth)
+        s = math.sin(rth)
+        rx_f = float(rx)
+        ry_f = float(ry)
+
+        dt_extrap = 0.0
+        cache_hit = (
+            now_sec is not None
+            and self._extrap_cache_stamp is not None
+            and abs(float(now_sec) - self._extrap_cache_stamp) <= 1e-9
+        )
+        if not cache_hit:
+            F_ext = None
+            Q_ext_base = None
+            if now_sec is not None and self._last_scan_stamp is not None:
+                dt_extrap = max(0.0, float(now_sec) - float(self._last_scan_stamp))
+                if dt_extrap > 1e-6:
+                    dt_k = round(dt_extrap, 4)
+                    cached_ext = self._step_fq_cache.get(dt_k)
+                    if cached_ext is None:
+                        cached_ext = damped_cv_matrices(dt_extrap, beta=self.beta, q_acc=self.q_acc_base)
+                        if len(self._step_fq_cache) < 32:
+                            self._step_fq_cache[dt_k] = cached_ext
+                    F_ext, Q_ext_base = cached_ext
+            self._extrap_cache_states.clear()
+            if F_ext is not None and now_sec is not None:
+                self._extrap_cache_stamp = float(now_sec)
+            else:
+                self._extrap_cache_stamp = None
+        else:
+            F_ext = None
+            Q_ext_base = None
+
+        if use_default_h:
+            F_b = self._ch3_F_batch
+            FT_b = self._ch3_FT_batch
+            Q_b = self._ch3_Q_batch
+            w_b = self._ch3_w_arr
+            n_h = len(self.ch3_horizons)
+            if n_h == 0:
+                return ch3
+
+            max_flat = np.zeros(PATCH_SIZE * PATCH_SIZE, dtype=np.float32)
+            has_confirmed = False
+            for tid, trk in self.tracks.items():
+                if not trk.is_confirmed:
+                    continue
+                has_confirmed = True
+                r_c = float(trk.radius)
+                if cache_hit and tid in self._extrap_cache_states:
+                    s_cur, P_cur = self._extrap_cache_states[tid]
+                else:
+                    s_cur = np.array([trk.x, trk.y, trk.vx, trk.vy], dtype=np.float64)
+                    P_cur = trk.P_4x4
+                    if F_ext is not None:
+                        s_cur = F_ext @ s_cur
+                        P_cur = F_ext @ P_cur @ F_ext.T + trk.q_acc_scale * Q_ext_base
+
+                s_h = F_b @ s_cur  # (H, 4)
+                P_h = F_b @ P_cur @ FT_b + trk.q_acc_scale * Q_b  # (H, 4, 4)
+                dx_w = s_h[:, 0] - rx_f
+                dy_w = s_h[:, 1] - ry_f
+                ex = (c * dx_w + s * dy_w).astype(np.float32)[:, None]
+                ey = (-s * dx_w + c * dy_w).astype(np.float32)[:, None]
+
+                a = P_h[:, 0, 0]
+                b = 0.5 * (P_h[:, 0, 1] + P_h[:, 1, 0])
+                cp = P_h[:, 1, 1]
+                disc = np.sqrt(np.maximum(0.0, (a - cp) ** 2 + 4.0 * b * b))
+                lam_max = np.maximum(0.0, 0.5 * (a + cp + disc))
+                r_eff = r_c + 1.5 * np.sqrt(lam_max)
+                denom = np.maximum(r_eff - r_c, eps).astype(np.float32)[:, None]
+
+                gx = _EGO_FLAT_X[None, :] - ex
+                gy = _EGO_FLAT_Y[None, :] - ey
+                dist = np.sqrt(gx * gx + gy * gy)
+                ratio = np.maximum(np.float32(0.0), dist - np.float32(r_c)) / denom
+                val = w_b[:, None] * np.maximum(np.float32(0.0), np.minimum(np.float32(1.0), np.float32(1.0) - ratio))
+                max_flat = np.maximum(max_flat, val.max(axis=0))
+
+            if not has_confirmed:
+                return ch3
+            return np.minimum(np.float32(1.0), np.maximum(np.float32(0.0), max_flat)).reshape(PATCH_SIZE, PATCH_SIZE)
 
         hs = self.ch3_horizons if horizons is None else horizons
         ws = self.ch3_weights if weights is None else weights
-        c = math.cos(rth)
-        s = math.sin(rth)
-        eps = float(self.ch3_eps)
+        ego_xs: List[float] = []
+        ego_ys: List[float] = []
+        rcs: List[float] = []
+        denoms: List[float] = []
+        wvals: List[float] = []
 
-        for trk in confirmed:
+        for trk in self.tracks.values():
+            if not trk.is_confirmed:
+                continue
             r_c = float(trk.radius)
-            for tau, w_tau in zip(hs, ws):
-                px_w, py_w, r_eff, _ = self.predict_future(trk, float(tau))
-                dx = px_w - float(rx)
-                dy = py_w - float(ry)
-                ego_x = np.float32(c * dx + s * dy)
-                ego_y = np.float32(-s * dx + c * dy)
-                dist_grid = np.hypot(_EGO_GRID_X - ego_x, _EGO_GRID_Y - ego_y)
-                denom = np.float32(max(r_eff - r_c, eps))
-                val = np.float32(w_tau) * np.clip(
-                    np.float32(1.0) - np.maximum(dist_grid - np.float32(r_c), np.float32(0.0)) / denom,
-                    np.float32(0.0),
-                    np.float32(1.0),
-                )
-                ch3 = np.maximum(ch3, val)
+            s_cur = np.array([trk.x, trk.y, trk.vx, trk.vy], dtype=np.float64)
+            P_cur = trk.P_4x4
+            if F_ext is not None:
+                s_cur = F_ext @ s_cur
+                P_cur = F_ext @ P_cur @ F_ext.T + trk.q_acc_scale * Q_ext_base
+                P_cur = 0.5 * (P_cur + P_cur.T)
 
+            for tau, w_tau in zip(hs, ws):
+                cached = self._ch3_fq_cache.get(float(tau))
+                if cached is not None:
+                    F_h, Q_h = cached
+                    s_t = F_h @ s_cur
+                    P_t = F_h @ P_cur @ F_h.T + trk.q_acc_scale * Q_h
+                else:
+                    s_t, P_t = propagate_state_cov(
+                        s_cur,
+                        P_cur,
+                        float(tau),
+                        beta=self.beta,
+                        q_acc=self.q_acc_base * trk.q_acc_scale,
+                    )
+                lam_max = max_eigenvalue_2x2(P_t[:2, :2])
+                r_eff = r_c + 1.5 * math.sqrt(lam_max)
+                dx = float(s_t[0]) - rx_f
+                dy = float(s_t[1]) - ry_f
+                ego_xs.append(c * dx + s * dy)
+                ego_ys.append(-s * dx + c * dy)
+                rcs.append(r_c)
+                denoms.append(max(r_eff - r_c, eps))
+                wvals.append(float(w_tau))
+
+        if not ego_xs:
+            return ch3
+
+        ex = np.asarray(ego_xs, dtype=np.float32)[:, None, None]
+        ey = np.asarray(ego_ys, dtype=np.float32)[:, None, None]
+        rc = np.asarray(rcs, dtype=np.float32)[:, None, None]
+        dn = np.asarray(denoms, dtype=np.float32)[:, None, None]
+        wv = np.asarray(wvals, dtype=np.float32)[:, None, None]
+
+        dist_grid = np.hypot(_EGO_GRID_X[None, :, :] - ex, _EGO_GRID_Y[None, :, :] - ey)
+        val = wv * np.clip(
+            np.float32(1.0) - np.maximum(dist_grid - rc, np.float32(0.0)) / dn,
+            np.float32(0.0),
+            np.float32(1.0),
+        )
+        ch3 = val.max(axis=0)
         return np.clip(ch3, np.float32(0.0), np.float32(1.0)).astype(np.float32)
 
     def get_predicted_risk_circles(
