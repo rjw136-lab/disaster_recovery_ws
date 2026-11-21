@@ -381,8 +381,8 @@ flowchart LR
 
 ### 9.1 단안 RGB-2D LiDAR 투영 퓨전 & 통신 단절 캐시
 
-- **선행 논문 수식 3 오타 정정 & 270° CCW 역변환**: 이은원·김진현(2025) 수식 (3)의 `X · f_y` 오타를 `Y · f_y` (`v = (Y · f_y) / Z + c_y`)로 바로잡고, 실차 카메라 90° 시계방향 장착에 맞춘 270° CCW 역변환(`unrotate_point`, `unrotate_bbox_xyxy`)을 정합했다([`semantic_mapper_core.py`](src/disaster_recovery/disaster_recovery/semantic_mapper_core.py)).
-- **배경 벽면 오인 차단 (`+0.25m` 전경 클러스터링) & 4종 영구 아티팩트 저장 (`semantic_map_node.py`)**: 바운딩 박스 가로 중앙 70% 내 2D LaserScan 투영 포인트 중 `Z ≤ min(Z) + 0.25 m` 전경 클러스터 중앙값을 채택해 `/map` 위에 조난자(`person`)·저상 장애물(`Ch1`)·가스(`GAS_HAZARD`, `Ch2`)·음성 경보를 실시간 마킹하며, `/semantic_map/save_map` 호출 시 `raw_map.png`, `raw_map.yaml`, `semantic_objects.json`, `semantic_map_overlay.png`를 원자적으로 저장한다.
+- **선행 논문 수식 3 오타 정정 & 270° CCW 역변환**: 이은원·김진현(2025) 수식 (3)의 $X \cdot f_y$ 오타를 $Y \cdot f_y$ ( $v = (Y \cdot f_y)/Z + c_y$ )로 바로잡고, 실차 카메라 90° 시계방향 장착에 맞춘 $270^\circ$ CCW 역변환(`unrotate_point`, `unrotate_bbox_xyxy`)을 정합했다([`semantic_mapper_core.py`](src/disaster_recovery/disaster_recovery/semantic_mapper_core.py)).
+- **배경 벽면 오인 차단 (`+0.25m` 전경 클러스터링) & 4종 영구 아티팩트 저장 (`semantic_map_node.py`)**: 바운딩 박스 가로 중앙 70% 내 2D LaserScan 투영 포인트 중 $Z \le \min(Z) + 0.25\text{ m}$ 전경 클러스터 중앙값을 채택해 `/map` 위에 조난자(`person`)·저상 장애물(`Ch1`)·가스(`GAS_HAZARD`, `Ch2`)·음성 경보를 실시간 마킹하며, `/semantic_map/save_map` 호출 시 `raw_map.png`, `raw_map.yaml`, `semantic_objects.json`, `semantic_map_overlay.png`를 원자적으로 저장한다.
 - **통신 연결 ↔ 단절 시 시맨틱(조난자·저상 장애물) 인지 원리**:
   - **통신 연결 중 (전진 탐사 · Outbound)**: Host PC의 `YOLO26n` + `semantic_map_node`가 `/map`에 좌표를 스탬핑하는 동시에 `/semantic_map/cached_objects` 토픽으로 로봇 RPi 4의 `SemanticObjectCache` 메모리에 실시간 백업한다.
   - **통신 단절 후 (자율 복귀 · Return)**: Host YOLO 링크가 끊겨도 로봇 온보드 **`SemanticObjectCache`에 백업된 조난자(`r=0.55m`)·저상 장애물(`Ch1`)·가스(`Ch2`) 좌표가 영속 유지**되며, 복귀 중 새로 만나는 유독가스는 온보드 MQ-2(`/gas/level`)가 [`cb_gas()`](src/disaster_recovery/disaster_recovery/recovery_controller.py#L886-L894) 로 즉시 추가 기록한다(단절 이후 심부에서 처음 등장하는 조난자까지 신규 탐지하려면 향후 온보드 NPU 탑재가 필요하다).
@@ -409,17 +409,16 @@ sequenceDiagram
 
 ### 9.2 비퇴행 설계: Option 1 vs Option 2
 
-Phase 2-B 1채널 격자를 **3채널 (`12×12×3 = 432`셀 + 544차원 시계열 스칼라 = `976`차원: `Ch0` 2D LiDAR, `Ch1` 저상 장애물, `Ch2` 가스/조난자 보호반경)** 로 확장하는 과정에서 가장 핵심적인 공학적 난제는 **"시맨틱 위험물이 없는 일반 재난 환경(`Ch1=0, Ch2=0`)에서 Phase 2-B의 검증된 협소 문틀·장애물 통과 성능을 어떻게 100% 보존할 것인가"** 였다.
+Phase 2-B 1채널 격자를 **3채널 ( $12\times 12\times 3 = 432$ 셀 + 544차원 시계열 스칼라 = `976`차원: `Ch0` 2D LiDAR, `Ch1` 저상 장애물, `Ch2` 가스/조난자 보호반경)** 로 확장하는 과정에서 가장 핵심적인 공학적 난제는 **"시맨틱 위험물이 없는 일반 재난 환경(`Ch1=0, Ch2=0`)에서 Phase 2-B의 검증된 협소 문틀·장애물 통과 성능을 어떻게 100% 보존할 것인가"** 였다.
 
 초기 3채널 모델(`Phase 3 v3`)은 Phase 2-B 가중치를 3채널 단일 네트워크로 Warm-Start 미세조정(`lr=2e-5`)하고 `Modality Dropout(28%)`을 적용했으나, 공유 백본(`fusion`·`actor_mean`) 가중치가 광역 회피 방향으로 변형되면서 시맨틱 객체가 전혀 없는 15대 일반 재난 벤치마크에서 엄격 무충돌 성공률이 **Phase 2-B `104/150 (69.3%)` → `87/150 (58.0%)` (`-11.3%p`, 특히 `house 6/10→1/10`, `house_hard 9/10→2/10`)로 퇴행**하는 현상이 확인되었다. 이를 해결하기 위해 다음 두 가지 아키텍처 후보를 심층 비교했다.
 
 | 비교 항목 | 후보 1 (Option 1): Hard Channel Gating<br>(Dual-ONNX 런타임 조건부 스위칭) | 후보 2 (Option 2): Frozen Phase 2-B Backbone + Zero-Gated Residual Adapter (**최종 채택**) |
 | :--- | :--- | :--- |
-| **핵심 구조** | 제어기(`recovery_controller`)가 매 스텝 `max(|Ch1|, |Ch2|)`를 검사하여 `0`이면 Phase 2-B 1-Ch ONNX를, `> 0`이면 Phase 3 3-Ch ONNX를 교차 호출 | 단일 통합 ONNX 내부에 **동결(Frozen)된 Phase 2-B 1-Ch 백본**과 **Zero-Gated Residual 시맨틱 어댑터**를 병렬 결합 (`--arch frozen_residual`) |
-| **정책 수식** | `π(s) = π_P2B(s_1ch)` (비시맨틱) / `π_P3(s_3ch)` (시맨틱) | `a = tanh(atanh(π_P2B(s_1ch)) + g(Ch1, Ch2) · Δ_sem(s_3ch))` |
-| **게이트 정의** | `max(|Ch1|, |Ch2|) == 0` 기준 이진 스위칭 (Hard Switch) | `g(Ch1, Ch2) = clamp(max(|Ch1|, |Ch2|) / 1e-4, 0, 1)` |
-| **비시맨틱 구간(`Ch1=0, Ch2=0`) 비퇴행성** | 1-Ch ONNX를 직접 실행하므로 일치 (`max_abs_diff = 0.0`) | 게이트 `g(0, 0) = 0`이 되어 잔차 항이 정확히 소거되므로 **단일 ONNX 내부에서 수학적으로 완전 일치 (`non_regression_max_abs_diff = 0.0`)** |
-| **시맨틱 경계 진입·이탈 연속성** | **불연속 (치명적 한계)**: 로컬 코스트맵(`1.8×1.8 m`) 경계에 저상 장애물·가스가 걸칠 때마다 서로 다른 잠재 표현을 가진 두 정책 간 **하드 스위칭 채터링(조향 급변)** 발생 | **연속·일관성 유지**: 시맨틱 위험 구간(`g = 1`)에서도 동결된 Phase 2-B 백본이 기저 벽면·문틀 정렬 조향(`atanh(π_P2B)`)을 계속 담당하고, 어댑터는 시맨틱 회피에 필요한 잔차(`Δ_sem`)만 연속 가산 |
+| **핵심 구조** | 제어기(`recovery_controller`)가 매 스텝 $\max(\lvert Ch_1 \rvert, \lvert Ch_2 \rvert)$ 를 검사하여 `0`이면 Phase 2-B 1-Ch ONNX를, `> 0`이면 Phase 3 3-Ch ONNX를 교차 호출 | 단일 통합 ONNX 내부에 **동결(Frozen)된 Phase 2-B 1-Ch 백본**과 **Zero-Gated Residual 시맨틱 어댑터**를 병렬 결합 (`--arch frozen_residual`) |
+| **수식 정의** | $\pi(s) = \begin{cases} \pi_{\text{P2B}}(s_{\text{1ch}}) & \text{if } \lVert Ch_{1:2} \rVert_\infty = 0 \cr \pi_{\text{P3}}(s_{\text{3ch}}) & \text{otherwise} \end{cases}$ | $a = \tanh\Big(\text{atanh}\big(\pi_{\text{P2B}}(s_{\text{1ch}})\big) + g(Ch_1,Ch_2)\cdot \Delta_{\text{sem}}(s_{\text{3ch}})\Big)$ <br>단, $g(Ch_1,Ch_2) = \text{clamp}\left(\frac{\max(\lvert Ch_1 \rvert, \lvert Ch_2 \rvert)}{10^{-4}}, 0, 1\right)$ |
+| **비시맨틱 구간(`Ch1=0, Ch2=0`) 비퇴행성** | 1-Ch ONNX를 직접 실행하므로 일치 (`max_abs_diff = 0.0`) | 게이트 $g(0,0) = 0$ 이 되어 잔차 항이 정확히 소거되므로 **단일 ONNX 내부에서 수학적으로 완전 일치 (`non_regression_max_abs_diff = 0.0`)** |
+| **시맨틱 경계 진입·이탈 연속성** | **불연속 (치명적 한계)**: 로컬 코스트맵( $1.8\times 1.8\text{ m}$ ) 경계에 저상 장애물·가스가 걸칠 때마다 서로 다른 잠재 표현을 가진 두 정책 간 **하드 스위칭 채터링(조향 급변)** 발생 | **연속·일관성 유지**: 시맨틱 위험 구간( $g=1$ )에서도 동결된 Phase 2-B 백본이 기저 벽면·문틀 정렬 조향( $\text{atanh}(\pi_{\text{P2B}})$ )을 계속 담당하고, 어댑터는 시맨틱 회피에 필요한 잔차( $\Delta_{\text{sem}}$ )만 연속 가산 |
 | **배포 복잡도** | 런타임에 ONNX 세션 2개 동시 로드 및 모드 전환 관리 필요 | **단일 ONNX 파일 (`414.7 KB`, CPU 추론 `0.13 ms`)** 로 드롭인 교체 |
 | **최종 결정** | ❌ **기각** (경계 스위칭 불연속 및 이중 모델 관리 한계) | ✅ **채택** (수학적 비퇴행 보장 + 단일 네트워크 연속 잔차 제어) |
 
@@ -782,11 +781,11 @@ Host AI 파라미터 (`host_ai_pipeline` 코드 기본값): `yolo_max_fps=15.0`,
 | RViz2 터틀봇3 3D 모델 미표시 & YOLO CPU 병목 | `disaster_cartographer.rviz`(`RobotModel` + `/robot_description`) 분리 적용 및 `yolo_max_fps=15.0` 추론 상한 도입 |
 | Gazebo 런치 월드 경로 하드코딩 | `disaster_world.launch.py` 신규 제작을 통해 다중 월드 및 초기 위치 인자 동적 바인딩 |
 | 대형 복합 메쉬 월드 엔티티 스폰 실패 | 19개 메쉬 로딩 지연 대응 `spawn_entity.py -timeout 120.0` 플래그 적용 |
-| 근거리 웨이포인트 제자리 회전 발산 | `d ≤ 0.08 m` 도달 시 즉시 pop 및 불감대 예외 처리로 `atan2` 특이점 진동 해소 |
+| 근거리 웨이포인트 제자리 회전 발산 | $d \le 0.08\text{ m}$ 도달 시 즉시 pop 및 불감대 예외 처리로 $\text{atan2}$ 특이점 진동 해소 |
 | 타임아웃 발생 후 제어기 상태 데드락 | Heartbeat 1.2초 이상 연속 정상 수신 시 `NORMAL_TELEOP`으로 완전 복구하는 글로벌 리셋 워치독 구현 |
 | 터널 노면 휠슬립 외부 측정 왜곡 | `/recovery/status`에 ICP 보정 좌표계(`POSE:x,y,th`) 실시간 브로드캐스팅 동기화 |
 | RViz2 SLAM 점유 격자 지도 미동기화 (검은 화면) | Cartographer `occupancy_grid_node`의 `/map` 토픽이 `Durability: Volatile`인데 반해, RViz2 설정이 `Transient Local`로 지정되어 발생한 ROS 2 DDS QoS 정책 충돌을 진단하고, `disaster_station.rviz` 및 RViz 설정을 `Volatile`로 동기화하여 실시간 맵 렌더링 정상화 |
-| 터널 +Y 축 주행 시 횡방향 조향 부호 역전 (우측 벽 쏠림) | Gazebo 터널 좌표계에서 로봇이 +Y(헤딩 `π/2`) 방향으로 전진할 때 `-X`가 좌측, `+X`가 우측임에 따라 단순 횡오차(`e_x`) 적용 시 조향이 역전되던 문제를 헤딩 기반 스탠리 조향(`θ_target = 1.57 + 0.45(x - x_target)`)으로 전환하여 중앙 차선(`x = -0.75`) 정밀 추종 달성 |
+| 터널 +Y 축 주행 시 횡방향 조향 부호 역전 (우측 벽 쏠림) | Gazebo 터널 좌표계에서 로봇이 +Y(헤딩 $\pi/2$ ) 방향으로 전진할 때 $-X$ 가 좌측, $+X$ 가 우측임에 따라 단순 횡오차( $e_x$ ) 적용 시 조향이 역전되던 문제를 헤딩 기반 스탠리 조향( $\theta_{\text{target}} = 1.57 + 0.45(x - x_{\text{target}})$ )으로 전환하여 중앙 차선( $x=-0.75$ ) 정밀 추종 달성 |
 | Gazebo 시뮬레이션 중 동적 낙석(Debris) 런타임 투하/삭제 | 물리 월드 재기동 없이 통신 단절 시점마다 `gazebo_ros spawn_entity.py` 및 `/delete_entity` 서비스 호출을 결합하고, 로컬호스트 도메인 환경변수를 주입하여 실시간 낙석 투하 및 라이다 회피 연동 검증 |
 | ROS 2 백그라운드 데몬 XML-RPC 소켓 타임아웃 (`Errno 110`) | 반복된 CLI 호출로 백그라운드 데몬 응답 지연 발생 시 `pkill -9 -f "ros2.*daemon"` 자동 플러시 및 `--no-daemon` 플래그/직접 rclpy 노드 통신을 적용하여 무중단 연속 벤치마크 안정화 |
 | 국소 회피 제어기(TD3) 스텝 버짓 초과 후 무한 정지 데드락 | 복합 낙석 구간에서 회피 스텝 한도 초과 시 `OBSTACLE_HOLD`로 멈추던 구조를 보완하여, `td3_max_avoid_steps`를 250스텝(25초)으로 확장하고 스텝 만료 시 2D ICP 보정 후 다음 웨이포인트로 자동 전진(Pop)하여 복귀 지속 처리 |
