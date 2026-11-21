@@ -25,7 +25,7 @@
 
 ## 1. 왜 기존 알고리즘을 바꾸려 했는가?
 
-기존 `disaster_recovery_ws`(Phase 2-B)는 15가지 재난 시나리오 150회 테스트에서 **99.33%(149/150) 복귀**를 달성했다. 하지만 실제 재난 환경 관제 및 회피 측면에서 다음 3가지 명확한 한계가 존재했다.
+기존 `disaster_recovery_ws`(Phase 2-B)는 15가지 재난 시나리오 150회 클린 테스트(`phase2b_strict_clean`)에서 **엄격 무충돌 `64.00%(96/150)` / 물리 도착 `93.33%(140/150)`** (과거 Legacy(충돌 허용) 기록 `149/150 = 99.33%`, 원본 JSON 미보관) 복귀를 달성했다. 하지만 실제 재난 환경 관제 및 회피 측면에서 다음 3가지 명확한 한계가 존재했다.
 
 1. **카메라 AI의 결과가 지도에 남지 않는다**
    - 기존 `host_ai_pipeline.py`는 조난자(`person`)를 찾으면 화면에 네모 박스를 띄우고 경고 문자열만 보냈다.
@@ -102,19 +102,19 @@ Phase 3에서는 같은 해상도의 미니 지도를 **3장(3채널: 432셀 + 5
 | :---: | :--- | :--- |
 | **Ch 0** *(기존)* | **2D 라이다 벽·기둥 점유** | 벽, 붕괴 기둥, 이동 낙석 충돌 방지 |
 | **Ch 1** *(신규)* | **라이다에 안 보이는 낮은 장애물** | 부딪히기 전에 미리 `0.380 m` 안전 마진을 두고 회피 (`low_obstacle_collision: False`) |
-| **Ch 2** *(신규)* | **가스 위험 구역(`0.55 m`) · 조난자 보호 구역** | 유해 가스 중심점 이격을 Blind 대비 `2.97×`(`0.087 m → 0.258 m`) 확대 *(단, `0.55 m` 외곽 완전 이탈은 후속 튜닝 과제)* |
+| **Ch 2** *(신규)* | **가스 위험 구역(`0.55 m`) · 조난자 보호 구역** | 초기 1회 `semantic_avoidance_ab.json`에서 유해 가스 중심점 이격을 Blind 대비 `2.97×`(`0.087 m → 0.258 m`) 확대했으나 `gas_zone_violated=True` 및 `final_error_m=0.2401` (`24.01 cm`) 한계가 있었으며, 최신 Option 2 10-Trial A/B(`semantic_avoidance_ab_10trials.json`)에서 **`9/10 (90.0%)`, 가스/저상 위반 `0회`** 달성 |
 
 ### 4.2 적용된 핵심 안전장치 3가지 & 검증 성과
 
 1. **통신이 끊겼을 때도 100% 작동해야 한다 (`modality_dropout_prob = 0.28`, 28% Dropout)**
    - 재난 현장에서 통신이 끊기면 Host PC가 새 마커를 보내줄 수 없다.
    - 통신이 끊기기 직전까지 받은 마커는 온보드 제어기 메모리([`recovery_controller.py`](../src/disaster_recovery/disaster_recovery/recovery_controller.py), `SemanticObjectCache`)에 저장해 두고 계속 쓰되, **학습 중 28% 확률로 Ch 1·2를 강제로 0으로 마스킹**하여 훈련했다.
-   - 그 결과, 시맨틱 입력이 완전히 두절된 조건에서도 120개 Unseen Holdout 기준 **Dropout Fallback 성공률 `99.2%`**를 기록했다.
+   - 그 결과, 시맨틱 입력이 완전히 두절된 조건에서도 120개 Unseen Holdout 기준(`phase3_option2_training_summary.json`) **Holdout 성공률 `TEST 94.2% / VAL 95.0%`** (초기 `phase3_semantic_training_summary.json` `sim 98.33% / real_tb3 96.67%`) 및 `Ch1=Ch2=0` 비퇴행 `max_abs_diff = 0.0`을 기록했다.
 2. **가짜 정보(오탐)·위치 오차 노이즈 주입 훈련**
    - 시뮬레이터 훈련 단계에서 마커 위치에 $\pm 0.15\,\text{m}$ 가우시안 노이즈, 등록 지연, 미탐지, 가짜 마커를 무작위 주입하여 위치 오차에 흔들리지 않는 견고한 궤적을 학습시켰다.
-3. **Teacher Warm-Start 전이 학습 & ONNX 분리 증류**
-   - Phase 2-B 최적 체크포인트로부터 Teacher 모델 가중치를 초기화하고 Ch 1·2 연결 가중치만 점진적으로 적응시키는 Warm-Start 기법을 적용했다.
-   - 기존 모델 파일은 그대로 보존하고 **`sim_policy_student_semantic_v3.onnx`** 및 **`real_tb3_policy_student_semantic_v3.onnx`** (`289.2 KB`, x86 단일 스레드 CPU 추론 평균 `0.086~0.087 ms`)로 안전하게 분리 증류했다.
+3. **Option 2 (`frozen_residual`) 비퇴행 학습 & ONNX 분리 증류**
+   - Phase 2-B 백본을 동결하고 Zero-Gated 잔차 시맨틱 어댑터와 후단 Safety Shield를 결합한 Option 2 아키텍처를 적용했다.
+   - 기존 모델 파일은 그대로 보존하고 **`sim_policy_student_semantic_v3.onnx`** 및 **`real_tb3_policy_student_semantic_v3.onnx`** (`415.0 KB`, x86 단일 스레드 CPU 추론 평균 `0.121–0.124 ms`; 초기 `v3` `289.2 KB`, `0.089 ms`)로 안전하게 분리 증류했다.
 
 ---
 
@@ -123,9 +123,9 @@ Phase 3에서는 같은 해상도의 미니 지도를 **3장(3채널: 432셀 + 5
 | 단계 | 계획했던 작업 내용 | 실제 달성 성과 및 지표 | 상태 |
 | :---: | :--- | :--- | :---: |
 | **1단계**<br>시맨틱 SLAM 코어 & 노드 | • 카메라 박스 + 라이다 거리 결합 로직 작성<br>• 논문 Alg. 1/2 마커 승격 및 2D 오버레이 지도 저장 구현<br>• Gazebo RViz2 마커 표출 | • `semantic_mapper_core.py` & `semantic_map_node.py` 구현<br>• `test_semantic_mapper.py` **17/17 PASS**<br>• `/semantic_map/save_map`으로 4종 아티팩트(`raw_map.png/yaml`, `semantic_objects.json`, `semantic_map_overlay.png`) 저장 확인 | ✅ 완료 |
-| **2단계**<br>RL 3채널 환경 확장 | • `rl_procedural_env.py` 3채널 코스트맵 확장<br>• 저상 장애물 밭, 가스·조난자 복도 시나리오 추가<br>• Modality Dropout(28%) 및 시맨틱 노이즈 주입 | • 976차원 관측 공간 구성 완료<br>• `test_semantic_rl_env.py` **8/8 PASS**<br>• 256 병렬 환경 무오류·무결측(zero-NaN) 검증 완료 | ✅ 완료 |
-| **3단계**<br>V100 대규모 재학습 & ONNX | • Phase 2-B Teacher 기반 Warm-Start 재학습<br>• RPi 4용 초경량 3채널 ONNX 모델 증류 | • 120개 Unseen Holdout 시드 전수 평가: **Unseen SR `99.2%`**<br>• Base-6 SR `98.9%`, Dropout Fallback SR `99.2%`<br>• Semantic-2 SR `100.0%`, Low-Obstacle Contact-Free `100.0%`, Gas Hazard-Free `46.7%`<br>• 모델 크기 `289.2 KB`, x86 단일 스레드 CPU 추론 **`0.086~0.087 ms`** | ✅ 완료 |
-| **4단계**<br>제어기 통합 & Gazebo 검증 | • `recovery_controller.py`에 `SemanticObjectCache` 및 `use_semantic_rl_policy` 연동<br>• Gazebo A/B 결정론적 회피 시험<br>• 15대 재난 시나리오 150회 비퇴행 벤치마크 | • `test_semantic_controller.py` **4/4 PASS** (전체 테스트 55/55 PASS)<br>• Gazebo A/B: Blind(`0.2485 m` 충돌, 가스 중심 `0.0869 m`, FAIL) 대비 **저상 충돌 0회(`0.3799 m` 마진) & 가스 중심 이격 `2.97×`(`0.2577 m`, `gas_zone_violated: True`) PASS**<br>• 15대 150회 벤치마크: **`144/150 (96.00%)`** (성공 평균 `100.67 s`, 전체 평균 `107.06 s`) | ✅ 완료 |
+| **2단계**<br>RL 3채널 환경 확장 | • `rl_procedural_env.py` 3채널 코스트맵 확장<br>• 저상 장애물 밭, 가스·조난자 복도 시나리오 추가<br>• Modality Dropout(28%) 및 시맨틱 노이즈 주입 | • 976차원 관측 공간 구성 완료<br>• `test_semantic_rl_env.py` **9/9 PASS**<br>• 256 병렬 환경 무오류·무결측(zero-NaN) 검증 완료 | ✅ 완료 |
+| **3단계**<br>V100 대규모 재학습 & ONNX | • Phase 2-B 기반 Option 2 (`frozen_residual`) 재학습<br>• RPi 4용 초경량 3채널 ONNX 모델 증류 | • 120개 Unseen Holdout 시드 전수 평가(`phase3_option2_training_summary.json`): **Holdout SR `TEST 94.2% / VAL 95.0%`** (초기 `v3` `sim 98.33% / real_tb3 96.67%`)<br>• `Ch1=Ch2=0` 비퇴행 `max_abs_diff = 0.0`, `real_tb3` TEST Gas Hazard-Free `73.3%` (VAL `66.7%`)<br>• 배포 모델 크기 **`415.0 KB`**, x86 단일 스레드 CPU 추론 **`0.121–0.124 ms`** (`sim 0.1207 ms / real_tb3 0.1238 ms`) | ✅ 완료 |
+| **4단계**<br>제어기 통합 & Gazebo 검증 | • `recovery_controller.py`에 `SemanticObjectCache` 및 `use_semantic_rl_policy` 연동<br>• Gazebo A/B 결정론적 회피 시험<br>• 15대 재난 시나리오 150회 비퇴행 벤치마크 | • `test_semantic_controller.py` **4/4 PASS** (전체 테스트 56/56 PASS)<br>• Gazebo 10-Trial A/B(`semantic_avoidance_ab_10trials.json`): Blind `0/10` 대비 **엄격 무위험 `9/10 (90.0%)`, 저상/가스 위반 `0회`** (초기 1회 `semantic_avoidance_ab.json`은 저상 충돌 0회·가스 이격 `0.2577 m`이나 `gas_zone_violated=True` 및 `final_error_m=0.2401` 한계 존재)<br>• 15대 150회 클린 벤치마크(`phase3_option2_clean`, `AUD-01~05` 이상 `0건`): **엄격 무충돌 `96/150 (64.00%)` / 물리 도착 `141/150 (94.00%)`** (`phase2b_strict_clean` 엄격 `96/150 = 64.00%`와 완전 비퇴행 동률; 초기 `phase3_semantic_v3` 엄격 `87/150 = 58.00%` / 도착 `143/150 = 95.33%`; 과거 Legacy(충돌 허용) 기록 `144/150 = 96.00%`, 원본 JSON 미보관) | ✅ 완료 |
 
 ### 5.1 향후 잔여 과제: 실물 TurtleBot3 캘리브레이션, 가스 회피 튜닝 및 필드 실증
 
@@ -133,8 +133,8 @@ Phase 3에서는 같은 해상도의 미니 지도를 **3장(3채널: 432셀 + 5
 
 1. **실물 휠 오도메트리 전용 모델 필드 주행 및 RPi 4 추론 지연 실측**:
    - 실물 로봇의 휠 미끄러짐과 바닥 마찰 특성이 사전 학습된 Track B 모델([`real_tb3_policy_student_semantic_v3.onnx`](../src/disaster_recovery/config/real_tb3_policy_student_semantic_v3.onnx))을 Raspberry Pi 4 온보드에 탑재해 추론 지연 실측 및 실내 장애물 자율 복귀 주행을 검증한다.
-2. **가스 위험 구역 외곽 완전 이탈 튜닝**:
-   - 현재 Holdout `gas_hazard_free_rate = 46.7%`, Gazebo A/B `gas_zone_violated: True`로 확인된 가스 반경(`0.55 m`) 경계 진입을 줄이기 위해 Ch2 페널티 가중치 및 위험 반경 보상을 보완한다.
+2. **절차적 환경 잔여 가스 침범률(`real_tb3` TEST 26.7%) 및 동적 교차 고도화**:
+   - Option 2 재학습으로 Gazebo `ab10` 가스 위반은 `0회`(`9/10`)로 해결되었고 절차적 홀드아웃 `real_tb3` `gas_hazard_free_rate`도 `73.3%`(TEST)까지 개선되었으나, 잔여 `26.7%` 가스 경계 진입(초기 1회 `semantic_avoidance_ab.json` `gas_zone_violated: True`, `final_error_m=0.2401`) 및 동적 교차 시나리오를 위해 Phase 4 Soft-CBF-QP 및 CVaR-RL로 확장한다.
 3. **실물 MQ-2 가스 센서 + ADS1115 PCB 하드웨어 결선**:
    - 설계 완료된 $10\,\text{k}\Omega : 20\,\text{k}\Omega$ 분압 회로를 만능기판(PCB)에 납땜하고, 실제 가스 누출 시 온보드 `/gas/level` 경보 및 비상 복귀 진입을 최종 점검한다.
 
@@ -150,4 +150,4 @@ Phase 3에서는 같은 해상도의 미니 지도를 **3장(3채널: 432셀 + 5
    - 최소 깊이 기준 $+0.25\,\text{m}$ 이내의 전경 포인트 중앙값만 유효 깊이로 수용하도록 필터링했다.
 3. **온보드 연산 부하 분리 및 통신 단절 내구성**:
    - 시맨틱 맵핑 및 YOLO AI 연산은 전적으로 Host PC에서 처리된다.
-   - Raspberry Pi 4 온보드는 경량 3채널 ONNX 모델(`289.2 KB`, x86 CPU 기준 `0.086~0.087 ms`)과 로컬 좌표 캐시만 소비하므로, 통신이 단절되더라도 로봇의 자율 복귀 루프는 외부 의존 없이 독립 동작한다.
+   - Raspberry Pi 4 온보드는 경량 3채널 ONNX 모델(`415.0 KB`, x86 CPU 기준 `0.121–0.124 ms`)과 로컬 좌표 캐시만 소비하므로, 통신이 단절되더라도 로봇의 자율 복귀 루프는 외부 의존 없이 독립 동작한다.

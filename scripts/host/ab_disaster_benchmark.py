@@ -42,6 +42,12 @@ from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Bool, Header, String
 from std_srvs.srv import Empty
+try:
+    from gazebo_msgs.msg import ModelStates
+    HAS_GAZEBO_MSGS = True
+except ImportError:
+    ModelStates = None
+    HAS_GAZEBO_MSGS = False
 
 WS_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -519,12 +525,25 @@ class SimHarnessNode(Node):
         self.sub_odom = self.create_subscription(Odometry, "/odom", self._cb_odom, sensor_qos)
         self.sub_scan = self.create_subscription(LaserScan, "/scan", self._cb_scan, sensor_qos)
         self.sub_status = self.create_subscription(String, "/recovery/status", self._cb_status, 10)
+        if HAS_GAZEBO_MSGS:
+            self.sub_gz_models = self.create_subscription(
+                ModelStates, "/gazebo/model_states", self._cb_model_states, sensor_qos
+            )
+            self.sub_models = self.create_subscription(
+                ModelStates, "/model_states", self._cb_model_states, sensor_qos
+            )
 
         self.odom_ready = False
         self.scan_ready = False
         self.cur_x = 0.0
         self.cur_y = 0.0
         self.cur_th = 0.0
+        self.true_pose_ready = False
+        self.true_x = 0.0
+        self.true_y = 0.0
+        self.true_th = 0.0
+        self.recording_return_path = False
+        self.return_trajectory: List[List[float]] = []
 
         self.ctrl_state = "INIT"
         self.ctrl_stack = 0
@@ -586,6 +605,36 @@ class SimHarnessNode(Node):
         self.pub_dyn_obs1.publish(tw1)
         self.pub_dyn_obs2.publish(tw2)
 
+    def _append_return_point(self, x: float, y: float) -> None:
+        if not self.return_trajectory:
+            self.return_trajectory.append([round(x, 3), round(y, 3)])
+            return
+        lx, ly = self.return_trajectory[-1]
+        dist = math.hypot(x - lx, y - ly)
+        if dist >= 0.08:
+            if dist > 0.24:
+                n_seg = int(math.ceil(dist / 0.20))
+                for s_i in range(1, n_seg):
+                    frac = s_i / float(n_seg)
+                    self.return_trajectory.append(
+                        [round(lx + frac * (x - lx), 3), round(ly + frac * (y - ly), 3)]
+                    )
+            self.return_trajectory.append([round(x, 3), round(y, 3)])
+
+    def _cb_model_states(self, msg):
+        try:
+            idx = msg.name.index("burger")
+        except ValueError:
+            return
+        pose = msg.pose[idx]
+        self.true_x = float(pose.position.x)
+        self.true_y = float(pose.position.y)
+        q = pose.orientation
+        siny = 2.0 * (q.w * q.z + q.x * q.y)
+        cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+        self.true_th = math.atan2(siny, cosy)
+        self.true_pose_ready = True
+
     def _cb_odom(self, msg: Odometry):
         self.cur_x = msg.pose.pose.position.x
         self.cur_y = msg.pose.pose.position.y
@@ -594,6 +643,8 @@ class SimHarnessNode(Node):
         cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
         self.cur_th = math.atan2(siny, cosy)
         self.odom_ready = True
+        if self.recording_return_path:
+            self._append_return_point(self.cur_x, self.cur_y)
 
     def _cb_scan(self, msg: LaserScan):
         ranges = np.array(msg.ranges, dtype=np.float32)
@@ -661,12 +712,14 @@ class SimHarnessNode(Node):
         msg.data = True
         self.pub_reset_ep.publish(msg)
 
-    def reset_gazebo_world(self, timeout_s: float = 3.0) -> None:
+    def reset_gazebo_world(self, timeout_s: float = 3.0) -> bool:
         if self.cli_reset_world.wait_for_service(timeout_sec=2.0):
             fut = self.cli_reset_world.call_async(Empty.Request())
             t0 = time.time()
             while not fut.done() and (time.time() - t0) < timeout_s:
                 rclpy.spin_once(self, timeout_sec=0.02)
+            return bool(fut.done())
+        return False
 
     def choose_open_gap_cmd(self, goal_x: float, goal_y: float) -> Tuple[float, float]:
         if self.scan_ranges is None or self.scan_angles is None:
@@ -948,13 +1001,16 @@ def generate_fixed_scenarios(cfg: ScenarioConfig, trials: int, base_seed: int) -
             "target_depth": target_depth,
             "goal_pool": goal_pool,
             "debris_positions": None,  # Populated during baseline run, replayed in proposed run
+            "reference_outbound_path": None,
+            "reference_turnoff_pose": None,
+            "reference_explored_m": None,
         })
     return specs
 
 
 def _write_json_atomic(path: str, payload: dict) -> None:
-    """Atomically write JSON via temporary file + os.replace to protect checkpoints."""
-    tmp_path = f"{path}.tmp"
+    """Atomically write JSON via PID-scoped temporary file + os.replace to protect parallel writers."""
+    tmp_path = f"{path}.{os.getpid()}.tmp"
     with open(tmp_path, "w") as f:
         json.dump(payload, f, indent=2, ensure_ascii=False)
     os.replace(tmp_path, path)
@@ -1000,6 +1056,7 @@ def run_strategy_suite(
     context_rl_onnx_path: str = "",
     disable_phase2b_envelope: bool = False,
     strict_collision_free: bool = True,
+    max_arrival_error_m: float = 0.25,
 ) -> dict:
     results: List[dict] = list(initial_results) if initial_results else []
     done_trials = {int(r["trial"]) for r in results}
@@ -1057,132 +1114,214 @@ def run_strategy_suite(
             rng = random.Random(spec["seed"])
             target_depth = spec["target_depth"]
             goal_pool = spec["goal_pool"]
-            goal_ptr = 0
 
-            # Clean inter-trial reset: reset controller state BEFORE teleporting Gazebo world
-            node.set_heartbeat(True)
-            node.stop_drive()
-            node.trigger_episode_reset()
-            node.sim_sleep(0.2)
-            delete_debris_entities(max_count=12)
-            node.reset_gazebo_world(timeout_s=3.0)
-            run_cmd_bounded(
-                f"GAZEBO_MASTER_URI={gz_master_uri} timeout -k 1 2 gz model -m burger -x {base_x} -y {base_y} -z 0.01 -R 0 -P 0 -Y {base_yaw} >/dev/null 2>&1",
-                timeout_s=3.0,
-            )
-            run_cmd_bounded(
-                f"GAZEBO_MASTER_URI={gz_master_uri} timeout -k 1 2 gz physics -u {u_rate} >/dev/null 2>&1",
-                timeout_s=4.0,
-            )
-            node.sim_sleep(0.6)
-            node.trigger_episode_reset()
-            node.sim_sleep(0.8)
+            def _perform_verified_reset() -> None:
+                reset_ok = False
+                for rst_attempt in range(1, 5):
+                    node.set_heartbeat(True)
+                    node.stop_drive()
+                    node.recording_return_path = False
+                    node.trigger_episode_reset()
+                    node.sim_sleep(0.2)
+                    delete_debris_entities(max_count=12)
+                    node.reset_gazebo_world(timeout_s=3.0)
+                    rc_pose = run_cmd_bounded(
+                        f"GAZEBO_MASTER_URI={gz_master_uri} timeout -k 1 2 gz model -m burger -x {base_x} -y {base_y} -z 0.01 -R 0 -P 0 -Y {base_yaw} >/dev/null 2>&1",
+                        timeout_s=3.0,
+                    )
+                    run_cmd_bounded(
+                        f"GAZEBO_MASTER_URI={gz_master_uri} timeout -k 1 2 gz physics -u {u_rate} >/dev/null 2>&1",
+                        timeout_s=4.0,
+                    )
+                    node.sim_sleep(0.6)
+                    node.trigger_episode_reset()
+                    node.sim_sleep(0.6)
 
-            # Confirm controller ready in NORMAL_TELEOP near reset_pose
-            wait_t0 = node.sim_now()
-            wait_w0 = time.time()
-            while node.sim_now() - wait_t0 < 6.0 and (time.time() - wait_w0) < 12.0:
-                rclpy.spin_once(node, timeout_sec=0.02)
-                if node.ctrl_state == "NORMAL_TELEOP" and math.hypot(node.cur_x - base_x, node.cur_y - base_y) < 0.20:
-                    break
-            node.trigger_episode_reset()
-            node.reset_outbound_grid()
-            node.sim_sleep(0.4)
+                    # Confirm controller ready in NORMAL_TELEOP with pose error < 0.10m and monotonic /clock
+                    wait_t0 = node.sim_now()
+                    wait_w0 = time.time()
+                    prev_clk = wait_t0
+                    mono_ticks = 0
+                    while (time.time() - wait_w0) < 12.0:
+                        rclpy.spin_once(node, timeout_sec=0.02)
+                        now_clk = node.sim_now()
+                        if now_clk < prev_clk - 1e-3:
+                            mono_ticks = 0
+                            wait_t0 = now_clk
+                        elif now_clk > prev_clk + 1e-3:
+                            mono_ticks += 1
+                        prev_clk = now_clk
+                        pose_err = math.hypot(node.cur_x - base_x, node.cur_y - base_y)
+                        if (
+                            rc_pose == 0
+                            and node.ctrl_state == "NORMAL_TELEOP"
+                            and pose_err < 0.10
+                            and mono_ticks >= 5
+                        ):
+                            reset_ok = True
+                            break
+                        if (now_clk - wait_t0) >= 6.0 and mono_ticks >= 5:
+                            break
+                    if reset_ok:
+                        break
+                    print(
+                        f"  [RESET RETRY {rst_attempt}/4] {cfg.name} #{t_idx:02d}: "
+                        f"state={node.ctrl_state}, dist={math.hypot(node.cur_x - base_x, node.cur_y - base_y):.3f}m (require < 0.10m)"
+                    )
+                node.trigger_episode_reset()
+                node.reset_outbound_grid()
+                node.sim_sleep(0.4)
+                final_reset_err = math.hypot(node.cur_x - base_x, node.cur_y - base_y)
+                if not reset_ok or final_reset_err >= 0.10:
+                    raise RuntimeError(
+                        f"Reset verification failed for {cfg.name} trial #{t_idx}: "
+                        f"pose=({node.cur_x:.3f}, {node.cur_y:.3f}) vs reset_pose=({base_x:.3f}, {base_y:.3f}), "
+                        f"err={final_reset_err:.3f}m >= 0.10m"
+                    )
 
-            # Phase 1: Outbound Exploration (Open-Gap or Guided Doorway/Partition A*)
-            goal_x, goal_y = goal_pool[goal_ptr]
-            goal_ptr += 1
-            checkpoints_done = 0
-            cp_start_t = node.sim_now()
-            outbound_path: List[List[float]] = [[round(node.cur_x, 3), round(node.cur_y, 3)]]
+            ref_out_path = spec.get("reference_outbound_path") if not save_debris_into_specs else None
+            ref_turnoff = spec.get("reference_turnoff_pose") if not save_debris_into_specs else None
+            ref_explored = spec.get("reference_explored_m") if not save_debris_into_specs else None
+
+            outbound_path: List[List[float]] = []
             explored_m = 0.0
-            prev_x, prev_y = node.cur_x, node.cur_y
-            anchor_x, anchor_y = node.cur_x, node.cur_y
-            anchor_t = node.sim_now()
-            t_exp_start = node.sim_now()
+            for out_attempt in range(2):
+                _perform_verified_reset()
 
-            def _phase1_done() -> bool:
-                if (node.sim_now() - t_exp_start) >= cfg.outbound_timeout_sim:
-                    return True
-                if explored_m < target_depth:
-                    return False
-                if cfg.min_blackout_dist > 0.0 and math.hypot(node.cur_x - base_x, node.cur_y - base_y) < cfg.min_blackout_dist:
-                    return False
-                if cfg.min_checkpoints > 0 and checkpoints_done < cfg.min_checkpoints:
-                    return False
-                return True
-
-            t_wall_out0 = time.time()
-            max_wall_out = max(120.0, cfg.outbound_timeout_sim * 1.5)
-            while not _phase1_done():
-                if time.time() - t_wall_out0 > max_wall_out:
-                    break
-                t_tick = node.sim_now()
-                t_w_tick = time.time()
-                while node.sim_now() - t_tick < 0.05 and (time.time() - t_w_tick) < 0.6:
-                    rclpy.spin_once(node, timeout_sec=0.01)
-
-                step_d = math.hypot(node.cur_x - prev_x, node.cur_y - prev_y)
-                explored_m += step_d
+                # Phase 1: Outbound Exploration (Reference Replay, Guided Doorway/Partition A*, or Open-Gap)
+                use_ref_replay = bool(ref_out_path and len(ref_out_path) >= 2)
+                active_pool = [tuple(p) for p in ref_out_path[1:]] if use_ref_replay else list(goal_pool)
+                goal_ptr = 0
+                goal_x, goal_y = active_pool[goal_ptr]
+                goal_ptr += 1
+                checkpoints_done = 0
+                cp_start_t = node.sim_now()
+                outbound_path = [[round(node.cur_x, 3), round(node.cur_y, 3)]]
+                explored_m = 0.0
                 prev_x, prev_y = node.cur_x, node.cur_y
-                if len(outbound_path) == 0 or math.hypot(node.cur_x - outbound_path[-1][0], node.cur_y - outbound_path[-1][1]) >= 0.12:
-                    outbound_path.append([round(node.cur_x, 3), round(node.cur_y, 3)])
+                anchor_x, anchor_y = node.cur_x, node.cur_y
+                anchor_t = node.sim_now()
+                t_exp_start = node.sim_now()
+                target_exp_cap = float(ref_explored) if (use_ref_replay and ref_explored) else float(target_depth)
 
-                if cfg.funnel_collapsed and node.cur_y < 1.2:
-                    target_h = max(1.10, min(2.04, 1.57 + 0.45 * (node.cur_x - (-0.75))))
-                    h_diff = normalize_angle(target_h - node.cur_th)
-                    w_cmd = max(-0.35, min(0.35, 1.2 * h_diff + 0.25 * (node.scan_right_min - node.scan_left_min)))
-                    v_cmd = 0.20
-                    if node.scan_front_min < 0.45:
-                        v_cmd = 0.08
-                        w_cmd = 0.45 if node.scan_left_min > node.scan_right_min else -0.45
-                elif cfg.use_guided_outbound:
-                    if math.hypot(node.cur_x - goal_x, node.cur_y - goal_y) < 0.55:
-                        goal_x, goal_y = goal_pool[goal_ptr % len(goal_pool)]
-                        goal_ptr += 1
-                        checkpoints_done += 1
-                        cp_start_t = node.sim_now()
-                    elif node.sim_now() - cp_start_t > 15.0:
-                        goal_x, goal_y = goal_pool[goal_ptr % len(goal_pool)]
-                        goal_ptr += 1
-                        cp_start_t = node.sim_now()
+                def _phase1_done() -> bool:
+                    if (node.sim_now() - t_exp_start) >= cfg.outbound_timeout_sim:
+                        return True
+                    if use_ref_replay:
+                        if goal_ptr >= len(active_pool) and math.hypot(node.cur_x - goal_x, node.cur_y - goal_y) < 0.15:
+                            return True
+                        if explored_m >= target_exp_cap and ref_turnoff and math.hypot(node.cur_x - ref_turnoff[0], node.cur_y - ref_turnoff[1]) < 0.25:
+                            return True
+                        if explored_m >= target_exp_cap * 1.04:
+                            return True
+                        return False
+                    if explored_m < target_depth:
+                        return False
+                    if cfg.min_blackout_dist > 0.0 and math.hypot(node.cur_x - base_x, node.cur_y - base_y) < cfg.min_blackout_dist:
+                        return False
+                    if cfg.min_checkpoints > 0 and checkpoints_done < cfg.min_checkpoints:
+                        return False
+                    return True
 
-                    if node.sim_now() - anchor_t > 3.5:
-                        if math.hypot(node.cur_x - anchor_x, node.cur_y - anchor_y) < 0.12:
-                            turn_d = 0.60 if node.scan_left_min >= node.scan_right_min else -0.60
-                            esc_t0 = node.sim_now()
-                            esc_w0 = time.time()
-                            while node.sim_now() - esc_t0 < 0.9 and (time.time() - esc_w0) < 3.0:
-                                node.drive_raw(-0.08, turn_d)
-                                rclpy.spin_once(node, timeout_sec=0.01)
-                        anchor_x, anchor_y = node.cur_x, node.cur_y
-                        anchor_t = node.sim_now()
+                t_wall_out0 = time.time()
+                max_wall_out = max(120.0, cfg.outbound_timeout_sim * 1.5)
+                while not _phase1_done():
+                    if time.time() - t_wall_out0 > max_wall_out:
+                        break
+                    t_tick = node.sim_now()
+                    t_w_tick = time.time()
+                    while node.sim_now() - t_tick < 0.05 and (time.time() - t_w_tick) < 0.6:
+                        rclpy.spin_once(node, timeout_sec=0.01)
 
-                    v_cmd, w_cmd = node.choose_guided_astar_cmd(goal_x, goal_y)
-                else:
-                    if math.hypot(node.cur_x - goal_x, node.cur_y - goal_y) < 1.3:
-                        goal_x, goal_y = goal_pool[goal_ptr % len(goal_pool)]
-                        goal_ptr += 1
+                    step_d = math.hypot(node.cur_x - prev_x, node.cur_y - prev_y)
+                    explored_m += step_d
+                    prev_x, prev_y = node.cur_x, node.cur_y
+                    if len(outbound_path) == 0 or math.hypot(node.cur_x - outbound_path[-1][0], node.cur_y - outbound_path[-1][1]) >= 0.12:
+                        outbound_path.append([round(node.cur_x, 3), round(node.cur_y, 3)])
 
-                    if node.sim_now() - anchor_t > 3.5:
-                        if math.hypot(node.cur_x - anchor_x, node.cur_y - anchor_y) < 0.12:
-                            turn_d = 0.60 if node.scan_left_min >= node.scan_right_min else -0.60
-                            esc_t0 = node.sim_now()
-                            esc_w0 = time.time()
-                            while node.sim_now() - esc_t0 < 1.0 and (time.time() - esc_w0) < 3.0:
-                                node.drive_raw(-0.10, turn_d)
-                                rclpy.spin_once(node, timeout_sec=0.01)
+                    if use_ref_replay:
+                        while goal_ptr < len(active_pool) and math.hypot(node.cur_x - goal_x, node.cur_y - goal_y) < 0.16:
+                            goal_x, goal_y = active_pool[goal_ptr]
+                            goal_ptr += 1
+                            checkpoints_done += 1
+                            cp_start_t = node.sim_now()
+                        v_cmd, w_cmd = node.choose_guided_astar_cmd(goal_x, goal_y)
+                    elif cfg.funnel_collapsed and node.cur_y < 1.2:
+                        target_h = max(1.10, min(2.04, 1.57 + 0.45 * (node.cur_x - (-0.75))))
+                        h_diff = normalize_angle(target_h - node.cur_th)
+                        w_cmd = max(-0.35, min(0.35, 1.2 * h_diff + 0.25 * (node.scan_right_min - node.scan_left_min)))
+                        v_cmd = 0.20
+                        if node.scan_front_min < 0.45:
+                            v_cmd = 0.08
+                            w_cmd = 0.45 if node.scan_left_min > node.scan_right_min else -0.45
+                    elif cfg.use_guided_outbound:
+                        if math.hypot(node.cur_x - goal_x, node.cur_y - goal_y) < 0.55:
                             goal_x, goal_y = goal_pool[goal_ptr % len(goal_pool)]
                             goal_ptr += 1
-                        anchor_x, anchor_y = node.cur_x, node.cur_y
-                        anchor_t = node.sim_now()
+                            checkpoints_done += 1
+                            cp_start_t = node.sim_now()
+                        elif node.sim_now() - cp_start_t > 15.0:
+                            goal_x, goal_y = goal_pool[goal_ptr % len(goal_pool)]
+                            goal_ptr += 1
+                            cp_start_t = node.sim_now()
 
-                    v_cmd, w_cmd = node.choose_open_gap_cmd(goal_x, goal_y)
+                        if node.sim_now() - anchor_t > 3.5:
+                            if math.hypot(node.cur_x - anchor_x, node.cur_y - anchor_y) < 0.12:
+                                turn_d = 0.60 if node.scan_left_min >= node.scan_right_min else -0.60
+                                esc_t0 = node.sim_now()
+                                esc_w0 = time.time()
+                                while node.sim_now() - esc_t0 < 0.9 and (time.time() - esc_w0) < 3.0:
+                                    node.drive_raw(-0.08, turn_d)
+                                    rclpy.spin_once(node, timeout_sec=0.01)
+                            anchor_x, anchor_y = node.cur_x, node.cur_y
+                            anchor_t = node.sim_now()
 
-                node.drive_raw(v_cmd, w_cmd)
+                        v_cmd, w_cmd = node.choose_guided_astar_cmd(goal_x, goal_y)
+                    else:
+                        if math.hypot(node.cur_x - goal_x, node.cur_y - goal_y) < 1.3:
+                            goal_x, goal_y = goal_pool[goal_ptr % len(goal_pool)]
+                            goal_ptr += 1
 
-            node.stop_drive()
-            node.sim_sleep(0.3)
+                        if node.sim_now() - anchor_t > 3.5:
+                            if math.hypot(node.cur_x - anchor_x, node.cur_y - anchor_y) < 0.12:
+                                turn_d = 0.60 if node.scan_left_min >= node.scan_right_min else -0.60
+                                esc_t0 = node.sim_now()
+                                esc_w0 = time.time()
+                                while node.sim_now() - esc_t0 < 1.0 and (time.time() - esc_w0) < 3.0:
+                                    node.drive_raw(-0.10, turn_d)
+                                    rclpy.spin_once(node, timeout_sec=0.01)
+                                goal_x, goal_y = goal_pool[goal_ptr % len(goal_pool)]
+                                goal_ptr += 1
+                            anchor_x, anchor_y = node.cur_x, node.cur_y
+                            anchor_t = node.sim_now()
+
+                        v_cmd, w_cmd = node.choose_open_gap_cmd(goal_x, goal_y)
+
+                    node.drive_raw(v_cmd, w_cmd)
+
+                node.stop_drive()
+                node.sim_sleep(0.3)
+
+                if ref_turnoff is not None and ref_explored is not None:
+                    d_exp = abs(explored_m - float(ref_explored))
+                    d_turn = math.hypot(node.cur_x - float(ref_turnoff[0]), node.cur_y - float(ref_turnoff[1]))
+                    if (d_exp >= 1.0 or d_turn >= 1.5) and out_attempt == 0:
+                        print(
+                            f"  [OUTBOUND ASYMMETRY RETRY] {cfg.name} #{t_idx:02d}: "
+                            f"|d_exp|={d_exp:.2f}m, d_turn={d_turn:.2f}m -> retrying outbound"
+                        )
+                        continue
+                    elif d_exp >= 1.0 or d_turn >= 1.5:
+                        print(
+                            f"  [OUTBOUND ASYMMETRY WARN] {cfg.name} #{t_idx:02d}: "
+                            f"|d_exp|={d_exp:.2f}m, d_turn={d_turn:.2f}m"
+                        )
+                break
+
+            if save_debris_into_specs:
+                spec["reference_outbound_path"] = list(outbound_path)
+                spec["reference_turnoff_pose"] = [round(node.cur_x, 3), round(node.cur_y, 3)]
+                spec["reference_explored_m"] = round(explored_m, 3)
 
             # Phase 2: Spawn Identical Debris While Heartbeat Remains Active, Then Trigger Blackout
             if save_debris_into_specs or spec["debris_positions"] is None:
@@ -1234,14 +1373,17 @@ def run_strategy_suite(
                     timeout_s=4.0,
                 )
             node.crossfire_t0 = node.sim_now()
+            node.return_trajectory = [[round(turnoff_x, 3), round(turnoff_y, 3)]]
+            node.recording_return_path = True
             node.set_heartbeat(False)
             t_blackout = node.sim_now()
+            prev_sim_clock = t_blackout
+            sim_elapsed_s = 0.0
 
-            # Phase 3: Autonomous Recovery Monitoring (sim-time)
+            # Phase 3: Autonomous Recovery Monitoring (sim-time with monotonic clock guard)
             max_return_wait = max(cfg.return_timeout_base, explored_m * 16.0)
             saw_recovery = False
             success = False
-            return_trajectory: List[List[float]] = [[round(turnoff_x, 3), round(turnoff_y, 3)]]
             states_visited = set()
             min_scan_m = 10.0
             lidar_collision_steps = 0
@@ -1249,13 +1391,21 @@ def run_strategy_suite(
 
             t_wall_ret0 = time.time()
             max_wall_ret = max(180.0, max_return_wait * 1.5)
-            while node.sim_now() - t_blackout < max_return_wait:
+            while sim_elapsed_s < max_return_wait:
                 if time.time() - t_wall_ret0 > max_wall_ret:
                     break
                 t_step = node.sim_now()
                 t_w_step = time.time()
-                while node.sim_now() - t_step < 0.10 and (time.time() - t_w_step) < 0.8:
+                while (node.sim_now() - t_step) < 0.10 and (time.time() - t_w_step) < 0.8:
                     rclpy.spin_once(node, timeout_sec=0.01)
+                    now_clk = node.sim_now()
+                    dt_clk = now_clk - prev_sim_clock
+                    if 0.0 < dt_clk < 5.0:
+                        sim_elapsed_s += dt_clk
+                    elif dt_clk < -1e-3:
+                        # Guard against asynchronous /clock reset jump
+                        t_step = now_clk
+                    prev_sim_clock = now_clk
 
                 states_visited.add(node.ctrl_state)
                 if node.ctrl_state in (
@@ -1271,7 +1421,7 @@ def run_strategy_suite(
                 elif (
                     "EMERGENCY_STOP" in states_visited
                     and node.ctrl_state == "NORMAL_TELEOP"
-                    and math.hypot(node.cur_x - base_x, node.cur_y - base_y) < 0.85
+                    and math.hypot(node.cur_x - base_x, node.cur_y - base_y) <= max_arrival_error_m
                 ):
                     saw_recovery = True
 
@@ -1281,36 +1431,46 @@ def run_strategy_suite(
                     if node.scan_all_min <= 0.121:
                         lidar_collision_steps += 1
                     if debris_positions:
-                        odom_d = min(math.hypot(node.cur_x - dx, node.cur_y - dy) for dx, dy in debris_positions)
-                        if odom_d < 0.45:
-                            tp_now = get_gazebo_true_pose("burger")
-                            if tp_now is not None:
-                                true_d = min(math.hypot(tp_now[0] - dx, tp_now[1] - dy) for dx, dy in debris_positions)
-                                min_debris_dist_m = min(min_debris_dist_m, true_d)
-                            else:
-                                min_debris_dist_m = min(min_debris_dist_m, odom_d)
-                        else:
-                            min_debris_dist_m = min(min_debris_dist_m, odom_d)
+                        px_chk = node.true_x if node.true_pose_ready else node.cur_x
+                        py_chk = node.true_y if node.true_pose_ready else node.cur_y
+                        cur_debris_d = min(math.hypot(px_chk - dx, py_chk - dy) for dx, dy in debris_positions)
+                        min_debris_dist_m = min(min_debris_dist_m, cur_debris_d)
 
-                if math.hypot(node.cur_x - return_trajectory[-1][0], node.cur_y - return_trajectory[-1][1]) >= 0.12:
-                    return_trajectory.append([round(node.cur_x, 3), round(node.cur_y, 3)])
+                node._append_return_point(node.cur_x, node.cur_y)
 
                 if saw_recovery and node.ctrl_state in ("MISSION_COMPLETE", "NORMAL_TELEOP", "ARUCO_DOCKING"):
                     success = True
                     break
 
-            return_duration = node.sim_now() - t_blackout
-            true_pose = get_gazebo_true_pose("burger")
+            node.recording_return_path = False
+            node._append_return_point(node.cur_x, node.cur_y)
+            return_trajectory = list(node.return_trajectory)
+            raw_return_duration = node.sim_now() - t_blackout
+            if raw_return_duration >= 0.0 and abs(raw_return_duration - sim_elapsed_s) < 5.0:
+                return_duration = raw_return_duration
+            else:
+                return_duration = max(0.0, sim_elapsed_s)
+
+            true_pose = (
+                (node.true_x, node.true_y, node.true_th)
+                if node.true_pose_ready
+                else get_gazebo_true_pose("burger")
+            )
             if true_pose is not None:
                 final_x, final_y, final_th = true_pose
             else:
                 final_x, final_y, final_th = node.cur_x, node.cur_y, node.cur_th
 
             err_m = math.hypot(final_x - base_x, final_y - base_y)
-            if success and err_m > 0.85:
-                # Physical Gazebo pose missed base camp despite odometry arrival claim
+            if success and err_m > max_arrival_error_m:
+                # Physical Gazebo pose missed base camp beyond strict arrival threshold
                 success = False
-            elif not success and err_m < 0.60 and (saw_recovery or "EMERGENCY_STOP" in states_visited):
+            elif (
+                not success
+                and err_m <= max_arrival_error_m
+                and node.ctrl_state in ("MISSION_COMPLETE", "ARUCO_DOCKING")
+                and (saw_recovery or "EMERGENCY_STOP" in states_visited)
+            ):
                 success = True
 
             arrival_success = bool(success)
@@ -1381,12 +1541,18 @@ def main():
     parser.add_argument(
         "--scenario",
         default="collapsed",
-        choices=list(SCENARIOS.keys()) + ["all", "hard8", "all13"],
-        help="Scenario name, 'all' (classic 5), 'hard8' (new 8 hard/novel), or 'all13'",
+        choices=list(SCENARIOS.keys()) + ["all", "hard8", "all13", "all15"],
+        help="Scenario name, 'all' (classic 5), 'hard8' (new 8 hard/novel), or 'all15' (all 15 scenarios; 'all13' kept as legacy alias)",
     )
     parser.add_argument("--trials", type=int, default=10, help="Trials per strategy (default 10)")
     parser.add_argument("--seed", type=int, default=2026, help="Base deterministic seed")
     parser.add_argument("--rtf", type=float, default=4.0, help="Target Gazebo RTF factor (default 4.0)")
+    parser.add_argument(
+        "--max-arrival-error-m",
+        type=float,
+        default=0.25,
+        help="Strict maximum physical terminal error in meters for arrival success (default 0.25m = 25cm)",
+    )
     parser.add_argument(
         "--out-dir",
         default=os.path.join(WS_ROOT, "benchmark_results", "ab_comparison"),
@@ -1462,7 +1628,7 @@ def main():
         selected = list(CLASSIC_5)
     elif args.scenario == "hard8":
         selected = list(HARD_8)
-    elif args.scenario == "all13":
+    elif args.scenario in ("all13", "all15"):
         selected = list(SCENARIOS.keys())
     else:
         selected = [args.scenario]
@@ -1480,12 +1646,25 @@ def main():
         base_src_dir = args.baseline_dir if args.baseline_dir else args.out_dir
         base_in_path = os.path.join(base_src_dir, f"ab_{s_name}_{args.trials}trials.json")
 
-        if args.reuse_baseline and os.path.exists(base_in_path):
+        if (args.reuse_baseline or args.proposed_only) and os.path.exists(base_in_path):
             with open(base_in_path, "r") as f:
                 prev = json.load(f)
             specs = prev["fixed_specs"]
-            base_res = prev["baseline"]
-            base_trials_init = list(base_res.get("trials", []))
+            prev_base = prev.get("baseline", {})
+            prev_base_trials = list(prev_base.get("trials", []))
+            if prev_base_trials:
+                base_res = _summarize_results(cfg, "baseline", prev_base_trials)
+                base_trials_init = prev_base_trials
+                by_trial = {int(t["trial"]): t for t in prev_base_trials}
+                for sp in specs:
+                    bt = by_trial.get(int(sp["trial"]))
+                    if bt:
+                        if not sp.get("reference_outbound_path") and bt.get("outbound_path"):
+                            sp["reference_outbound_path"] = bt["outbound_path"]
+                        if not sp.get("reference_turnoff_pose") and bt.get("turnoff_pose"):
+                            sp["reference_turnoff_pose"] = bt["turnoff_pose"]
+                        if not sp.get("reference_explored_m") and bt.get("explored_path_m") is not None:
+                            sp["reference_explored_m"] = bt["explored_path_m"]
             print(f"\n[REUSE BASELINE] Loaded {len(specs)} fixed scenarios & baseline results from {base_in_path}")
             if args.resume and os.path.exists(partial_path):
                 with open(partial_path, "r") as f:
@@ -1529,11 +1708,20 @@ def main():
                 ros_domain_id=args.ros_domain_id,
                 kill_stale=args.kill_stale,
                 strict_collision_free=(not args.allow_collision_pass),
+                max_arrival_error_m=args.max_arrival_error_m,
             )
             base_trials_init = list(base_res["trials"])
             _save_checkpoint({}, base_trials_init, phase="baseline")
         elif base_res is None and args.proposed_only:
-            base_res = _summarize_results(cfg, "baseline", [])
+            # Check if out_path or summary already has baseline before falling back to empty
+            if os.path.exists(out_path):
+                with open(out_path, "r") as f:
+                    existing_out = json.load(f)
+                ex_trials = list(existing_out.get("baseline", {}).get("trials", []))
+                if ex_trials:
+                    base_res = _summarize_results(cfg, "baseline", ex_trials)
+            if base_res is None:
+                base_res = _summarize_results(cfg, "baseline", [])
 
         prop_res = run_strategy_suite(
             cfg,
@@ -1549,6 +1737,7 @@ def main():
             context_rl_onnx_path=args.context_rl_onnx,
             disable_phase2b_envelope=args.disable_phase2b_envelope,
             strict_collision_free=(not args.allow_collision_pass),
+            max_arrival_error_m=args.max_arrival_error_m,
         )
 
         # Save fixed specs and A/B comparison JSON
@@ -1562,14 +1751,52 @@ def main():
         if os.path.exists(partial_path):
             os.remove(partial_path)
         print(f"\n[SAVED] {out_path}")
-        all_reports[s_name] = {
-            "baseline": base_res["summary"],
+
+        per_scen_sum_path = os.path.join(args.out_dir, f"ab_summary_{s_name}_{args.trials}trials.json")
+        base_sum_to_save = base_res["summary"]
+        if base_sum_to_save.get("trials", 0) == 0 and os.path.exists(per_scen_sum_path):
+            try:
+                with open(per_scen_sum_path, "r") as f:
+                    old_sum = json.load(f)
+                old_base_sum = old_sum.get(s_name, {}).get("baseline", {})
+                if old_base_sum.get("trials", 0) > 0:
+                    base_sum_to_save = old_base_sum
+            except Exception:
+                pass
+        scen_report = {
+            "baseline": base_sum_to_save,
             "proposed": prop_res["summary"],
         }
+        _write_json_atomic(per_scen_sum_path, {s_name: scen_report})
+        all_reports[s_name] = scen_report
 
-    master_path = os.path.join(args.out_dir, f"ab_summary_{args.scenario}_{args.trials}trials.json")
-    _write_json_atomic(master_path, all_reports)
-    print(f"\n[ALL DONE] Master summary: {master_path}")
+    # Aggregate all ab_*_{trials}trials.json files in args.out_dir into ab_summary_all_{trials}trials.json
+    full_dir_reports = {}
+    for s_key, s_cfg in SCENARIOS.items():
+        s_file = os.path.join(args.out_dir, f"ab_{s_key}_{args.trials}trials.json")
+        if os.path.exists(s_file):
+            try:
+                with open(s_file, "r") as f:
+                    s_data = json.load(f)
+                b_tr = s_data.get("baseline", {}).get("trials", [])
+                p_tr = s_data.get("proposed", {}).get("trials", [])
+                b_st = s_data.get("baseline", {}).get("summary", {}).get("strategy", "baseline")
+                p_st = s_data.get("proposed", {}).get("summary", {}).get("strategy", args.proposed_strategy)
+                b_sum = _summarize_results(s_cfg, b_st, b_tr)["summary"] if b_tr else s_data.get("baseline", {}).get("summary", {})
+                p_sum = _summarize_results(s_cfg, p_st, p_tr)["summary"] if p_tr else s_data.get("proposed", {}).get("summary", {})
+                full_dir_reports[s_key] = {"baseline": b_sum, "proposed": p_sum}
+            except Exception:
+                pass
+
+    all_master_path = os.path.join(args.out_dir, f"ab_summary_all_{args.trials}trials.json")
+    if full_dir_reports:
+        _write_json_atomic(all_master_path, full_dir_reports)
+    if args.scenario not in ("all",):
+        master_path = os.path.join(args.out_dir, f"ab_summary_{args.scenario}_{args.trials}trials.json")
+        _write_json_atomic(master_path, all_reports)
+        print(f"\n[ALL DONE] Master summary: {master_path} (Directory master: {all_master_path})")
+    else:
+        print(f"\n[ALL DONE] Master summary: {all_master_path}")
 
 
 if __name__ == "__main__":

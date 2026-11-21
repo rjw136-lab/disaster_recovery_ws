@@ -1,6 +1,6 @@
 # [종합 가이드북] 통신 단절 적응형 실내 재난 탐사 및 자율 복귀 터틀봇3 버거 시스템 구축 엔지니어링 리포트
 
-> **최신 업데이트 (2026-11-20):** Phase 1(`RollingLocalGrid + 2D A*`), Phase 2-A(`Clearance-Gated RL`), **Phase 2-B(`v3_dynfix` · 15대 재난 시나리오 150회 `99.33%`)** 및 **Phase 3(논문 기반 2D 시맨틱 SLAM & 3채널 Context-RL, 150회 비퇴행 `96.00%`)** 구현·시뮬레이션 검증 결과를 통합 반영하였다.
+> **최신 업데이트 (2026-11-21):** Phase 1(`RollingLocalGrid + 2D A*`), Phase 2-A(`Clearance-Gated RL`), **Phase 2-B(`phase2b_strict_clean` · 15대 재난 시나리오 150회 엄격 무충돌 `96/150 = 64.00%` / 물리 도착 `140/150 = 93.33%`; 과거 Legacy(충돌 허용) 기록 `149/150 = 99.33%`, 원본 JSON 미보관)** 및 **Phase 3 Option 2(논문 기반 2D 시맨틱 SLAM & 3채널 Frozen-Backbone Context-RL, `phase3_option2_clean` 150회 엄격 무충돌 `96/150 = 64.00%` / 물리 도착 `141/150 = 94.00%`, 시맨틱 10-Trial A/B `9/10 = 90.0%`; 초기 `v3` 엄격 `87/150 = 58.00%` / 도착 `143/150 = 95.33%`, 과거 Legacy 기록 `144/150 = 96.00%`, 원본 JSON 미보관)** 구현·시뮬레이션 검증 결과를 통합 반영하였다.
 
 ---
 
@@ -59,12 +59,12 @@ Host PC(Windows 11 WSL2)와 로봇 본체(Raspberry Pi 4 + OpenCR 1.0) 간의 �
 ### 2.4 ArUco 마커 기반 원근 n-포인트(Perspective-n-Point) 정밀 도킹
 - **주장**: 사체 항법의 누적 슬립 오차를 상쇄하고 최종 복귀 오차를 반경 15cm 이내로 수렴시키기 위해 ArUco 시각 마커 기반 PnP 정밀 정렬을 적용한다.
 - **근거**: Garrido-Jurado et al. (2014), "Automatic generation and detection of highly reliable fiducial markers under occlusion", *Pattern Recognition*, 47(6), 2280-2292 및 Collins & Bartoli (2014), "Infinitesimal Plane-Based Pose Estimation", *International Journal of Computer Vision*에 따르면, 기하학적 형상이 기지인 평면 4변 마커의 코너점을 단일 카메라로 투영 해석하는 `solvePnP` (IPPE Square)는 서브센티미터(Sub-centimeter) 단위의 3차원 상대 위치 $`(X_c, Y_c, Z_c)`$ 추정이 가능하다.
-- **결론**: 로봇이 출발 원점 50cm 거리에 진입하면 베이스캠프 벽면의 $`10 \times 10\,\text{cm}`$ 마커(ID 0)를 인식하여 횡방향 오차 $`X_c \approx 0`$, 정지 거리 $`Z_c = 0.20\,\text{m}`$를 달성함으로써 누적 엔코더 오차를 완전히 무효화하고 15cm 이내 정밀 복귀를 완성한다.
+- **결론**: 로봇이 출발 원점 50cm 거리에 진입하면 베이스캠프 벽면의 ArUco 마커(ID 0, 시뮬레이션 `0.10 m = 10 × 10 cm` / 실차 `0.05 m = 5.0 × 5.0 cm`, `recovery_params_real.yaml`)를 인식하여 횡방향 오차 $`X_c \approx 0`$, 정지 거리 $`Z_c = 0.20\,\text{m}`$를 달성함으로써 누적 엔코더 오차를 완전히 무효화하고 15cm 이내 정밀 복귀를 완성한다.
 
 ### 2.5 점유 격자 기반 국소 A\* 탐색 및 Context-Adaptive RL 융합 (Phase 1 ~ Phase 2-B)
 - **주장**: 단순 반사형(Reactive) 회피만으로는 U자 막다른 함정·고밀도 낙석·동적 교차 장애물을 빠져나갈 수 없으므로, 단기 메트릭 점유 격자(`RollingLocalGrid` + `2D A*`)로 대우회·위상 지름길 경로를 산출하고, 협소 구간에서는 `A*`가 주도하며 열린 구간에서는 시공간 문맥 기반 경량 ONNX 정책(`ContextRLStudentPolicy`)이 부드러운 고속 회피를 담당하는 계층형 융합이 필수적이다.
-- **근거**: Elfes (1989)의 점유 격자(Occupancy Grid) 및 Hart et al. (1968)의 `A*` 탐색을 바탕으로 `8 m × 8 m`(`0.04 m` 해상도) 롤링 격자에서 국소 경로를 계획하고, Schulman et al. (2017)의 PPO·Jiang et al. (2021)의 PLR 커리큘럼·Ross et al. (2011)의 DAgger 증류를 통해 `16스텝(1.6초)` 시계열 문맥과 `12×12` 자차 중심 코스트맵(`688차원`)을 입력받는 `< 0.04 ms` 초경량 ONNX 학생 정책을 구축하였다.
-- **결론**: `Phase 2-B`에서는 여기에 Layer-0 연기/분진 스파이크 필터(`_despike_lidar_ranges`), Open-Ray Carving(`carve_decay=0.25`), `DYNAMIC_HOLD`, 비대칭 측면 게이팅을 결합해 15개 재난 시나리오 150회 벤치마크에서 **`149/150 (99.33%)`** 을 달성하였다.
+- **근거**: Elfes (1989)의 점유 격자(Occupancy Grid) 및 Hart et al. (1968)의 `A*` 탐색을 바탕으로 런타임 `6.0 m × 6.0 m`(`0.04 m` 해상도, 팽창 반경 시뮬 `0.085 m` / 실차 `0.095 m`; 클래스 기본값은 `8.0 m`) 롤링 격자에서 국소 경로를 계획하고, Schulman et al. (2017)의 PPO·Jiang et al. (2021)의 PLR 커리큘럼·Ross et al. (2011)의 DAgger 증류를 통해 `16스텝(1.6초)` 시계열 문맥과 `12×12` 자차 중심 코스트맵(`688차원`)을 입력받는 `< 0.04 ms` 초경량 ONNX 학생 정책을 구축하였다.
+- **결론**: `Phase 2-B`에서는 여기에 Layer-0 연기/분진 스파이크 필터(`_despike_lidar_ranges`), Open-Ray Carving(`carve_decay=0.25`), `BACKTRACKING_HYBRID` 내부 서브모드 `DYNAMIC_HOLD`, 비대칭 측면 게이팅을 결합해 15개 재난 시나리오 150회 클린 벤치마크(`phase2b_strict_clean`)에서 **엄격 무충돌 `96/150 (64.00%)` / 물리 도착 `140/150 (93.33%)`** (과거 Legacy(충돌 허용) 기록 `149/150 = 99.33%`, 원본 JSON 미보관)을 달성하였다.
 
 ---
 
@@ -175,9 +175,9 @@ flowchart TD
 | **`NORMAL_TELEOP`** | `/cmd_vel_remote` 원격 조종 통과 중계<br/>이동 $`\Delta d \ge 0.3\,\text{m}`$ 또는 회전 $`\lvert \Delta \theta \rvert \ge 25^\circ`$마다 `Waypoint` 스택 푸시 및 선행 격자 관측 | 정상 탐색 및 궤적 로깅 |
 | **`EMERGENCY_STOP`** | 선속도 0, 각속도 0 즉시 인가 (`HALT_MOTORS`)<br/>원격 명령 중계 차단 및 로컬 블랙박스 녹화 개시 (`LOCK_REMOTE`)<br/>LIFO 스택 최상단 경유지 추출 (`POP_WP`) | 비상 페일세이프 작동 |
 | **`BACKTRACKING_ROTATE`** | 선속도 0 유지, 목표 경유지 헤딩 방향으로 제자리 회전 각속도 $`P`$-제어 인가 (`PURE_ROTATION`) | 제자리 회전 정렬 |
-| **`BACKTRACKING_HYBRID`** | **Phase 2-B 기본 복귀 상태**: `RollingLocalGrid(0.04m) + 2D A*`·위상 지름길 추종, `Clearance-Gate` 조건에 따라 `ContextRLStudent` ONNX(`688차원`) 블렌딩 및 곡률 보존 클램프, 경유지 45 cm 이내 2D SVD ICP 슬립 보정 수행 | 계층형 하이브리드 복귀 |
-| **`DYNAMIC_HOLD`** *(Phase 2-B)* | 직진 중 동적 장애물 급접근($`df/dt < -0.25\,\text{m/s}`$, $`0.20 \le d_{\text{front}} \le 0.55\,\text{m}`$) 감지 시 구석 후진 몰림을 피하기 위해 1.2초 정지 대기 (`observe()` 연속 갱신) | 교차 이동 장애물 대응 |
-| **`ESCAPE`** *(Phase 1~2-B)* | 정체 감시(Watchdog) 발동 시 안전 후진·회전 탈출 및 4.5s RL 쿨다운(`repeat >= 1` 시 7.0s Lockout Anchor 부여) | 막다른 골목·저상 턱 탈출 |
+| **`BACKTRACKING_HYBRID`** | **Phase 2-B / Phase 3 기본 복귀 상태**: `RollingLocalGrid(6.0m×6.0m, 0.04m) + 2D A*`·위상 지름길 추종, `Clearance-Gate` 조건에 따라 `ContextRLStudent` ONNX(`688차원` / `976차원`) 블렌딩 및 곡률 보존 클램프, 경유지 45 cm 이내 2D SVD ICP 슬립 보정 수행 | 계층형 하이브리드 복귀 |
+| ↳ *내부 서브모드:* `DYNAMIC_HOLD` *(Phase 2-B)* | `BACKTRACKING_HYBRID` 내부 서브모드(`SystemState` 공식 11개 상태 외 하위 제어 서브모드): 직진 중 동적 장애물 급접근($`df/dt < -0.25\,\text{m/s}`$, $`0.20 \le d_{\text{front}} \le 0.55\,\text{m}`$) 감지 시 구석 후진 몰림을 피하기 위해 1.2초 정지 대기 (`observe()` 연속 갱신) | 교차 이동 장애물 대응 |
+| ↳ *내부 서브모드:* `ESCAPE` *(Phase 1~2-B)* | `BACKTRACKING_HYBRID` 내부 플래너 서브모드: 정체 감시(Watchdog) 발동 시 안전 후진·회전 탈출 및 4.5s RL 쿨다운(`repeat >= 1` 시 7.0s Lockout Anchor 부여) | 막다른 골목·저상 턱 탈출 |
 | **`BACKTRACKING_TRANSLATE`** | `enable_hybrid_tracking=false` 레거시 직진 추종 모드 (`FORWARD_DRIVE`) | 레거시 호환 모드 |
 | **`LOCAL_TD3_AVOIDANCE`** | Phase 1.5 레거시(`recovery_strategy=td3`) 복귀 시 28차원 Residual TD3 ONNX 우회 기동 수행 | 레거시 호환 모드 |
 | **`OBSTACLE_HOLD`** | 회피 기능 비활성화 시 전방 $`\pm 20^\circ`$, $`0.12 \sim 0.25\,\text{m}`$ 장애물 앞에서 $`v=0, \omega=0`$ 정지 대기 | 전방 충돌 방지 세이프티 |
@@ -248,7 +248,7 @@ v = \text{clamp}(K_{p,v} \cdot d_{\text{target}}, 0.03\,\text{m/s}, v_{\max}), \
 - **Phase 2-B Layer-0 & Clearance-Gate 보완:** `_despike_lidar_ranges`($`\pm 3^\circ`$ 7-광선 창 내 유사 거리 이웃 `< 3`개인 `2.20 m` 이내 고립 스파이크 제거)로 연기 난반사를 차단하고, `compute_rl_blend_weight`로 협소 구간에서는 순수 `2D A*`로 양보하며, 곡률 보존 선속도 클램프($`v \le v_{\text{cmd}}`$)로 언더스티어를 방지한다.
 
 ### 6.4 ArUco solvePnP 정밀 도킹 수식
-- 마커 코너 3D 좌표: $`[-s/2, s/2, 0], [s/2, s/2, 0], [s/2, -s/2, 0], [-s/2, -s/2, 0]`$ ($`s = 0.10\,\text{m}`$)
+- 마커 코너 3D 좌표: $`[-s/2, s/2, 0], [s/2, s/2, 0], [s/2, -s/2, 0], [-s/2, -s/2, 0]`$ (시뮬레이션 `recovery_params.yaml`: $`s = 0.10\,\text{m}`$, 실차 `recovery_params_real.yaml`: $`s = 0.05\,\text{m}`$)
 - PnP 해석: `cv2.solvePnP(obj_points, img_points, K, D, flags=cv2.SOLVEPNP_IPPE_SQUARE)`
 - 최종 오차 수렴 판정 ($`\ge 10\text{ frames}`$ 연속 만족):
 
@@ -266,12 +266,12 @@ v = \text{clamp}(K_{p,v} \cdot d_{\text{target}}, 0.03\,\text{m/s}, v_{\max}), \
 
 1. **논문 기반 2D 재난 시맨틱 맵핑 (`semantic_mapper_core.py`, `semantic_map_node.py` 구현 완료):**
    - 선행 논문(이은원·김진현, *로봇학회 논문지*, 2025)을 단안 RGB + LDS-01 2D LiDAR 환경에 맞게 변형(수식 3 Y 오타 정정 · 270° CCW 역변환 · `+0.25 m` 전경 클러스터링)하여, 추가 Depth 카메라 없이 조난자·저상 장애물·가스 누출·음성 구조 요청 좌표를 `/map` 위 영구 마커(`MarkerArray`)로 통합하고 4종 아티팩트로 저장한다.
-2. **3채널 Semantic-Aware RL 재학습 (`688 → 976차원`, `*_semantic_v3.onnx` 검증 완료):**
-   - `12×12` 로컬 코스트맵을 **Ch 0(LiDAR 점유) + Ch 1(라이다 사각지대 저상 장애물, `z < 0.171 m`) + Ch 2(가스 반경 `0.55 m` · 조난자 보호 구역)** 3채널로 확장하고, Warm-Start 및 Modality Dropout(`28%`) 훈련으로 120개 Unseen Holdout `99.2%`, 15종 150회 비퇴행 `144/150 (96.00%)`, Gazebo A/B 저상 장애물 충돌 0회(`0.3799 m` 마진)·가스 중심 이격 `2.97×` 확대(`0.2577 m`)를 확인했다.
-3. **잔여 과제:** 가스 위험 반경(`0.55 m`) 외곽 완전 이탈을 위한 Ch2 페널티 튜닝(`gas_hazard_free_rate = 46.7%`), 실물 RPi 4 Track B 필드 주행·추론 지연 실측, MQ-2+ADS1115 PCB 납땜 결선.
+2. **3채널 Semantic-Aware RL 재학습 (`688 → 976차원`, `*_semantic_v3.onnx` Option 2 검증 완료):**
+   - `12×12` 로컬 코스트맵을 **Ch 0(LiDAR 점유) + Ch 1(라이다 사각지대 저상 장애물, `z < 0.171 m`) + Ch 2(가스 반경 `0.55 m` · 조난자 보호 구역)** 3채널로 확장하고, Option 2(`frozen_residual`, `415.0 KB`, CPU `0.121–0.124 ms`) 및 Modality Dropout(`28%`) 훈련으로 120개 Unseen Holdout **`TEST 94.2% / VAL 95.0%`** (`real_tb3` TEST Gas-Free `73.3%`), 15종 150회 클린 감사(`phase3_option2_clean`) 엄격 무충돌 **`96/150 (64.00%)` / 물리 도착 `141/150 (94.00%)`** (`phase2b_strict_clean` 엄격 `96/150 = 64.00%`와 완전 비퇴행 동률; 초기 `v3` 엄격 `87/150 = 58.00%` / 도착 `143/150 = 95.33%`; 과거 Legacy(충돌 허용) 기록 `144/150 = 96.00%`, 원본 JSON 미보관), Gazebo 10-Trial 시맨틱 A/B(`semantic_avoidance_ab_10trials.json`) **`9/10 (90.0%)` (저상/가스 위반 `0회`)** 를 확인했다(초기 1회 `semantic_avoidance_ab.json`은 저상 충돌 0회·가스 중심 이격 `0.2577 m`였으나 `gas_zone_violated=True` 및 `final_error_m=0.2401` 한계 존재).
+3. **잔여 과제:** 절차적 환경 잔여 가스 침범(`real_tb3` TEST `26.7%`) 및 동적 교차 시나리오 고도화(Phase 4 Soft-CBF-QP + CVaR-RL), 실물 RPi 4 Track B 필드 주행·추론 지연 실측, MQ-2+ADS1115 PCB 납땜 결선.
 
 ---
 
 ## 8. 결론 및 종합 평가
 
-본 시스템은 Host PC와 TurtleBot3 Burger 온보드 컴퓨터 간의 철저한 계층적 역할 분담 및 포섭 구조 설계를 통해, 외부 네트워크 단절이라는 가혹한 재난 환경에서도 로봇이 단독으로 생존하고 지나온 경로를 안전하게 거슬러 복귀할 수 있는 높은 신뢰성(Phase 2-B 150회 **`99.33%`**, Phase 3 3채널 시맨틱 RL 150회 비퇴행 **`96.00%`**)과 공학적 완성도를 확보하였다. 향후 실물 TurtleBot3 필드 실증과 MQ-2 하드웨어 결선, 가스 회피 가중치 튜닝을 마무리해 현장 투입 완성도를 높일 예정이다.
+본 시스템은 Host PC와 TurtleBot3 Burger 온보드 컴퓨터 간의 철저한 계층적 역할 분담 및 포섭 구조 설계를 통해, 외부 네트워크 단절이라는 가혹한 재난 환경에서도 로봇이 단독으로 생존하고 지나온 경로를 안전하게 거슬러 복귀할 수 있는 높은 신뢰성(Phase 2-B 클린 150회 엄격 무충돌 **`96/150 (64.00%)` / 물리 도착 `140/150 (93.33%)`** [과거 Legacy(충돌 허용) 기록 `149/150 = 99.33%`, 원본 JSON 미보관], Phase 3 Option 2 3채널 시맨틱 RL 클린 150회 엄격 무충돌 **`96/150 (64.00%)` / 물리 도착 `141/150 (94.00%)`** [초기 `v3` 과거 Legacy 기록 `144/150 = 96.00%`, 원본 JSON 미보관])과 공학적 완성도를 확보하였다. 향후 실물 TurtleBot3 필드 실증과 MQ-2 하드웨어 결선, Phase 4 안전 필터 고도화를 마무리해 현장 투입 완성도를 높일 예정이다.

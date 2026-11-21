@@ -18,12 +18,12 @@
   dynamic_crossfire_alley  | Base(strict)= 0/10 | P2B_clean(arr/strict)= 5/10 /  0/10 | P3_v3(arr/strict)=10/10 /  2/10 | P3_opt2_clean(arr/strict)= 7/10 /  0/10 (mean_t=167.4s)
   smoke_lidar_corruption   | Base(strict)= 0/10 | P2B_clean(arr/strict)=10/10 /  8/10 | P3_v3(arr/strict)=10/10 /  9/10 | P3_opt2_clean(arr/strict)=10/10 /  8/10 (mean_t= 76.2s)
 
-=== OVERALL 150-TRIAL STRICT / ARRIVAL TOTALS (Clean 원본 JSON 실측 기준) ===
-  baseline (phase2b_strict_clean/phase3_option2_clean) : strict   3/150 (2.00%)
+=== OVERALL 150-TRIAL STRICT / ARRIVAL TOTALS (Clean 원본 JSON 실측 기준, AUD-01~05 이상 0건) ===
+  baseline (phase2b_strict_clean/phase3_option2_clean) : strict   3/150 (2.00%)  | arrival  89/150 (59.33%) | coll=136 (debris=69, lidar=136) | mean_t=180.28s (succ=104.30s, err=4.73cm, path=15.13m)
   baseline (phase3_semantic_v3)                        : strict  57/150 (38.00%)
-  phase2b_strict_clean                                 : strict  96/150 (64.00%) | arrival 140/150 (93.33%) | mean_t=109.00s (succ=79.72s, err=9.05cm)
+  phase2b_strict_clean                                 : strict  96/150 (64.00%) | arrival 140/150 (93.33%) | coll= 54 (debris=10, lidar= 53) | mean_t=109.00s (succ= 79.72s, err=9.05cm, path=12.18m)
   phase3_semantic_v3 (legacy 3-Ch)                     : strict  87/150 (58.00%) | arrival 143/150 (95.33%) | mean_t=107.87s (succ=89.69s)
-  phase3_option2_clean (최신 frozen_residual)          : strict  96/150 (64.00%) | arrival 141/150 (94.00%) | mean_t=106.97s (succ=81.57s, err=9.08cm)
+  phase3_option2_clean (최신 frozen_residual)          : strict  96/150 (64.00%) | arrival 141/150 (94.00%) | coll= 54 (debris= 8, lidar= 53) | mean_t=106.97s (succ= 81.57s, err=9.08cm, path=12.48m)
 
 # =============================================================================
 # [과거 Legacy(충돌 허용) 기록, 원본 JSON 미보관 — 아카이브 참고용]

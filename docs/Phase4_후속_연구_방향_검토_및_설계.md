@@ -12,7 +12,7 @@
 | :--- | :--- | :---: | :--- |
 | 통신 단절 워치독 및 자율 복귀 상태 머신 | [`recovery_controller.py`](../src/disaster_recovery/disaster_recovery/recovery_controller.py) | **구현 완료 · 시뮬 검증 완료** | `/heartbeat` 3.0초 타임아웃 시 `EMERGENCY_STOP` → `BACKTRACKING_ROTATE` → `BACKTRACKING_HYBRID` 전환 |
 | LIFO 기반 경로 역추적 및 위상 지름길 | [`recovery_controller.py`](../src/disaster_recovery/disaster_recovery/recovery_controller.py), [`local_grid_planner.py`](../src/disaster_recovery/disaster_recovery/local_grid_planner.py) | **구현 완료 · 시뮬 검증 완료** | $\Delta d \ge 0.30\,\text{m}$ 또는 $\lvert\Delta\theta\rvert \ge 25^\circ$ 간격 LIFO 기록 및 `observed_free` 기반 비파괴 지름길 점프 |
-| `RollingLocalGrid` 및 2D A\* 로컬 경로 계획 | [`local_grid_planner.py`](../src/disaster_recovery/disaster_recovery/local_grid_planner.py) | **구현 완료 · 시뮬 검증 완료** | $8.0\times 8.0\,\text{m}$ 격자(해상도 $0.04\,\text{m}$), 동적 잔상 빠른 소거(`carve_decay=0.25`), `ESCAPE` 후진 탈출 포함. **단, 2D LiDAR만 반영하며 시맨틱 객체(`Ch1/Ch2`)는 A\* 격자에 반영하지 않음** |
+| `RollingLocalGrid` 및 2D A\* 로컬 경로 계획 | [`local_grid_planner.py`](../src/disaster_recovery/disaster_recovery/local_grid_planner.py) | **구현 완료 · 시뮬 검증 완료** | 런타임 $6.0\times 6.0\,\text{m}$ 격자(해상도 $0.04\,\text{m}$, 팽창 반경 시뮬 $0.085\,\text{m}$ / 실차 $0.095\,\text{m}$; 클래스 기본값은 $8.0\,\text{m}$), 동적 잔상 빠른 소거(`carve_decay=0.25`), `BACKTRACKING_HYBRID` 내부 서브모드 `ESCAPE` 후진 탈출 포함. **단, 2D LiDAR만 반영하며 시맨틱 객체(`Ch1/Ch2`)는 A\* 격자에 반영하지 않음** |
 | Regulated Pure Pursuit (RPP) 경로 추종 | [`recovery_controller.py`](../src/disaster_recovery/disaster_recovery/recovery_controller.py) | **구현 완료 · 시뮬 검증 완료** | 곡률 $\kappa = 2\sin\alpha / L_d$ 기반 선속도 감속 및 조향 계산 |
 | TD3 기반 국소 회피 및 Residual RL | [`td3_policy.py`](../src/disaster_recovery/disaster_recovery/td3_policy.py), [`recovery_td3.onnx`](../src/disaster_recovery/config/recovery_td3.onnx) | **구현 완료 (레거시 계층)** | 28차원 상태 입력 MLP + 내장 VFH/Control Barrier Prior (`99.1 KB`). 현재는 `baseline` 전략 또는 `LOCAL_TD3_AVOIDANCE` 폴백에서만 사용되며 주력 `proposed_rl` 경로에서는 `ContextRLStudentPolicy`로 대체됨 |
 | 2D LiDAR SVD ICP 오도메트리 보정 | [`recovery_controller.py`](../src/disaster_recovery/disaster_recovery/recovery_controller.py) | **구현 완료 · 시뮬 검증 완료** | 경유지 $0.45\,\text{m}$ 이내 진입 시 SVD 2D ICP 정합 후 상보필터($\alpha=0.40$)로 SE(2) 누적 드리프트 보정 |
@@ -34,7 +34,7 @@
    - `/scan` 수신 시 `_despike_lidar_ranges()`로 고립된 단일 광선 연기·분진 노이즈를 제거한다.
    - `/odom` 수신 시 최신 ICP 보정 오프셋(`corr_x, corr_y, corr_th`)을 합성해 로봇 위치 $(x, y, \theta)$를 갱신한다.
 2. **전역/국소 기하 경로 계획 (Layer-1 & Layer-2a)**:
-   - `RollingLocalGrid.update_scan()`이 $8.0\times 8.0\,\text{m}$ 점유 격자를 갱신하고, `LocalGridAStarPlanner.plan_step()`이 LIFO 스택 상단 경유지(또는 위상 지름길 경유지)까지 2D A\* 부분 목표점(`subgoal_xy`)을 산출한다.
+   - `RollingLocalGrid.update_scan()`이 런타임 $6.0\times 6.0\,\text{m}$ 점유 격자(해상도 $0.04\,\text{m}$, 팽창 반경 시뮬 $0.085\,\text{m}$ / 실차 $0.095\,\text{m}$)를 갱신하고, `ProposedRecoveryPlanner.step()`이 LIFO 스택 상단 경유지(또는 위상 지름길 경유지)까지 2D A\* 부분 목표점(`subgoal_xy`)을 산출한다.
    - Regulated Pure Pursuit(RPP)가 `subgoal_xy`를 추종하는 기저 속도 $(v_{\text{cmd}}, \omega_{\text{cmd}})$를 계산한다.
 3. **3채널 Context-RL 추론 (Layer-2b)**:
    - `ContextRLStudentPolicy.predict()`가 과거 16스텝(1.6초) 시계열 특징(`16×34 = 544`차원)과 $1.8\times 1.8\,\text{m}$ 에고 패치(`3×12×12 = 432`차원: `Ch0` LiDAR, `Ch1` 저상 장애물, `Ch2` 가스·조난자)를 합친 `976`차원 벡터를 단일 ONNX 모델에 입력해 $(v_{\text{rl}}, \omega_{\text{rl}})$을 추론한다.
@@ -59,8 +59,8 @@
 | 순위 | 실제 실패 시나리오 (실측 성적) | 코드 및 로그에서 확인된 근본 원인 |
 | :-: | :--- | :--- |
 | **1** | **동적 장애물 교차·협공 시나리오 참패**<br>· `#5 dynamic_crossfire_alley`: 엄격 무충돌 **`1/10 (10.0%)`** (도착 `7/10`)<br>· `#6 dynamic_gauntlet`: 엄격 무충돌 **`3/10 (30.0%)`** (도착 `8/10`) | `RollingLocalGrid`는 동적 장애물의 과거 잔상을 지울 뿐(`carve_decay=0.25`), **이동 속도 벡터 $(\dot{x}, \dot{y})$나 미래 점유 궤적을 전혀 추정하지 않는다.** `_dynamic_hold_until`(1.2초 정지)은 장애물이 로봇을 향해 계속 다가올 때 오히려 그 자리에서 충돌을 당하게 만든다. |
-| **2** | **A\* 로컬 플래너와 시맨틱 RL 간 경로 충돌**<br>· Gazebo `ab10`: `T02`, `T03` **130초 타임아웃 실패** (`8/10 = 80.0%`) | `RollingLocalGrid`는 2D LiDAR만 입력받으므로 저상 장애물(`Ch1`)과 가스 구역(`Ch2`)을 빈 공간으로 취급한다. 그 결과 **A\*는 위험 구역 한가운데로 `subgoal_xy`를 찍고, RL은 이를 피하려 반대로 꺾으면서** 벽면 근접 시 $\alpha_{\text{rl}} \to 0$으로 리셋되어 교착에 빠진다. |
-| **3** | **고슬립 환경(`real_tb3`) 잔여 가스 침범 및 시야 한계**<br>· `real_tb3` Holdout `Gas Hazard-Free`: **`60.0%` (40.0% 침범)** | 에고 패치 크기가 $1.8\times 1.8\,\text{m}$(전방 반경 $0.9\,\text{m}$)에 불과해 반경 $0.55\,\text{m}$ 가스 구역을 발견했을 때는 이미 제동·선회 여유 거리가 부족하다. 표준 PPO는 고슬립 꼬리 위험에서 가스 경계 스침을 감수하고 목표 도달 보상을 챙기는 방향으로 수렴한다. |
+| **2** | **A\* 로컬 플래너와 시맨틱 RL 간 경로 충돌**<br>· Gazebo `ab10`: `T02` **130초 타임아웃 실패 1건** (`9/10 = 90.0%`) | `RollingLocalGrid`는 2D LiDAR만 입력받으므로 저상 장애물(`Ch1`)과 가스 구역(`Ch2`)을 빈 공간으로 취급한다. 그 결과 **A\*는 위험 구역 한가운데로 `subgoal_xy`를 찍고, RL은 이를 피하려 반대로 꺾으면서** 벽면 근접 시 $\alpha_{\text{rl}} \to 0$으로 리셋되어 교착에 빠진다. |
+| **3** | **고슬립 환경(`real_tb3`) 잔여 가스 침범 및 시야 한계**<br>· `real_tb3` Holdout `Gas Hazard-Free`: **`TEST 73.3% / VAL 66.7%` (TEST 26.7% 침범, 초기 60.0%)** | 에고 패치 크기가 $1.8\times 1.8\,\text{m}$(전방 반경 $0.9\,\text{m}$)에 불과해 반경 $0.55\,\text{m}$ 가스 구역을 발견했을 때는 이미 제동·선회 여유 거리가 부족하다. 표준 PPO는 고슬립 꼬리 위험에서 가스 경계 스침을 감수하고 목표 도달 보상을 챙기는 방향으로 수렴한다. |
 | **4** | **협소 다중 방 구조(`house`, `house_hard`) 스침 충돌**<br>· `#7 house`: 엄격 무충돌 **`6/10`** (도착 `10/10`)<br>· `#8 house_hard`: 엄격 무충돌 **`6/10`** (도착 `9/10`) | 폭 $0.28\sim 0.35\,\text{m}$ 문틀 통과 시 `SemanticCorridorSafetyHead`와 RPP 간 조향 전환 과정에서 차체 반경($0.138\,\text{m}$)이 문틀 모서리를 스치는 현상(`lidar_collision_steps >= 4`)이 발생한다. |
 
 ---

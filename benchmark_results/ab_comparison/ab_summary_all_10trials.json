@@ -2,7 +2,7 @@
   "collapsed": {
     "baseline": {
       "scenario": "collapsed",
-      "label_ko": "\ubd95\uad34 \uac74\ubb3c (\uae30\ubcf8 \uc7ac\ub09c\ud658\uacbd)",
+      "label_ko": "붕괴 건물 (기본 재난환경)",
       "strategy": "baseline",
       "trials": 10,
       "passes": 5,
@@ -16,7 +16,7 @@
     },
     "proposed": {
       "scenario": "collapsed",
-      "label_ko": "\ubd95\uad34 \uac74\ubb3c (\uae30\ubcf8 \uc7ac\ub09c\ud658\uacbd)",
+      "label_ko": "붕괴 건물 (기본 재난환경)",
       "strategy": "proposed",
       "trials": 10,
       "passes": 10,
@@ -32,7 +32,7 @@
   "collapsed_heavy": {
     "baseline": {
       "scenario": "collapsed_heavy",
-      "label_ko": "\ubd95\uad34 \uac74\ubb3c (\uace0\ubc00\ub3c4 \ub2e4\uc911 \ub099\uc11d)",
+      "label_ko": "붕괴 건물 (고밀도 다중 낙석)",
       "strategy": "baseline",
       "trials": 10,
       "passes": 2,
@@ -46,7 +46,7 @@
     },
     "proposed": {
       "scenario": "collapsed_heavy",
-      "label_ko": "\ubd95\uad34 \uac74\ubb3c (\uace0\ubc00\ub3c4 \ub2e4\uc911 \ub099\uc11d)",
+      "label_ko": "붕괴 건물 (고밀도 다중 낙석)",
       "strategy": "proposed",
       "trials": 10,
       "passes": 10,
@@ -59,10 +59,76 @@
       "mean_explored_m": 16.47
     }
   },
+  "collapsed_heavy_hard": {
+    "baseline": {
+      "scenario": "collapsed_heavy_hard",
+      "label_ko": "붕괴 건물 EXTREME (10~13개 초고밀도 군집)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 1,
+      "success_rate_pct": 10.0,
+      "mean_error_cm_all": 766.79,
+      "mean_error_cm_pass": 12.03,
+      "mean_time_s_all": 294.85,
+      "mean_time_s_pass": 156.5,
+      "mean_ret_path_m_pass": 18.53,
+      "mean_explored_m": 18.87
+    },
+    "proposed": {
+      "scenario": "collapsed_heavy_hard",
+      "label_ko": "붕괴 건물 EXTREME (10~13개 초고밀도 군집)",
+      "strategy": "proposed_rl",
+      "trials": 10,
+      "passes": 10,
+      "success_rate_pct": 100.0,
+      "mean_error_cm_all": 8.39,
+      "mean_error_cm_pass": 8.39,
+      "mean_time_s_all": 162.91,
+      "mean_time_s_pass": 162.91,
+      "mean_ret_path_m_pass": 18.79,
+      "mean_explored_m": 17.94
+    }
+  },
+  "dynamic_crossfire_alley": {
+    "baseline": {
+      "scenario": "dynamic_crossfire_alley",
+      "label_ko": "동적 교차 협곡 (잔상 장벽·대각선 교차 장애물)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 3,
+      "success_rate_pct": 30.0,
+      "arrival_passes": 3,
+      "arrival_success_rate_pct": 30.0,
+      "collision_trials": 0,
+      "mean_error_cm_all": 214.83,
+      "mean_error_cm_pass": 3.37,
+      "mean_time_s_all": 234.51,
+      "mean_time_s_pass": 210.5,
+      "mean_ret_path_m_pass": 9.88,
+      "mean_explored_m": 14.15
+    },
+    "proposed": {
+      "scenario": "dynamic_crossfire_alley",
+      "label_ko": "동적 교차 협곡 (잔상 장벽·대각선 교차 장애물)",
+      "strategy": "proposed",
+      "trials": 10,
+      "passes": 0,
+      "success_rate_pct": 0.0,
+      "arrival_passes": 0,
+      "arrival_success_rate_pct": 0.0,
+      "collision_trials": 0,
+      "mean_error_cm_all": 409.73,
+      "mean_error_cm_pass": null,
+      "mean_time_s_all": 250.03,
+      "mean_time_s_pass": null,
+      "mean_ret_path_m_pass": null,
+      "mean_explored_m": 14.15
+    }
+  },
   "house": {
     "baseline": {
       "scenario": "house",
-      "label_ko": "\uc2e4\ub0b4 \uac00\uc625 (\ub2e4\uc2e4 \ubb38\ud2c0\u00b7\uc9c1\uac01 \ubcf5\ub3c4)",
+      "label_ko": "실내 가옥 (다실 문틀·직각 복도)",
       "strategy": "baseline",
       "trials": 10,
       "passes": 9,
@@ -76,7 +142,7 @@
     },
     "proposed": {
       "scenario": "house",
-      "label_ko": "\uc2e4\ub0b4 \uac00\uc625 (\ub2e4\uc2e4 \ubb38\ud2c0\u00b7\uc9c1\uac01 \ubcf5\ub3c4)",
+      "label_ko": "실내 가옥 (다실 문틀·직각 복도)",
       "strategy": "proposed",
       "trials": 10,
       "passes": 9,
@@ -89,40 +155,10 @@
       "mean_explored_m": 16.3
     }
   },
-  "tunnel": {
-    "baseline": {
-      "scenario": "tunnel",
-      "label_ko": "\uc9c0\ud558 \ud130\ub110 (\ud611\uc18c \ud5d8\uc9c0\u00b7\ucc28\ub7c9 \uc794\ud574)",
-      "strategy": "baseline",
-      "trials": 10,
-      "passes": 9,
-      "success_rate_pct": 90.0,
-      "mean_error_cm_all": 42.09,
-      "mean_error_cm_pass": 10.72,
-      "mean_time_s_all": 98.47,
-      "mean_time_s_pass": 83.84,
-      "mean_ret_path_m_pass": 12.0,
-      "mean_explored_m": 12.46
-    },
-    "proposed": {
-      "scenario": "tunnel",
-      "label_ko": "\uc9c0\ud558 \ud130\ub110 (\ud611\uc18c \ud5d8\uc9c0\u00b7\ucc28\ub7c9 \uc794\ud574)",
-      "strategy": "proposed",
-      "trials": 10,
-      "passes": 10,
-      "success_rate_pct": 100.0,
-      "mean_error_cm_all": 8.17,
-      "mean_error_cm_pass": 8.17,
-      "mean_time_s_all": 79.24,
-      "mean_time_s_pass": 79.24,
-      "mean_ret_path_m_pass": 12.79,
-      "mean_explored_m": 12.46
-    }
-  },
   "maze": {
     "baseline": {
       "scenario": "maze",
-      "label_ko": "\ubbf8\ub85c \uaca9\ubcbd (\ub3d9\uc801 \uc774\ub3d9 \uc7a5\uc560\ubb3c \ud3ec\ud568)",
+      "label_ko": "미로 격벽 (동적 이동 장애물 포함)",
       "strategy": "baseline",
       "trials": 10,
       "passes": 9,
@@ -136,7 +172,7 @@
     },
     "proposed": {
       "scenario": "maze",
-      "label_ko": "\ubbf8\ub85c \uaca9\ubcbd (\ub3d9\uc801 \uc774\ub3d9 \uc7a5\uc560\ubb3c \ud3ec\ud568)",
+      "label_ko": "미로 격벽 (동적 이동 장애물 포함)",
       "strategy": "proposed",
       "trials": 10,
       "passes": 10,
@@ -147,6 +183,96 @@
       "mean_time_s_pass": 21.02,
       "mean_ret_path_m_pass": 2.56,
       "mean_explored_m": 10.67
+    }
+  },
+  "smoke_lidar_corruption": {
+    "baseline": {
+      "scenario": "smoke_lidar_corruption",
+      "label_ko": "화재 연기·분진 협곡 (LiDAR 산란 스파이크·결측)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 0,
+      "success_rate_pct": 0.0,
+      "mean_error_cm_all": 618.68,
+      "mean_error_cm_pass": null,
+      "mean_time_s_all": 250.04,
+      "mean_time_s_pass": null,
+      "mean_ret_path_m_pass": null,
+      "mean_explored_m": 14.15
+    },
+    "proposed": {
+      "scenario": "smoke_lidar_corruption",
+      "label_ko": "화재 연기·분진 협곡 (LiDAR 산란 스파이크·결측)",
+      "strategy": "proposed",
+      "trials": 10,
+      "passes": 0,
+      "success_rate_pct": 0.0,
+      "mean_error_cm_all": 932.26,
+      "mean_error_cm_pass": null,
+      "mean_time_s_all": 250.02,
+      "mean_time_s_pass": null,
+      "mean_ret_path_m_pass": null,
+      "mean_explored_m": 14.15
+    }
+  },
+  "tunnel": {
+    "baseline": {
+      "scenario": "tunnel",
+      "label_ko": "지하 터널 (협소 험지·차량 잔해)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 9,
+      "success_rate_pct": 90.0,
+      "mean_error_cm_all": 42.09,
+      "mean_error_cm_pass": 10.72,
+      "mean_time_s_all": 98.47,
+      "mean_time_s_pass": 83.84,
+      "mean_ret_path_m_pass": 12.0,
+      "mean_explored_m": 12.46
+    },
+    "proposed": {
+      "scenario": "tunnel",
+      "label_ko": "지하 터널 (협소 험지·차량 잔해)",
+      "strategy": "proposed",
+      "trials": 10,
+      "passes": 10,
+      "success_rate_pct": 100.0,
+      "mean_error_cm_all": 8.17,
+      "mean_error_cm_pass": 8.17,
+      "mean_time_s_all": 79.24,
+      "mean_time_s_pass": 79.24,
+      "mean_ret_path_m_pass": 12.79,
+      "mean_explored_m": 12.46
+    }
+  },
+  "tunnel_hard": {
+    "baseline": {
+      "scenario": "tunnel_hard",
+      "label_ko": "지하 터널 HARD (7~10개 교대 봉쇄)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 8,
+      "success_rate_pct": 80.0,
+      "mean_error_cm_all": 291.02,
+      "mean_error_cm_pass": 5.53,
+      "mean_time_s_all": 165.67,
+      "mean_time_s_pass": 138.62,
+      "mean_ret_path_m_pass": 17.63,
+      "mean_explored_m": 16.87
+    },
+    "proposed": {
+      "scenario": "tunnel_hard",
+      "label_ko": "지하 터널 HARD (7~10개 교대 봉쇄)",
+      "strategy": "proposed_rl",
+      "trials": 10,
+      "passes": 10,
+      "success_rate_pct": 100.0,
+      "mean_error_cm_all": 8.34,
+      "mean_error_cm_pass": 8.34,
+      "mean_time_s_all": 106.81,
+      "mean_time_s_pass": 106.81,
+      "mean_ret_path_m_pass": 16.92,
+      "mean_explored_m": 16.87
     }
   }
 }

@@ -38,14 +38,19 @@ import math
 import collections
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
-import rclpy
-from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
-
-from geometry_msgs.msg import Twist
-from nav_msgs.msg import Odometry
-from sensor_msgs.msg import LaserScan
-from std_msgs.msg import Header, Float32, Bool, String
+try:
+    import rclpy
+    from rclpy.node import Node
+    from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
+    from geometry_msgs.msg import Twist
+    from nav_msgs.msg import Odometry
+    from sensor_msgs.msg import LaserScan
+    from std_msgs.msg import Header, Float32, Bool, String
+except ImportError:  # pragma: no cover - allows importing pure utility functions without ROS 2
+    rclpy = None
+    Node = object
+    QoSProfile = ReliabilityPolicy = HistoryPolicy = DurabilityPolicy = None
+    Twist = Odometry = LaserScan = Header = Float32 = Bool = String = Any
 
 from disaster_recovery.td3_policy import (
     TD3LocalAvoidancePolicy,
@@ -54,6 +59,7 @@ from disaster_recovery.td3_policy import (
 )
 from disaster_recovery.local_grid_planner import ProposedRecoveryPlanner
 from disaster_recovery.rl_context_policy import ContextRLStudentPolicy
+from disaster_recovery.dynamic_tracker import DynamicObstacleTracker
 
 
 class SystemState:
@@ -499,6 +505,7 @@ class RecoveryController(Node):
         self.declare_parameter('smoke_lidar_noise_prob', 0.0)
         self.declare_parameter('min_effective_linear_vel', 0.0)
         self.declare_parameter('min_effective_angular_vel', 0.0)
+        self.declare_parameter('enable_dynamic_tracker', False)
 
         # Retrieve parameters
         self.heartbeat_timeout = self.get_parameter('heartbeat_timeout_sec').value
@@ -542,6 +549,7 @@ class RecoveryController(Node):
         self.smoke_lidar_noise_prob = float(self.get_parameter('smoke_lidar_noise_prob').value)
         self.min_effective_linear_vel = float(self.get_parameter('min_effective_linear_vel').value)
         self.min_effective_angular_vel = float(self.get_parameter('min_effective_angular_vel').value)
+        self.enable_dynamic_tracker = bool(self.get_parameter('enable_dynamic_tracker').value)
         self.is_phase2b = (self.recovery_strategy == 'proposed_rl') and self.enable_phase2b_envelope
         self.semantic_cache = SemanticObjectCache()
         self._scan_tick_seq = 0
@@ -663,6 +671,21 @@ class RecoveryController(Node):
         else:
             self.local_planner = None
 
+        self.dynamic_tracker = (
+            DynamicObstacleTracker(
+                grid_size_m=self.local_grid_size_m,
+                grid_res_m=self.local_grid_res_m,
+                lidar_min_range_m=self.lidar_min_dist,
+            )
+            if self.enable_dynamic_tracker
+            else None
+        )
+        self.latest_scan_stamp_sec = None
+        self.latest_scan_angle_min = 0.0
+        self.latest_scan_angle_increment = None
+        self.latest_dynamic_tracks = []
+        self.latest_dynamic_ch3 = None
+
         # Robot Odometry State
         self.current_x = 0.0
         self.current_y = 0.0
@@ -773,6 +796,46 @@ class RecoveryController(Node):
             return [], []
         return self.semantic_cache.get_channel_tuples()
 
+    def _update_dynamic_tracker(self, now_sec: float) -> None:
+        """
+        Update Stage 1 dynamic tracker using 5 Hz scan.header.stamp gating and
+        mid-tick damped-KF extrapolation (10 Hz / 20 Hz). Must run before
+        local_planner.observe/step clears observed_free at new scan hit cells.
+        """
+        if self.dynamic_tracker is None or not self.odom_initialized or not self.latest_raw_ranges:
+            return
+        stamp_sec = self.latest_scan_stamp_sec if self.latest_scan_stamp_sec is not None else now_sec
+        ext_free = None
+        ext_ox = 0
+        ext_oy = 0
+        ext_res = self.local_grid_res_m
+        if self.local_planner is not None and self.local_planner.grid.initialized:
+            ext_free = self.local_planner.grid.observed_free
+            ext_ox = self.local_planner.grid.origin_ix
+            ext_oy = self.local_planner.grid.origin_iy
+            ext_res = self.local_planner.grid.res
+        self.latest_dynamic_tracks = self.dynamic_tracker.update(
+            rx=self.current_x,
+            ry=self.current_y,
+            rth=self.current_theta,
+            raw_ranges=self.latest_raw_ranges,
+            scan_stamp_sec=stamp_sec,
+            now_sec=now_sec,
+            omega=self.actual_w,
+            angle_min=self.latest_scan_angle_min,
+            angle_increment=self.latest_scan_angle_increment,
+            external_observed_free=ext_free,
+            ext_origin_ix=ext_ox,
+            ext_origin_iy=ext_oy,
+            ext_res=ext_res,
+        )
+        self.latest_dynamic_ch3 = self.dynamic_tracker.project_ch3(
+            rx=self.current_x,
+            ry=self.current_y,
+            rth=self.current_theta,
+            now_sec=now_sec,
+        )
+
     def _compute_semantic_proximity(
         self,
         sem_obs: Sequence[Tuple[float, float, float]],
@@ -848,6 +911,11 @@ class RecoveryController(Node):
             self.local_planner.reset()
         if self.context_rl_policy is not None:
             self.context_rl_policy.reset()
+        if self.dynamic_tracker is not None:
+            self.dynamic_tracker.reset()
+        self.latest_scan_stamp_sec = None
+        self.latest_dynamic_tracks = []
+        self.latest_dynamic_ch3 = None
         self.state = (
             SystemState.NORMAL_TELEOP
             if (self.odom_initialized and self.heartbeat_received_once)
@@ -971,6 +1039,17 @@ class RecoveryController(Node):
             ranges = self._despike_lidar_ranges(ranges)
 
         self.latest_raw_ranges = list(ranges)
+        stamp = getattr(getattr(msg, 'header', None), 'stamp', None)
+        if stamp is not None and (int(getattr(stamp, 'sec', 0)) != 0 or int(getattr(stamp, 'nanosec', 0)) != 0):
+            self.latest_scan_stamp_sec = float(stamp.sec) + float(stamp.nanosec) * 1e-9
+        else:
+            try:
+                self.latest_scan_stamp_sec = self.get_clock().now().nanoseconds * 1e-9
+            except Exception:
+                self.latest_scan_stamp_sec = None
+        self.latest_scan_angle_min = float(getattr(msg, 'angle_min', 0.0))
+        ang_inc = float(getattr(msg, 'angle_increment', 0.0))
+        self.latest_scan_angle_increment = ang_inc if ang_inc != 0.0 else None
         angles = msg.angle_min + np.arange(len(ranges)) * msg.angle_increment
 
         # 1. Forward obstacle check
@@ -1055,6 +1134,10 @@ class RecoveryController(Node):
                         self.local_planner.reset()
                     if self.context_rl_policy is not None:
                         self.context_rl_policy.reset()
+                    if self.dynamic_tracker is not None:
+                        self.dynamic_tracker.reset()
+                    self.latest_dynamic_tracks = []
+                    self.latest_dynamic_ch3 = None
                     self.get_logger().info(">>> Heartbeat link restored! Controller reset to NORMAL_TELEOP mode. <<<")
             else:
                 self._link_restored_timer = None
@@ -1068,6 +1151,8 @@ class RecoveryController(Node):
 
         # 2. Watchdog Fault Detection (Active in NORMAL_TELEOP)
         if self.state == SystemState.NORMAL_TELEOP:
+            if self.dynamic_tracker is not None and self.odom_initialized and self.latest_raw_ranges:
+                self._update_dynamic_tracker(now.nanoseconds / 1e9)
             if (
                 self.recovery_strategy in ('proposed', 'proposed_rl')
                 and self.local_planner is not None
@@ -1143,6 +1228,8 @@ class RecoveryController(Node):
             ]
         ):
             now_sec = now.nanoseconds / 1e9
+            if self.dynamic_tracker is not None:
+                self._update_dynamic_tracker(now_sec)
             status_tag, v_cmd, w_cmd, subgoal_xy = self.local_planner.step(
                 rx=self.current_x,
                 ry=self.current_y,
@@ -1473,6 +1560,8 @@ class RecoveryController(Node):
         # 5. Method A Backtracking Logic: Rotate-then-Translate or Continuous Hybrid
         if self.state in [SystemState.BACKTRACKING_ROTATE, SystemState.BACKTRACKING_TRANSLATE, SystemState.BACKTRACKING_HYBRID]:
             self.perform_scan_matching_correction()
+            if self.dynamic_tracker is not None:
+                self._update_dynamic_tracker(now.nanoseconds / 1e9)
 
         if self.state == SystemState.BACKTRACKING_ROTATE:
             if self.active_target_wp is None:
@@ -1758,10 +1847,14 @@ class RecoveryController(Node):
             # Outlier rejection on sudden jumps (< 0.25m jump allowed per correction)
             jump_dist = math.hypot(target_x_c - self.corr_x, target_y_c - self.corr_y)
             if jump_dist < 0.25:
+                old_corr = (self.corr_x, self.corr_y, self.corr_th)
                 alpha = self.scan_match_weight
                 self.corr_x = (1.0 - alpha) * self.corr_x + alpha * target_x_c
                 self.corr_y = (1.0 - alpha) * self.corr_y + alpha * target_y_c
                 self.corr_th = normalize_angle(self.corr_th + alpha * normalize_angle(target_th_c - self.corr_th))
+                new_corr = (self.corr_x, self.corr_y, self.corr_th)
+                if self.dynamic_tracker is not None:
+                    self.dynamic_tracker.sync_icp_correction(old_corr, new_corr)
 
                 # Re-evaluate current_x, current_y, current_theta with updated transform
                 c_c = math.cos(self.corr_th)

@@ -2103,11 +2103,24 @@ def main() -> int:
     parser.add_argument("--evidence-dir", default="/hdd/evidence/training")
     parser.add_argument("--repo-img-dir", default=os.path.join(WS_ROOT, "docs", "images", "evidence"))
     parser.add_argument("--onnx-out-dir", default="", help="Override ONNX output directory (default: src/disaster_recovery/config)")
-    parser.add_argument("--summary-out", default=os.path.join(WS_ROOT, "benchmark_results", "phase2_training_summary.json"), help="Output summary JSON path")
+    parser.add_argument(
+        "--summary-out",
+        default="",
+        help="Output summary JSON path (auto-selects phase2 / phase3_semantic / phase3_option2 by patch-channels & arch when empty)",
+    )
     parser.add_argument("--distill-existing-tracks", default="", help="Comma-separated tracks whose existing checkpoints should be distilled without retraining")
     parser.add_argument("--render-videos-only", action="store_true", help="Re-render 3D rollout videos/PNGs from existing checkpoints and ONNX models without retraining")
     parser.add_argument("--stage-eval-seed", type=int, default=0, help="Override procedural eval seed for stage/student rollout GIFs")
     args = parser.parse_args()
+
+    if not args.summary_out.strip():
+        if int(args.patch_channels) == 1:
+            default_summary_name = "phase2_training_summary.json"
+        elif args.arch == "frozen_residual":
+            default_summary_name = "phase3_option2_training_summary.json"
+        else:
+            default_summary_name = "phase3_semantic_training_summary.json"
+        args.summary_out = os.path.join(WS_ROOT, "benchmark_results", default_summary_name)
 
     onnx_out_dir = args.onnx_out_dir.strip() or os.path.join(WS_ROOT, "src", "disaster_recovery", "config")
     os.makedirs(onnx_out_dir, exist_ok=True)

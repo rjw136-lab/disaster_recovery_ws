@@ -115,7 +115,7 @@ ros2 run v4l2_camera v4l2_camera_node --ros-args \
   -r camera_info:=/camera/camera_info \
   -r set_camera_info:=/camera/set_camera_info
 ```
-> `v4l2_camera`는 기본적으로 `/image_raw`, `/camera_info`에 발행한다. 본 패키지의 노드는 `/camera/...`를 구독하므로 리매핑이 필요하다.
+> 본 패키지의 모든 노드(`aruco_docking`, `blackbox_recorder`, `host_ai_pipeline`)는 `/camera/image_raw` 및 `/camera/camera_info` 토픽만 사용하므로, `v4l2_camera` 드라이버 실행 시 위 `-r` 리매핑 인자를 반드시 함께 지정해 `/camera/image_raw` 및 `/camera/camera_info`로 발행해야 한다.
 
 ### 2.3 캘리브레이션 GUI 실행 (Host PC WSL2)
 Host PC 터미널에서 ROS 2 공식 캘리브레이터 노드를 구동한다:
