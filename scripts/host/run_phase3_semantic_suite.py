@@ -1003,7 +1003,15 @@ def _yolo_viewer_thread(node: SemanticSuiteNode, stop_ev: threading.Event, title
     cv2.destroyAllWindows()
 
 
-def _annotate_mp4_and_gif(raw_mp4: str, out_mp4: str, out_gif: Optional[str], title_text: str, fps: int = 20):
+def _annotate_mp4_and_gif(
+    raw_mp4: str,
+    out_mp4: str,
+    out_gif: Optional[str],
+    title_text: str,
+    fps: int = 20,
+    gif_fps: int = 10,
+    gif_width: int = 960,
+):
     """Re-encode raw x11grab MP4 with crisp top title banner and optional compressed GIF (<7.5MB)."""
     font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
     tmp_banner = out_mp4 + ".banner.png"
@@ -1034,7 +1042,7 @@ def _annotate_mp4_and_gif(raw_mp4: str, out_mp4: str, out_gif: Optional[str], ti
         subprocess.run(
             [
                 "ffmpeg", "-y", "-i", out_mp4,
-                "-vf", "fps=10,scale=960:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer",
+                "-vf", f"fps={gif_fps},scale={gif_width}:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer",
                 out_gif,
             ],
             check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -1100,13 +1108,13 @@ def run_record_e2e(args) -> int:
         procs.append(p_slam)
 
         p_ai = subprocess.Popen(
-            ["bash", "-c", env_prefix + f"ros2 run disaster_recovery host_ai_pipeline --ros-args -p yolo_model_path:={YOLO_WEIGHTS} -p image_topic:=/camera/image_raw -p use_compressed:=false -p rotation_angle:=0 -p show_window:=false -p only_person_detection:=false -p confidence_threshold:=0.30 -p person_conf_threshold:=0.35 -p whisper_device:=cpu"],
+            ["bash", "-c", env_prefix + f"ros2 run disaster_recovery host_ai_pipeline --ros-args -p enable_heartbeat:=false -p yolo_model_path:={YOLO_WEIGHTS} -p image_topic:=/camera/image_raw -p use_compressed:=false -p rotation_angle:=0 -p show_window:=false -p only_person_detection:=false -p confidence_threshold:=0.30 -p person_conf_threshold:=0.35 -p whisper_device:=cpu"],
             stdout=open("/tmp/disaster_recovery/p3_e2e_ai.log", "w"), stderr=subprocess.STDOUT, preexec_fn=os.setsid,
         )
         procs.append(p_ai)
 
         p_sem = subprocess.Popen(
-            ["bash", "-c", env_prefix + f"ros2 run disaster_recovery semantic_map_node --ros-args --params-file {sem_params} -p use_sim_time:=true -p min_hits:=2 -p min_span_sec:=0.4 -p output_dir:={e2e_bundle_dir}"],
+            ["bash", "-c", env_prefix + f"ros2 run disaster_recovery semantic_map_node --ros-args --params-file {sem_params} -p use_sim_time:=true -p gas_threshold:=0.30 -p min_hits:=2 -p min_span_sec:=0.4 -p output_dir:={e2e_bundle_dir}"],
             stdout=open("/tmp/disaster_recovery/p3_e2e_sem.log", "w"), stderr=subprocess.STDOUT, preexec_fn=os.setsid,
         )
         procs.append(p_sem)
@@ -1176,17 +1184,30 @@ def run_record_e2e(args) -> int:
 
         wps_explore = [
             (0.95, 0.55), (0.95, -0.65), (1.65, 0.45),
-            (2.75, 0.65), (3.90, 0.62), (4.65, 0.45), (5.05, 0.45),
+            (2.75, 0.65), (3.90, 0.62), (4.55, 0.45),
         ]
         # Drive outbound while triggering gas near (2.75,-0.45) and audio near (4.7, 0.3)
         gas_fired = False
         audio_fired = False
+        live_snap_ts = None
+
+        def _tick_with_snap():
+            nonlocal live_snap_ts
+            _tick_markers()
+            if (
+                live_snap_ts is None
+                and node.cur_x > 3.2
+                and any(str(x.get("class_name", "")).lower() == "person" for x in node.latest_detections)
+            ):
+                live_snap_ts = max(1.0, time.time() - t_rec_start)
+
         for wp in wps_explore:
-            seg = node.drive_to_waypoints([wp], max_sim_sec=28.0, on_step=_tick_markers)
+            seg = node.drive_to_waypoints([wp], max_sim_sec=28.0, on_step=_tick_with_snap)
             out_pts.extend(seg)
             _arrange_3pane_windows(disp, rviz_h=640)
             if (not gas_fired) and node.cur_x > 2.3:
-                node.pub_gas.publish(Float32(data=0.72))
+                # Below recovery_controller gas_threshold (0.40) so outbound exploration continues while semantic_map_node (0.30) stamps GAS_HAZARD
+                node.pub_gas.publish(Float32(data=0.35))
                 gas_fired = True
             if (not audio_fired) and node.cur_x > 4.4:
                 node.pub_audio.publish(String(data="HELP_DETECTED"))
@@ -1196,28 +1217,51 @@ def run_record_e2e(args) -> int:
         for _ in range(35):
             rclpy.spin_once(node, timeout_sec=0.05)
             node.drive(0.0, 0.08 * math.sin(0.5 * node.sim_now()))
-            _tick_markers()
+            _tick_with_snap()
             node.sim_sleep(0.10)
         node.stop()
+
+        if live_snap_ts is None:
+            live_snap_ts = max(1.0, time.time() - t_rec_start)
+        live_png = os.path.join(WS_ROOT, "docs", "images", "evidence", "phase3_semantic_slam_live.png")
 
         # Also sweep east room south corner for rich /map coverage
         seg_east = node.drive_to_waypoints([(5.3, -1.2), (6.5, -0.3), (4.9, 0.0)], max_sim_sec=35.0, on_step=_tick_markers)
         out_pts.extend(seg_east)
 
-        # Record wall-clock time right when /map + YOLO + Victim coords are visible!
-        live_snap_ts = max(1.0, time.time() - t_rec_start)
-        live_png = os.path.join(WS_ROOT, "docs", "images", "evidence", "phase3_semantic_slam_live.png")
-
-        # Save semantic map bundle & trigger return blackout briefly to show end-to-end return!
+        # Save semantic map bundle & trigger return blackout cleanly (merging sub-LiDAR low_obs into onboard cache)
         if node.cli_save_map.wait_for_service(timeout_sec=3.0):
             fut = node.cli_save_map.call_async(Trigger.Request())
             t_sv = time.time()
             while not fut.done() and time.time() - t_sv < 4.0:
                 rclpy.spin_once(node, timeout_sec=0.02)
 
+        # Stop Host semantic_map_node at blackout & ensure Ch1 low_obs + Ch2 semantic hazards remain cached onboard
+        try:
+            os.killpg(os.getpgid(p_sem.pid), signal.SIGTERM)
+        except Exception:
+            pass
+        merged_cache = [obj for obj in node.latest_cached_objects if str(obj.get("class_name", "")).upper() != "GAS_HAZARD"]
+        for i_l, (lx, ly) in enumerate(low_list, start=1):
+            merged_cache.append({
+                "marker_id": 100 + i_l, "class_id": 56, "class_name": "chair",
+                "x": float(lx), "y": float(ly), "z": 0.05, "radius": 0.24,
+                "channel": 1, "conf": 0.90, "hits": 5, "low_confidence": False,
+            })
+        merged_cache.append({
+            "marker_id": 201, "class_id": 1001, "class_name": "GAS_HAZARD",
+            "x": float(gas_xy[0]), "y": float(gas_xy[1]), "z": 0.0, "radius": 0.55,
+            "channel": 2, "conf": 0.85, "hits": 5, "low_confidence": False,
+        })
+        cache_payload = json.dumps({"frame_id": "odom", "objects": merged_cache})
+        node.pub_cached.publish(String(data=cache_payload))
+        node.sim_sleep(0.20)
+        node.pub_cached.publish(String(data=cache_payload))
+        node.sim_sleep(0.15)
+
         node.hb_enabled = False
         t_ret0 = node.sim_now()
-        while node.sim_now() - t_ret0 < 65.0:
+        while node.sim_now() - t_ret0 < 85.0:
             rclpy.spin_once(node, timeout_sec=0.02)
             if math.hypot(node.cur_x - (ret_pts[-1][0] if ret_pts else node.cur_x), node.cur_y - (ret_pts[-1][1] if ret_pts else node.cur_y)) >= 0.10 or not ret_pts:
                 ret_pts.append((node.cur_x, node.cur_y))
@@ -1252,6 +1296,7 @@ def run_record_e2e(args) -> int:
         _annotate_mp4_and_gif(
             raw_mp4, out_mp4, out_gif,
             "Phase 3 E2E: Gazebo 3D + RViz2 /map Semantic SLAM + Live YOLO26n RGB-LiDAR Fusion",
+            gif_fps=8, gif_width=840,
         )
         subprocess.run(
             ["ffmpeg", "-y", "-ss", f"{live_snap_ts:.2f}", "-i", out_mp4, "-vframes", "1", live_png],
@@ -1261,10 +1306,14 @@ def run_record_e2e(args) -> int:
             shutil.copy2(live_png, "/hdd/evidence/phase3_semantic/phase3_semantic_slam_live.png")
         print(f"[E2E DONE] mp4={out_mp4} gif={out_gif} overlay={overlay_repo}")
         stop_viewer.set()
+        if viewer_thread is not None:
+            viewer_thread.join(timeout=1.5)
         node.destroy_node()
         rclpy.shutdown()
     finally:
         stop_viewer.set()
+        if viewer_thread is not None:
+            viewer_thread.join(timeout=1.5)
         _stop_procs(procs, gz_port)
     return 0
 

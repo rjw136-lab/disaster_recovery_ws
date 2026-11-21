@@ -1025,9 +1025,9 @@ class RecoveryController(Node):
         self.pub_system_status.publish(status_msg)
 
         # 0. Global Link Restoration Check
-        # If heartbeat is restored and healthy (<0.5s) for > 1.2s, reset controller to NORMAL_TELEOP
+        # If heartbeat is restored and healthy (<0.5s) AND gas hazard cleared for > 1.2s, reset controller to NORMAL_TELEOP
         if self.state not in [SystemState.NORMAL_TELEOP, SystemState.INIT]:
-            if dt_heartbeat < 0.5:
+            if dt_heartbeat < 0.5 and self.current_gas_level < self.gas_threshold:
                 if not hasattr(self, '_link_restored_timer') or self._link_restored_timer is None:
                     self._link_restored_timer = now
                 elif (now - self._link_restored_timer).nanoseconds / 1e9 > 1.2:
@@ -1686,8 +1686,8 @@ class RecoveryController(Node):
 
         elif self.state == SystemState.MISSION_COMPLETE:
             self.stop_robot()
-            # If heartbeat is healthy and active, reset state back to NORMAL_TELEOP for continuous trials
-            if dt_heartbeat < 0.5:
+            # If heartbeat is healthy and active AND gas danger cleared, reset state back to NORMAL_TELEOP for continuous trials
+            if dt_heartbeat < 0.5 and self.current_gas_level < self.gas_threshold:
                 if not hasattr(self, '_complete_reset_timer'):
                     self._complete_reset_timer = now
                 elif (now - self._complete_reset_timer).nanoseconds / 1e9 > 1.5:
