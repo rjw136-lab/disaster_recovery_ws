@@ -1398,6 +1398,7 @@ def _record_single_ab_run(
     use_sem: bool,
     onnx_path: str,
     out_mp4: str,
+    out_gif: str,
     snap_png: str,
     banner_title: str,
     gz_port: int,
@@ -1506,14 +1507,9 @@ def _record_single_ab_run(
         def _tick():
             node.publish_overlay_markers(0.0, 0.0, out_pts, ret_pts, low_list, gas_xy)
 
-        out_wps = [(0.9, 0.0), (1.55, 0.55), (2.75, 0.62), (4.20, 0.15), (4.95, 0.25)]
-        seg = node.drive_to_waypoints(out_wps, max_sim_sec=70.0, on_step=_tick)
+        out_wps = [(0.9, 0.0), (1.55, 0.55), (2.75, 0.62), (4.20, 0.15)]
+        seg = node.drive_to_waypoints(out_wps, max_sim_sec=65.0, on_step=_tick)
         out_pts.extend(seg)
-        _spawn_gazebo_visual(
-            node.cli_spawn, node, "gz_outbound_path",
-            _build_ribbon_sdf("gz_outbound_path", _subsampled_pts(out_pts, 0.18), 0.042, 0.003, 0.0025, (0.05, 0.78, 1.0, 1.0), (0.04, 0.62, 0.92, 1.0)),
-            wait=True,
-        )
 
         # Publish semantic cache for Phase 3 (or Blind ignores it via use_semantic_rl_policy=false)
         cache_objs = [
@@ -1534,6 +1530,20 @@ def _record_single_ab_run(
         t_rec_start = time.time()
         time.sleep(0.8)
 
+        # Record final outbound segment in DRIVING MODE [COMM: ON] before cutting Heartbeat
+        seg_end = node.drive_to_waypoints([(4.95, 0.25)], max_sim_sec=20.0, on_step=_tick)
+        out_pts.extend(seg_end)
+        _spawn_gazebo_visual(
+            node.cli_spawn, node, "gz_outbound_path",
+            _build_ribbon_sdf("gz_outbound_path", _subsampled_pts(out_pts, 0.18), 0.042, 0.003, 0.0025, (0.05, 0.78, 1.0, 1.0), (0.04, 0.62, 0.92, 1.0)),
+            wait=True,
+        )
+        node.pub_cached.publish(String(data=json.dumps({"frame_id": "odom", "objects": cache_objs})))
+        node.sim_sleep(0.4)
+
+        t_cut_wall = max(0.2, time.time() - t_rec_start)
+        t_rec_wall: Optional[float] = None
+        t_done_wall: Optional[float] = None
         node.hb_enabled = False
         t_blk = node.sim_now()
         saw_rec = False
@@ -1545,8 +1555,10 @@ def _record_single_ab_run(
 
         while node.sim_now() - t_blk < 78.0:
             rclpy.spin_once(node, timeout_sec=0.02)
-            if node.ctrl_state in ("BACKTRACKING_ROTATE", "BACKTRACKING_HYBRID", "BACKTRACKING_TRANSLATE", "MISSION_COMPLETE"):
+            if node.ctrl_state in ("EMERGENCY_STOP", "BACKTRACKING_ROTATE", "BACKTRACKING_HYBRID", "BACKTRACKING_TRANSLATE", "LOCAL_TD3_AVOIDANCE", "MISSION_COMPLETE"):
                 saw_rec = True
+                if t_rec_wall is None:
+                    t_rec_wall = max(t_cut_wall + 0.1, time.time() - t_rec_start)
             d_l = min(math.hypot(node.cur_x - lx, node.cur_y - ly) for lx, ly in low_list)
             d_g = math.hypot(node.cur_x - gas_xy[0], node.cur_y - gas_xy[1])
             min_low_d = min(min_low_d, d_l)
@@ -1561,6 +1573,7 @@ def _record_single_ab_run(
 
             if saw_rec and node.ctrl_state == "MISSION_COMPLETE":
                 arrived = True
+                t_done_wall = max((t_rec_wall or t_cut_wall) + 0.1, time.time() - t_rec_start)
                 break
             t_s = node.sim_now()
             while node.sim_now() - t_s < 0.08:
@@ -1575,7 +1588,34 @@ def _record_single_ab_run(
             p_ff.stdin.flush()
         p_ff.wait(timeout=15.0)
 
-        _annotate_mp4_and_gif(raw_mp4, out_mp4, None, banner_title)
+        tag_lbl = "SEMANTIC-AWARE (3-Ch RL v3)" if use_sem else "BLIND (Phase 2-B 1-Ch RL)"
+        rec_color = (15, 76, 129, 238) if use_sem else (185, 28, 28, 242)
+        rec_desc = (
+            f"[{tag_lbl} | RECOVERY MODE]  COMM: LOST  |  Detouring Around Low-Obs & Gas Zone"
+            if use_sem
+            else f"[{tag_lbl} | RECOVERY MODE]  COMM: LOST  |  Blind to Low-Obs & Gas (Hits Hazard)"
+        )
+        ab_segments: List[Tuple[float, Optional[float], str, Tuple[int, int, int, int]]] = [
+            (0.0, t_cut_wall, f"[{tag_lbl} | DRIVING MODE]  COMM: ON (10 Hz HB)  |  Outbound Exploration Before Blackout", (30, 64, 175, 238)),
+        ]
+        if t_rec_wall is not None:
+            ab_segments.append((t_cut_wall, t_rec_wall, f"[{tag_lbl} | COMM LOST!]  COMM: LOST (0 Hz HB)  |  Watchdog Timeout (3.0 s)...", (180, 83, 9, 242)))
+            if t_done_wall is not None:
+                ab_segments.append((t_rec_wall, t_done_wall, rec_desc, rec_color))
+                if use_sem and min_low_d >= 0.255 and min_gas_d >= 0.55:
+                    done_msg = f"[{tag_lbl} | MISSION COMPLETE]  Safely Returned (0 Collisions | Low={min_low_d:.2f}m Gas={min_gas_d:.2f}m)"
+                    done_col = (21, 128, 61, 242)
+                else:
+                    done_msg = f"[{tag_lbl} | ARRIVED WITH HAZARD VIOLATION]  Low={min_low_d:.2f}m Gas={min_gas_d:.2f}m"
+                    done_col = (153, 27, 27, 242)
+                ab_segments.append((t_done_wall, None, done_msg, done_col))
+            else:
+                ab_segments.append((t_rec_wall, None, rec_desc, rec_color))
+
+        _annotate_mp4_and_gif(
+            raw_mp4, out_mp4, out_gif, banner_title,
+            gif_fps=8, gif_width=840, phase_segments=ab_segments,
+        )
         subprocess.run(
             ["ffmpeg", "-y", "-ss", f"{snap_ts:.2f}", "-i", out_mp4, "-vframes", "1", snap_png],
             check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -1594,44 +1634,28 @@ def _record_single_ab_run(
 
 
 def run_record_ab(args) -> int:
-    """Record Blind vs Semantic-Aware 3D Gazebo + RViz2 (/map) A/B video, GIF, and snapshots."""
+    """Record separate Blind and Semantic-Aware 3D Gazebo + RViz2 (/map) A/B videos, GIFs with dynamic HUD, and snapshots."""
     blind_mp4 = "/hdd/evidence/phase3_semantic/phase3_semantic_avoidance_blind.mp4"
     aware_mp4 = "/hdd/evidence/phase3_semantic/phase3_semantic_avoidance_aware.mp4"
+    blind_gif = os.path.join(WS_ROOT, "docs", "images", "evidence", "phase3_semantic_avoidance_blind.gif")
+    aware_gif = os.path.join(WS_ROOT, "docs", "images", "evidence", "phase3_semantic_avoidance_aware.gif")
     blind_png = os.path.join(WS_ROOT, "docs", "images", "evidence", "phase3_semantic_avoidance_blind.png")
     aware_png = os.path.join(WS_ROOT, "docs", "images", "evidence", "phase3_semantic_avoidance_aware.png")
 
     r_blind = _record_single_ab_run(
-        "blind", False, DEFAULT_P2B_ONNX, blind_mp4, blind_png,
+        "blind", False, DEFAULT_P2B_ONNX, blind_mp4, blind_gif, blind_png,
         "[A/B 1/2] Phase 2-B BLIND (use_semantic_rl_policy=false) | Hits Sub-LiDAR Low Obstacle & Gas Center",
         args.gz_port, args.ros_domain_id, args.display,
     )
     r_aware = _record_single_ab_run(
-        "aware", True, DEFAULT_V3_ONNX, aware_mp4, aware_png,
+        "aware", True, DEFAULT_V3_ONNX, aware_mp4, aware_gif, aware_png,
         "[A/B 2/2] Phase 3 SEMANTIC-AWARE (3-Ch RL v3) | Collision-Free Detour Around Low Obstacle & Gas Zone",
         args.gz_port + 1, args.ros_domain_id + 1, args.display,
     )
 
     shutil.copy2(blind_png, "/hdd/evidence/phase3_semantic/phase3_semantic_avoidance_blind.png")
     shutil.copy2(aware_png, "/hdd/evidence/phase3_semantic/phase3_semantic_avoidance_aware.png")
-
-    combined_mp4 = "/hdd/evidence/phase3_semantic/phase3_semantic_avoidance_ab.mp4"
-    combined_gif = os.path.join(WS_ROOT, "docs", "images", "evidence", "phase3_semantic_avoidance_ab.gif")
-    concat_txt = "/tmp/disaster_recovery/p3_ab_concat.txt"
-    with open(concat_txt, "w") as f:
-        f.write(f"file '{blind_mp4}'\nfile '{aware_mp4}'\n")
-    subprocess.run(
-        ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_txt, "-c", "copy", combined_mp4],
-        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
-    subprocess.run(
-        [
-            "ffmpeg", "-y", "-i", combined_mp4,
-            "-vf", "fps=8,scale=960:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer",
-            combined_gif,
-        ],
-        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
-    print(f"[AB RECORD DONE] blind={r_blind} aware={r_aware} gif={combined_gif}")
+    print(f"[AB RECORD DONE] blind={r_blind} aware={r_aware} blind_gif={blind_gif} aware_gif={aware_gif}")
     return 0
 
 

@@ -373,9 +373,13 @@ flowchart LR
 | **평균 최소 이격 (저상 장애물 / 가스 중심)** | `0.3082 m` / `0.4325 m` | **`0.5939 m` / `0.8199 m`** | **`+28.57 cm` / `+38.74 cm`** |
 | **평균 복귀 소요 시간** | `67.79 s` | **`23.07 s`** | **`2.94×` 단축 (`-44.72 s`)** |
 
-| `[GIF]` Blind vs Semantic-Aware A/B 실주행 비교 | `[PNG]` 10-Trial 시맨틱 A/B 정량 비교 그래프 (`Option 2`) |
+| `[GIF]` Phase 2-B **Blind** (`1-Ch RL` · 저상/가스 미인지) | `[GIF]` Phase 3 **Semantic-Aware** (`Option 2 3-Ch RL` · 선제 우회) |
 | :---: | :---: |
-| <img src="docs/images/evidence/phase3_semantic_avoidance_ab.gif" width="100%" alt="[GIF] Phase 3 Semantic Avoidance AB"> | <img src="docs/images/evidence_v3/phase3_semantic_ab_comparison.png" width="100%" alt="[PNG] Phase 3 10-Trial Semantic A/B Comparison"> |
+| <img src="docs/images/evidence/phase3_semantic_avoidance_blind.gif" width="100%" alt="[GIF] Phase 2-B Blind Low-Obstacle Hit"> | <img src="docs/images/evidence/phase3_semantic_avoidance_aware.gif" width="100%" alt="[GIF] Phase 3 Semantic-Aware Collision-Free Detour"> |
+
+<p align="center">
+  <img src="docs/images/evidence_v3/phase3_semantic_ab_comparison.png" width="88%" alt="[PNG] Phase 3 10-Trial Semantic A/B Comparison">
+</p>
 
 ---
 
