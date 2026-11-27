@@ -84,6 +84,13 @@
 
 #### Phase 4 온보드 제어 파이프라인
 
+<p align="center">
+  <img src="docs/images/evidence_phase4/phase4_hero_pipeline.png" alt="Phase 4 (Step B-4 + Option 1) Onboard Autonomous Recovery Pipeline" width="100%">
+</p>
+
+<details>
+<summary><strong>텍스트 파이프라인 다이어그램 (Mermaid 백업) 펼쳐보기</strong></summary>
+
 ```mermaid
 flowchart LR
     S["전처리 계층 (Layer-0)<br/>LiDAR 각도 잡음 필터 + 잔상 소거"] --> T["동적 인지·예측 계층 (IMM)<br/>CV+Harmonic IMM (5Hz 스캔/10Hz 외삽)<br/>+ Option 1 정적 벽체 조각 공선성 필터"]
@@ -94,6 +101,8 @@ flowchart LR
     D --> P
     P -->|"기지 0.5m 진입"| A["종말 도킹 계층 (Terminal)<br/>ArUco 2cm 도킹 (+10s 가드)"]
 ```
+
+</details>
 
 #### Host PC · RPi 4 · 센서 통합 ROS 2 토폴로지
 
@@ -193,6 +202,10 @@ stateDiagram-v2
 > 📄 **설계 · 검증 근거**: [`docs/Phase4_재검증_연구설계_및_구현계획.md`](docs/Phase4_재검증_연구설계_및_구현계획.md) · [`benchmark_results/stepB4_gate1_sim/`](benchmark_results/stepB4_gate1_sim/) · [`benchmark_results/stepB4_gate2_sim/`](benchmark_results/stepB4_gate2_sim/) · [`benchmark_results/phase4_semantic/`](benchmark_results/phase4_semantic/)
 
 Phase 4는 Phase 3 Clean 150-Trial 감사에서 식별된 두 핵심 병목(① 근접 구간 `lidar_collision` 53건, ② 동적 교차·왕복 장애물 시공간 회피 부재 `dynamic_crossfire_alley 0/10`)을 해소하고, 시맨틱 회피·연기 LiDAR 오염·U자 함정까지 단일 제어 파이프라인으로 통합한 완결 단계다.
+
+<p align="center">
+  <img src="docs/images/evidence_phase4/phase4_control_architecture.png" alt="Phase 4 (Step B-4 + Option 1) 4-Tier Detailed Onboard Control Architecture" width="100%">
+</p>
 
 ### 2.1 4-Ch Context-RL (`1120`차원) 및 V100 Dual-Track 학습
 
@@ -1081,7 +1094,7 @@ disaster_recovery_ws/
 | **① 설계** | [종합 설계 가이드북](docs/DISASTER_RECOVERY_GUIDEBOOK.md) | 전체 구조 · 동작 원리 · 상태 머신 |
 | | [통합 구축 보고서](docs/Disaster_Recovery_TurtleBot3_Integration_Report.md) ([docx](docs/Disaster_Recovery_TurtleBot3_Integration_Report.docx)) | YOLO26n · 오디오 · ArUco 연동 구축 내역 |
 | **② 알고리즘·결과** | [단계별 알고리즘·RL 변천사](docs/알고리즘_및_강화학습_기법_단계별_변천사.md) | Baseline → Phase 4 기법 총정리 |
-| | [자율복귀 원리 해설·벤치마크](docs/재난환경_자율복귀_알고리즘_원리_해설_및_보고서.md) | 15종 150회 Clean A/B 결과 (엄격 `64.0%` vs `64.0%`, 도착 `93.3%/94.0%`) · Phase 3 요약 |
+| | [자율복귀 원리 해설·벤치마크](docs/재난환경_자율복귀_알고리즘_원리_해설_및_보고서.md) | 15종 150회 Clean A/B 결과 · Phase 3 시맨틱 · Phase 4 (`Step B-4` 100-Trial · Option 1 · 시맨틱 10-Trial) 종합 보고서 |
 | | [2D 라이다 스캔매칭 보고서](docs/2D_라이다_스캔매칭_및_자율복귀_보고서.md) | ICP 오차 보정 · Layer-0 필터 · 시맨틱 투영 |
 | **③ 차세대** | [Phase 4 재검증 연구설계·구현계획](docs/Phase4_재검증_연구설계_및_구현계획.md) | 코드·실측 기반 비판적 재검증, Soft-CBF-QP·CVaR-RL 수식 및 5자 Ablation 마스터 블루프린트 |
 | | [Phase 4 후속 연구 검토·설계](docs/Phase4_후속_연구_방향_검토_및_설계.md) | GRU·World Model·Risk-Sensitive RL·Safety Shield 기술 타당성 및 로드맵 |

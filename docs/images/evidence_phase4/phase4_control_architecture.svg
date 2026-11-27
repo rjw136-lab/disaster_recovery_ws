@@ -1,0 +1,269 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1170" viewBox="0 0 1200 1170">
+  <defs>
+    <filter id="card-shadow" x="-4%" y="-4%" width="108%" height="114%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="2.5" result="blur"/>
+      <feOffset in="blur" dx="0" dy="2" result="offsetBlur"/>
+      <feComponentTransfer in="offsetBlur" result="shadow">
+        <feFuncA type="linear" slope="0.09"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode in="shadow"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <marker id="arr-slate" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto">
+      <path d="M 0 1.2 L 9.2 5 L 0 8.8 z" fill="#475569"/>
+    </marker>
+    <marker id="arr-teal" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto">
+      <path d="M 0 1.2 L 9.2 5 L 0 8.8 z" fill="#0F766E"/>
+    </marker>
+    <marker id="arr-indigo" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto">
+      <path d="M 0 1.2 L 9.2 5 L 0 8.8 z" fill="#1D4ED8"/>
+    </marker>
+    <marker id="arr-amber" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto">
+      <path d="M 0 1.2 L 9.2 5 L 0 8.8 z" fill="#B45309"/>
+    </marker>
+    <marker id="arr-violet" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto">
+      <path d="M 0 1.2 L 9.2 5 L 0 8.8 z" fill="#6D28D9"/>
+    </marker>
+    <marker id="arr-crimson" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto">
+      <path d="M 0 1.2 L 9.2 5 L 0 8.8 z" fill="#BE123C"/>
+    </marker>
+    <marker id="arr-emerald" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto">
+      <path d="M 0 1.2 L 9.2 5 L 0 8.8 z" fill="#047857"/>
+    </marker>
+  </defs>
+  <rect x="2" y="2" width="1196" height="1166" rx="16" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="1.6"/>
+  <rect x="24" y="20" width="1152" height="72" rx="12" fill="#0F172A"/>
+  <rect x="24" y="20" width="8" height="72" rx="4" fill="#1D4ED8"/>
+  <text x="48.0" y="51.0" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="22.0" font-weight="700" fill="#FFFFFF">Phase 4 (Step B-4 + Option 1) Detailed Control Architecture</text>
+  <text x="48.0" y="76.0" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.5" font-weight="400" fill="#CBD5E1">5 Hz Scan-Gated IMM · Geometric 3-Way Spatio-Temporal Router · 4-Ch RL · 2-Circle Soft CBF-QP · 2-Branch ICP</text>
+  <circle cx="890" cy="38" r="5" fill="#0F766E"/>
+  <text x="901.0" y="42.0" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.0" font-weight="700" fill="#E2E8F0">IMM / LIFO</text>
+  <circle cx="1030" cy="38" r="5" fill="#1D4ED8"/>
+  <text x="1041.0" y="42.0" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.0" font-weight="700" fill="#E2E8F0">횡단 2D 레인</text>
+  <circle cx="890" cy="64" r="5" fill="#B45309"/>
+  <text x="901.0" y="68.0" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.0" font-weight="700" fill="#E2E8F0">축방향 A*</text>
+  <circle cx="1030" cy="64" r="5" fill="#BE123C"/>
+  <text x="1041.0" y="68.0" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.0" font-weight="700" fill="#E2E8F0">CBF-QP · ICP</text>
+  <rect x="24.0" y="99.0" width="160.0" height="20.0" rx="6" fill="#E2E8F0"/>
+  <text x="104.0" y="112.8" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.2" font-weight="700" fill="#334155">TIER 1 · SENSING</text>
+  <!-- t1_sensors -->
+  <rect x="24.0" y="122.0" width="358.0" height="124.0" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.4" filter="url(#card-shadow)"/>
+  <rect x="24.7" y="122.7" width="356.6" height="34.0" rx="11.3" fill="#F1F5F9"/>
+  <rect x="24.7" y="149.0" width="356.6" height="7.7" fill="#F1F5F9"/>
+  <rect x="24.7" y="122.7" width="5.5" height="34.0" rx="2.5" fill="#334155"/>
+  <line x1="25.0" y1="156.7" x2="381.0" y2="156.7" stroke="#CBD5E1" stroke-width="1.0"/>
+  <text x="40.0" y="144.8" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="14.5" font-weight="700" fill="#334155">① Onboard Sensors</text>
+  <rect x="316.0" y="128.7" width="56.0" height="22" rx="11" fill="#334155"/>
+  <text x="344.0" y="143.9" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#FFFFFF">5 Hz</text>
+  <text x="40.0" y="180.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.8" font-weight="700" fill="#0F172A">LDS-01 2D LiDAR (5 Hz 고정, 360-ray)</text>
+  <text x="40.0" y="202.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.8" font-weight="400" fill="#334155">• /odom · /heartbeat (3.0 s 단절 감지)</text>
+  <text x="40.0" y="224.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.8" font-weight="400" fill="#334155">• /gas/level (MQ-2 ≥ 0.40) · CSI Camera</text>
+  <!-- t1_layer0 -->
+  <rect x="406.0" y="122.0" width="358.0" height="124.0" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.4" filter="url(#card-shadow)"/>
+  <rect x="406.7" y="122.7" width="356.6" height="34.0" rx="11.3" fill="#F1F5F9"/>
+  <rect x="406.7" y="149.0" width="356.6" height="7.7" fill="#F1F5F9"/>
+  <rect x="406.7" y="122.7" width="5.5" height="34.0" rx="2.5" fill="#334155"/>
+  <line x1="407.0" y1="156.7" x2="763.0" y2="156.7" stroke="#CBD5E1" stroke-width="1.0"/>
+  <text x="422.0" y="144.8" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="14.5" font-weight="700" fill="#334155">② Layer-0 Smoke Filter</text>
+  <rect x="688.8" y="128.7" width="65.2" height="22" rx="11" fill="#334155"/>
+  <text x="721.4" y="143.9" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#FFFFFF">Filter</text>
+  <text x="422.0" y="180.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.8" font-weight="700" fill="#0F172A">이웃 각도 스파이크 잡음 제거 &amp; 잔상 소거</text>
+  <text x="422.0" y="202.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.8" font-weight="400" fill="#334155">• 오염 지표: latest_scan_spike_ratio</text>
+  <text x="422.0" y="224.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.8" font-weight="400" fill="#BE123C">• spike_ratio ≥ 0.03 시 오염 플래그 발령</text>
+  <!-- t1_sem -->
+  <rect x="788.0" y="122.0" width="358.0" height="124.0" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.4" filter="url(#card-shadow)"/>
+  <rect x="788.7" y="122.7" width="356.6" height="34.0" rx="11.3" fill="#F1F5F9"/>
+  <rect x="788.7" y="149.0" width="356.6" height="7.7" fill="#F1F5F9"/>
+  <rect x="788.7" y="122.7" width="5.5" height="34.0" rx="2.5" fill="#334155"/>
+  <line x1="789.0" y1="156.7" x2="1145.0" y2="156.7" stroke="#CBD5E1" stroke-width="1.0"/>
+  <text x="804.0" y="144.8" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="14.5" font-weight="700" fill="#334155">③ Semantic Cache (/map)</text>
+  <rect x="1079.0" y="128.7" width="57.0" height="22" rx="11" fill="#334155"/>
+  <text x="1107.5" y="143.9" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#FFFFFF">Ch1/2</text>
+  <text x="804.0" y="180.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.8" font-weight="700" fill="#0F172A">단절 전 Outbound YOLO26n+LiDAR 백업</text>
+  <text x="804.0" y="202.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.8" font-weight="400" fill="#334155">• Ch1 저상 장애물 (h &lt; 0.17 m)</text>
+  <text x="804.0" y="224.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.8" font-weight="400" fill="#334155">• Ch2 가스·조난자 (r = 0.55 m) + 실시간 MQ-2</text>
+  <rect x="24.0" y="291.0" width="160.0" height="20.0" rx="6" fill="#CCFBF1"/>
+  <text x="104.0" y="304.8" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.2" font-weight="700" fill="#0F766E">TIER 2 · IMM &amp; LIFO</text>
+  <rect x="24.0" y="314" width="640.0" height="148" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.4" filter="url(#card-shadow)"/>
+  <rect x="24.7" y="314.7" width="638.6" height="34" rx="11.3" fill="#F0FDFA"/>
+  <rect x="24.7" y="341.7" width="638.6" height="7.7" fill="#F0FDFA"/>
+  <rect x="24.7" y="314.7" width="5.5" height="34" rx="2.5" fill="#0F766E"/>
+  <line x1="25.0" y1="348.7" x2="663.0" y2="348.7" stroke="#CBD5E1" stroke-width="1.0"/>
+  <line x1="356.0" y1="358" x2="356.0" y2="450" stroke="#E2E8F0" stroke-width="1.1"/>
+  <text x="40.0" y="337.0" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="14.5" font-weight="700" fill="#0F766E">④ CV + Harmonic IMM Tracker (dynamic_tracker.py)</text>
+  <rect x="574.0" y="320.7" width="80" height="22" rx="11" fill="#0F766E"/>
+  <text x="614.0" y="335.8" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#FFFFFF">5/10 Hz</text>
+  <text x="40.0" y="372.0" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.6" font-weight="700" fill="#0F172A">비동기 갱신 &amp; Option 1 오탐 필터</text>
+  <text x="40.0" y="394.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.6" font-weight="400" fill="#334155">• 5 Hz 스탬프 갱신 + 10 Hz 비파괴 외삽</text>
+  <text x="40.0" y="417.0" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.6" font-weight="400" fill="#334155">• _is_static_wall_fragment 공선성 기각</text>
+  <text x="40.0" y="439.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.6" font-weight="400" fill="#0F766E">• 회전 순변위 ≥0.25m (정적 오탐 0건)</text>
+  <text x="370.0" y="372.0" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.6" font-weight="700" fill="#0F766E">장기 예측 정확도 (τ ∈ [0, 4.5] s)</text>
+  <text x="370.0" y="394.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.6" font-weight="700" fill="#0F172A">• Crossfire형 FDE: 4.4 mm (μ_harm = 1.0)</text>
+  <text x="370.0" y="417.0" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.6" font-weight="700" fill="#0F172A">• Gauntlet형  FDE: 11.4 cm (A = 0.93 m)</text>
+  <text x="370.0" y="439.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.6" font-weight="400" fill="#334155">• CPU &lt; 0.50 ms · Ch3(12×12) 투영맵 생성</text>
+  <!-- t2_lifo -->
+  <rect x="688.0" y="314.0" width="458.0" height="148.0" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.4" filter="url(#card-shadow)"/>
+  <rect x="688.7" y="314.7" width="456.6" height="34.0" rx="11.3" fill="#F0FDFA"/>
+  <rect x="688.7" y="341.0" width="456.6" height="7.7" fill="#F0FDFA"/>
+  <rect x="688.7" y="314.7" width="5.5" height="34.0" rx="2.5" fill="#0F766E"/>
+  <line x1="689.0" y1="348.7" x2="1145.0" y2="348.7" stroke="#CBD5E1" stroke-width="1.0"/>
+  <text x="704.0" y="336.8" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="14.5" font-weight="700" fill="#0F766E">⑤ Global LIFO Waypoint Stack</text>
+  <rect x="1080.0" y="320.7" width="56.0" height="22" rx="11" fill="#0F766E"/>
+  <text x="1108.0" y="335.9" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#FFFFFF">LIFO</text>
+  <text x="704.0" y="372.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.6" font-weight="700" fill="#0F172A">통신 단절 시 자율 역추적 (Δd≥0.30m | Δθ≥25°)</text>
+  <text x="704.0" y="395.0" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.6" font-weight="400" fill="#334155">• 비파괴 위상 지름길 &amp; L-코너 하류 검증</text>
+  <text x="704.0" y="417.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.6" font-weight="400" fill="#334155">• 원점 ≤0.80m 시작점 ICP / ≤0.50m ArUco 인계</text>
+  <rect x="700.0" y="426.0" width="434.0" height="26.0" rx="7" fill="#F0FDFA" stroke="#0F766E" stroke-width="0.9" stroke-opacity="0.45"/>
+  <text x="917.0" y="443.5" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.0" font-weight="700" fill="#0F766E">SE(2) ICP 오프셋 실시간 동기화</text>
+  <rect x="24.0" y="507.0" width="160.0" height="20.0" rx="6" fill="#DBEAFE"/>
+  <text x="104.0" y="520.8" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.2" font-weight="700" fill="#1D4ED8">TIER 3 · 3-WAY ROUTER</text>
+  <rect x="24.0" y="530" width="1122.0" height="222" rx="14" fill="#F1F5F9" stroke="#94A3B8" stroke-width="1.5" stroke-dasharray="7,4"/>
+  <!-- t3_cross -->
+  <rect x="44.0" y="546.0" width="346.0" height="190.0" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.4" filter="url(#card-shadow)"/>
+  <rect x="44.7" y="546.7" width="344.6" height="34.0" rx="11.3" fill="#EFF6FF"/>
+  <rect x="44.7" y="573.0" width="344.6" height="7.7" fill="#EFF6FF"/>
+  <rect x="44.7" y="546.7" width="5.5" height="34.0" rx="2.5" fill="#1D4ED8"/>
+  <line x1="45.0" y1="580.7" x2="389.0" y2="580.7" stroke="#CBD5E1" stroke-width="1.0"/>
+  <text x="60.0" y="568.8" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="14.0" font-weight="700" fill="#1D4ED8">Branch A · 횡단 2D 스케줄러</text>
+  <rect x="290.2" y="552.7" width="89.8" height="22" rx="11" fill="#1D4ED8"/>
+  <text x="335.1" y="567.9" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#FFFFFF">Crossfire</text>
+  <text x="60.0" y="604.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.4" font-weight="700" fill="#1D4ED8">width &lt; 1.85m &amp; |d_macro·u| ≤ 0.60</text>
+  <text x="60.0" y="626.0" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.4" font-weight="400" fill="#334155">• 2D 양측 측면 레인 ±0.38m (벽 ≥0.17m)</text>
+  <text x="60.0" y="647.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.4" font-weight="400" fill="#334155">• ALIGN→HOLD→DASH · 구역 HOLD≤14s/CD 4s</text>
+  <text x="60.0" y="669.0" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.4" font-weight="400" fill="#BE123C">• 안전창 33.9% · CBF prefer_no_reverse</text>
+  <rect x="56.0" y="700.0" width="322.0" height="26.0" rx="7" fill="#EFF6FF" stroke="#1D4ED8" stroke-width="0.9" stroke-opacity="0.45"/>
+  <text x="217.0" y="717.5" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.0" font-weight="700" fill="#1D4ED8">B-4 14/20 → Opt1 CF 15/20 (Sim 8·Real 7)</text>
+  <!-- t3_axial -->
+  <rect x="412.0" y="546.0" width="346.0" height="190.0" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.4" filter="url(#card-shadow)"/>
+  <rect x="412.7" y="546.7" width="344.6" height="34.0" rx="11.3" fill="#FFFBEB"/>
+  <rect x="412.7" y="573.0" width="344.6" height="7.7" fill="#FFFBEB"/>
+  <rect x="412.7" y="546.7" width="5.5" height="34.0" rx="2.5" fill="#B45309"/>
+  <line x1="413.0" y1="580.7" x2="757.0" y2="580.7" stroke="#CBD5E1" stroke-width="1.0"/>
+  <text x="428.0" y="568.8" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="14.0" font-weight="700" fill="#B45309">Branch B · 축방향 스윕 A*</text>
+  <rect x="666.4" y="552.7" width="81.6" height="22" rx="11" fill="#B45309"/>
+  <text x="707.2" y="567.9" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#FFFFFF">Gauntlet</text>
+  <text x="428.0" y="604.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.4" font-weight="700" fill="#B45309">|d_path·u_hat| ≥ 0.65 &amp; 광폭 우회</text>
+  <text x="428.0" y="626.0" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.4" font-weight="400" fill="#334155">• soft_cost 띠 0.52m · w=3.8 (&gt;max 3.6)</text>
+  <text x="428.0" y="647.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.4" font-weight="400" fill="#334155">• 서브골 레일 사선 절단 차단 (hard 불변)</text>
+  <text x="428.0" y="669.0" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.4" font-weight="400" fill="#334155">• 정면 근접(&lt;0.85m) 속도 상한 0.09 m/s</text>
+  <rect x="424.0" y="700.0" width="322.0" height="26.0" rx="7" fill="#FFFBEB" stroke="#B45309" stroke-width="0.9" stroke-opacity="0.45"/>
+  <text x="585.0" y="717.5" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.0" font-weight="700" fill="#B45309">Gauntlet: 16/20 (Sim 7 · Real 9)</text>
+  <!-- t3_static -->
+  <rect x="780.0" y="546.0" width="346.0" height="190.0" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.4" filter="url(#card-shadow)"/>
+  <rect x="780.7" y="546.7" width="344.6" height="34.0" rx="11.3" fill="#F1F5F9"/>
+  <rect x="780.7" y="573.0" width="344.6" height="7.7" fill="#F1F5F9"/>
+  <rect x="780.7" y="546.7" width="5.5" height="34.0" rx="2.5" fill="#475569"/>
+  <line x1="781.0" y1="580.7" x2="1125.0" y2="580.7" stroke="#CBD5E1" stroke-width="1.0"/>
+  <text x="796.0" y="568.8" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="14.0" font-weight="700" fill="#475569">Branch C · 정적·오염 우회</text>
+  <rect x="1050.8" y="552.7" width="65.2" height="22" rx="11" fill="#475569"/>
+  <text x="1083.4" y="567.9" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#FFFFFF">Bypass</text>
+  <text x="796.0" y="604.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.4" font-weight="700" fill="#475569">확정 트랙 0건 OR spike_ratio ≥ 0.03</text>
+  <text x="796.0" y="626.0" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.4" font-weight="400" fill="#334155">• 동적 비용맵 · 횡단 스케줄러 완전 우회</text>
+  <text x="796.0" y="647.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.4" font-weight="400" fill="#334155">• 정적·연기(Gate 2) + 시맨틱 A* 무개입</text>
+  <text x="796.0" y="669.0" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.4" font-weight="400" fill="#047857">• Sim/Real 시맨틱 10/10 (mq2=0, 오탐 0)</text>
+  <rect x="792.0" y="700.0" width="322.0" height="26.0" rx="7" fill="#F1F5F9" stroke="#475569" stroke-width="0.9" stroke-opacity="0.45"/>
+  <text x="953.0" y="717.5" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.0" font-weight="700" fill="#475569">Gate 2: 59/60 (98.3%) · 충돌 0/60 · 5.70cm</text>
+  <rect x="24.0" y="797.0" width="160.0" height="20.0" rx="6" fill="#F3E8FF"/>
+  <text x="104.0" y="810.8" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.2" font-weight="700" fill="#6D28D9">TIER 4 · POLICY &amp; CBF</text>
+  <!-- t4_rl -->
+  <rect x="24.0" y="820.0" width="358.0" height="202.0" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.4" filter="url(#card-shadow)"/>
+  <rect x="24.7" y="820.7" width="356.6" height="34.0" rx="11.3" fill="#F5F3FF"/>
+  <rect x="24.7" y="847.0" width="356.6" height="7.7" fill="#F5F3FF"/>
+  <rect x="24.7" y="820.7" width="5.5" height="34.0" rx="2.5" fill="#6D28D9"/>
+  <line x1="25.0" y1="854.7" x2="381.0" y2="854.7" stroke="#CBD5E1" stroke-width="1.0"/>
+  <text x="40.0" y="842.8" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="14.2" font-weight="700" fill="#6D28D9">⑦ 4-Ch Context-RL ONNX</text>
+  <rect x="316.0" y="826.7" width="56.0" height="22" rx="11" fill="#6D28D9"/>
+  <text x="344.0" y="841.9" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#FFFFFF">4-Ch</text>
+  <text x="40.0" y="878.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.6" font-weight="700" fill="#0F172A">12×12×4 (Ch0-Ch3) + 16-step 시계열</text>
+  <text x="40.0" y="900.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.6" font-weight="400" fill="#334155">• Regulated Pure Pursuit + Clearance-Gate</text>
+  <text x="40.0" y="922.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.6" font-weight="400" fill="#334155">• Sim v4.4 ONNX (cbf_v_min = -0.06 m/s)</text>
+  <text x="40.0" y="944.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.6" font-weight="400" fill="#334155">• Real v3 ONNX (cbf_v_min = -0.08 m/s)</text>
+  <rect x="36.0" y="986.0" width="334.0" height="26.0" rx="7" fill="#F5F3FF" stroke="#6D28D9" stroke-width="0.9" stroke-opacity="0.45"/>
+  <text x="203.0" y="1003.5" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.0" font-weight="700" fill="#6D28D9">Nominal (v_nom, ω_nom) 출력</text>
+  <!-- t4_cbf -->
+  <rect x="406.0" y="820.0" width="358.0" height="202.0" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.4" filter="url(#card-shadow)"/>
+  <rect x="406.7" y="820.7" width="356.6" height="34.0" rx="11.3" fill="#FFF1F2"/>
+  <rect x="406.7" y="847.0" width="356.6" height="7.7" fill="#FFF1F2"/>
+  <rect x="406.7" y="820.7" width="5.5" height="34.0" rx="2.5" fill="#BE123C"/>
+  <line x1="407.0" y1="854.7" x2="763.0" y2="854.7" stroke="#CBD5E1" stroke-width="1.0"/>
+  <text x="422.0" y="842.8" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="14.2" font-weight="700" fill="#BE123C">⑧ 2-Circle Soft CBF-QP</text>
+  <rect x="688.8" y="826.7" width="65.2" height="22" rx="11" fill="#BE123C"/>
+  <text x="721.4" y="841.9" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#FFFFFF">&lt;2.0ms</text>
+  <text x="422.0" y="878.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.6" font-weight="700" fill="#0F172A">10 Hz 2-Circle ZCBF-QP (Ames et al., 2017)</text>
+  <text x="422.0" y="900.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.6" font-weight="400" fill="#334155">• 정적 점군 + IMM 트랙 2-Circle 장벽 (δ_ij)</text>
+  <text x="422.0" y="922.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.6" font-weight="400" fill="#334155">• mq2_escape 클래스·깊은 내부 분리 (mq2=0)</text>
+  <text x="422.0" y="944.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.6" font-weight="400" fill="#334155">• 초근접 광선 클램프 0.120m · 비상 후진 보존</text>
+  <rect x="418.0" y="986.0" width="334.0" height="26.0" rx="7" fill="#FFF1F2" stroke="#BE123C" stroke-width="0.9" stroke-opacity="0.45"/>
+  <text x="585.0" y="1003.5" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.0" font-weight="700" fill="#BE123C">0.407ms (max 1.941) · 12.96 Hz</text>
+  <!-- t4_icp -->
+  <rect x="788.0" y="820.0" width="358.0" height="202.0" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.4" filter="url(#card-shadow)"/>
+  <rect x="788.7" y="820.7" width="356.6" height="34.0" rx="11.3" fill="#ECFDF5"/>
+  <rect x="788.7" y="847.0" width="356.6" height="7.7" fill="#ECFDF5"/>
+  <rect x="788.7" y="820.7" width="5.5" height="34.0" rx="2.5" fill="#047857"/>
+  <line x1="789.0" y1="854.7" x2="1145.0" y2="854.7" stroke="#CBD5E1" stroke-width="1.0"/>
+  <text x="804.0" y="842.8" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="14.2" font-weight="700" fill="#047857">⑨ 2분기 2D ICP + ArUco</text>
+  <rect x="1079.0" y="826.7" width="57.0" height="22" rx="11" fill="#047857"/>
+  <text x="1107.5" y="841.9" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#FFFFFF">SE(2)</text>
+  <text x="804.0" y="878.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.6" font-weight="700" fill="#0F172A">smoke 파라미터 미참조 (AST 검증)</text>
+  <text x="804.0" y="900.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.6" font-weight="400" fill="#BE123C">• 오염: cap 0.16m · corr_y 차단 (54/54)</text>
+  <text x="804.0" y="922.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.6" font-weight="400" fill="#047857">• 정상(inl≥25): 0.42m 정밀 보정 (오탐 0/40)</text>
+  <text x="804.0" y="944.5" text-anchor="start" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.6" font-weight="400" fill="#334155">• 원점 ≤0.5m ArUco solvePnP (±2 cm 도킹)</text>
+  <rect x="800.0" y="986.0" width="334.0" height="26.0" rx="7" fill="#ECFDF5" stroke="#047857" stroke-width="0.9" stroke-opacity="0.45"/>
+  <text x="967.0" y="1003.5" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="12.0" font-weight="700" fill="#047857">smoke 20/20 (5.4-6.4cm) · OpenCR</text>
+  <rect x="24" y="1052" width="1152" height="88" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.3" filter="url(#card-shadow)"/>
+  <text x="139.2" y="1076.0" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#475569">100-Trial · vs OFF</text>
+  <text x="139.2" y="1105.0" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="19.5" font-weight="700" fill="#0F172A">89 / 100 (89.0%)</text>
+  <text x="139.2" y="1127.0" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.2" font-weight="400" fill="#475569">Opt1 31/40 vs OFF 7/40 (p=1.11e-7)</text>
+  <line x1="254.4" y1="1064" x2="254.4" y2="1128" stroke="#E2E8F0" stroke-width="1.2"/>
+  <text x="369.6" y="1076.0" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#475569">Gate 1 · Option 1</text>
+  <text x="369.6" y="1105.0" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="19.5" font-weight="700" fill="#1D4ED8">31 / 40 (77.5%)</text>
+  <text x="369.6" y="1127.0" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.2" font-weight="400" fill="#475569">B-4 30/40 · 충돌 6/40 · CF 15/20</text>
+  <line x1="484.8" y1="1064" x2="484.8" y2="1128" stroke="#E2E8F0" stroke-width="1.2"/>
+  <text x="600.0" y="1076.0" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#475569">Gate 2 · 시맨틱</text>
+  <text x="600.0" y="1105.0" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="19.5" font-weight="700" fill="#047857">59/60 · 10/10</text>
+  <text x="600.0" y="1127.0" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.2" font-weight="400" fill="#475569">0/60 · 5.70cm · Sim/Real 10/10</text>
+  <line x1="715.2" y1="1064" x2="715.2" y2="1128" stroke="#E2E8F0" stroke-width="1.2"/>
+  <text x="830.4" y="1076.0" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#475569">실시간성 (100회)</text>
+  <text x="830.4" y="1105.0" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="19.5" font-weight="700" fill="#BE123C">0.407ms · 12.96Hz</text>
+  <text x="830.4" y="1127.0" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.2" font-weight="400" fill="#475569">CBF max 1.941ms · 추가 +0.328ms</text>
+  <line x1="945.6" y1="1064" x2="945.6" y2="1128" stroke="#E2E8F0" stroke-width="1.2"/>
+  <text x="1060.8" y="1076.0" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#475569">단위 검증 · 무결성</text>
+  <text x="1060.8" y="1105.0" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="19.5" font-weight="700" fill="#6D28D9">101 / 101 PASS</text>
+  <text x="1060.8" y="1127.0" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.2" font-weight="400" fill="#475569">8개 스위트 · 전체 124/126</text>
+  <path d="M 255.0 248.0 L 255.0 310.0" fill="none" stroke="#334155" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arr-slate)"/>
+  <path d="M 585.0 248.0 L 585.0 310.0" fill="none" stroke="#334155" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arr-slate)"/>
+  <path d="M 967.0 248.0 L 967.0 310.0" fill="none" stroke="#334155" stroke-width="2.0" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="7,5" marker-end="url(#arr-slate)"/>
+  <path d="M 255.0 464.0 L 255.0 526.0" fill="none" stroke="#0F766E" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arr-teal)"/>
+  <path d="M 585.0 464.0 L 585.0 526.0" fill="none" stroke="#0F766E" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arr-teal)"/>
+  <path d="M 953.0 464.0 L 953.0 526.0" fill="none" stroke="#0F766E" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arr-teal)"/>
+  <path d="M 255.0 754.0 L 255.0 816.0" fill="none" stroke="#1D4ED8" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arr-indigo)"/>
+  <path d="M 585.0 754.0 L 585.0 816.0" fill="none" stroke="#BE123C" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="7,5" marker-end="url(#arr-crimson)"/>
+  <path d="M 953.0 754.0 L 953.0 816.0" fill="none" stroke="#475569" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arr-slate)"/>
+  <path d="M 384.0 921.0 L 402.0 921.0" fill="none" stroke="#6D28D9" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arr-violet)"/>
+  <path d="M 766.0 921.0 L 784.0 921.0" fill="none" stroke="#BE123C" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arr-crimson)"/>
+  <path d="M 1148.0 921.0 L 1174.0 921.0 L 1174.0 388.0 L 1150.0 388.0" fill="none" stroke="#047857" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="7,5" marker-end="url(#arr-emerald)"/>
+  <g transform="translate(1174, 654) rotate(-90)">
+    <rect x="-138" y="-11" width="276" height="22" rx="11" fill="#ECFDF5" stroke="#047857" stroke-width="1.2"/>
+    <text x="0" y="4.2" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#047857">SE(2) Drift Feedback (α=0.40) → IMM · LIFO</text>
+  </g>
+  <rect x="203.2" y="266.5" width="103.6" height="21.0" rx="10.5" fill="#FFFFFF" stroke="#334155" stroke-width="1.2"/>
+  <text x="255.0" y="281.2" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#334155">/scan (5 Hz)</text>
+  <rect x="536.8" y="266.5" width="96.4" height="21.0" rx="10.5" fill="#FFFFFF" stroke="#334155" stroke-width="1.2"/>
+  <text x="585.0" y="281.2" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#334155">spike_ratio</text>
+  <rect x="913.1" y="266.5" width="107.7" height="21.0" rx="10.5" fill="#FFFFFF" stroke="#334155" stroke-width="1.2"/>
+  <text x="967.0" y="281.2" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#334155">Ch1/Ch2 → RL</text>
+  <rect x="184.2" y="482.5" width="141.5" height="21.0" rx="10.5" fill="#FFFFFF" stroke="#0F766E" stroke-width="1.2"/>
+  <text x="255.0" y="497.2" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#0F766E">p_hat(τ) · σ(τ)</text>
+  <rect x="534.7" y="482.5" width="100.6" height="21.0" rx="10.5" fill="#FFFFFF" stroke="#0F766E" stroke-width="1.2"/>
+  <text x="585.0" y="497.2" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#0F766E">u_hat · Ch3</text>
+  <rect x="894.1" y="482.5" width="117.8" height="21.0" rx="10.5" fill="#FFFFFF" stroke="#0F766E" stroke-width="1.2"/>
+  <text x="953.0" y="497.2" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#0F766E">waypoint_stack</text>
+  <rect x="190.5" y="772.5" width="129.1" height="21.0" rx="10.5" fill="#FFFFFF" stroke="#1D4ED8" stroke-width="1.2"/>
+  <text x="255.0" y="787.2" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#1D4ED8">v_ref · subgoal</text>
+  <rect x="515.4" y="772.5" width="139.2" height="21.0" rx="10.5" fill="#FFFFFF" stroke="#BE123C" stroke-width="1.2"/>
+  <text x="585.0" y="787.2" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#BE123C">prefer_no_reverse</text>
+  <rect x="892.0" y="772.5" width="122.0" height="21.0" rx="10.5" fill="#FFFFFF" stroke="#475569" stroke-width="1.2"/>
+  <text x="953.0" y="787.2" text-anchor="middle" font-family="Noto Sans CJK KR, NanumGothic, DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#475569">bypass / ≤0.8m</text>
+</svg>
