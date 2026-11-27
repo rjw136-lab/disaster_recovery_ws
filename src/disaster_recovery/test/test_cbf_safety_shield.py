@@ -828,3 +828,392 @@ def test_near_ray_latch_and_scan_pose_egomotion_compensation():
     assert math.isclose(r_stale.min_h_static, expected_h, abs_tol=1e-6)
     assert r_stale.v < 0.0
 
+
+def test_ch2_outer_grazing_preserves_cbf_without_mq2_escape():
+    """
+    (a) Pre-cached external GAS_HAZARD outer padding grazing (hr=0.55 <= d=0.69 < r_safe=0.698)
+    must NOT trigger mq2_escape and must retain active Ch2 CBF repulsion.
+    """
+    shield = DiscreteSoftCBFShield(
+        v_min=-0.06,
+        v_max=0.20,
+        w_max=0.65,
+        slip_margin_mps=0.015,
+        enable_mq2_lifo_escape=True,
+    )
+    # Gas hazard centered at (2.80, 0.20), hr=0.55 => r_safe=0.698 m
+    # Robot grazing north outer halo at (2.80, 0.89) -> d_center = 0.69 m (hr <= d < r_safe), heading -x (pi)
+    ch2_ext_gas = [(2.80, 0.20, 0.55, True, False)]
+    lifo_wps = [(0.0, 0.0), (1.5, 0.0), (2.7, 0.0)]  # chord-cutting WP across gas center
+    res = shield.filter(
+        v_nom=0.18,
+        w_nom=0.20,  # nominal trying to turn south into gas
+        rx=2.80,
+        ry=0.89,
+        rth=math.pi,
+        ch2_hazards=ch2_ext_gas,
+        lifo_waypoints=lifo_wps,
+        update_stats=True,
+    )
+    assert res.min_h_gas < 0.0
+    assert res.mq2_escape_active is False
+    assert res.num_constraints >= 2  # Ch2 CBF rows remained active!
+    assert shield.get_stats()["mq2_escape_steps"] == 0.0
+
+
+def test_deep_interior_local_mq2_escape_and_no_chord_cut():
+    """
+    (b) Deep interior / local MQ-2 alarm triggers escape cleanly and _select_safe_lifo_waypoint
+    never picks a LIFO waypoint whose robot->target segment cuts a chord through the gas center.
+    """
+    shield = DiscreteSoftCBFShield(
+        v_min=-0.06,
+        v_max=0.20,
+        w_max=0.65,
+        slip_margin_mps=0.015,
+        enable_mq2_lifo_escape=True,
+    )
+    # Robot offset inside gas zone at (3.20, 0.40), gas at (2.90, 0.20, hr=0.55), d_center=0.3606 < 0.402
+    # Newest LIFO WP (2.10, -0.10) is outside r_safe but cuts directly through gas center (chord)!
+    # Earlier LIFO WP (3.85, 0.55) is safely outward without crossing gas interior.
+    ch2_local = [(2.90, 0.20, 0.55, True, True)]
+    lifo_with_safe = [(0.0, 0.0), (3.85, 0.55), (2.10, -0.10)]
+    res = shield.filter(
+        v_nom=0.18,
+        w_nom=0.0,
+        rx=3.20,
+        ry=0.40,
+        rth=0.0,
+        ch2_hazards=ch2_local,
+        lifo_waypoints=lifo_with_safe,
+        update_stats=True,
+    )
+    assert res.mq2_escape_active is True
+    assert res.mq2_escape_target == (3.85, 0.55), f"Must skip chord-cutting WP, got {res.mq2_escape_target}"
+    assert shield.get_stats()["mq2_escape_steps"] == 1.0
+
+    # When ONLY chord-cutting LIFO WPs exist, must fall back to radial outward escape (never chord!)
+    lifo_chord_only = [(2.10, -0.10)]
+    res_rad = shield.filter(
+        v_nom=0.18,
+        w_nom=0.0,
+        rx=3.20,
+        ry=0.40,
+        rth=0.0,
+        ch2_hazards=ch2_local,
+        lifo_waypoints=lifo_chord_only,
+        update_stats=False,
+    )
+    assert res_rad.mq2_escape_active is True
+    assert res_rad.mq2_escape_target is not None
+    # Radial outward from (2.90, 0.20) through (3.20, 0.40) must point in (+x, +y) quadrant
+    assert res_rad.mq2_escape_target[0] > 3.20 and res_rad.mq2_escape_target[1] > 0.40
+
+
+def test_person_no_mq2_escape_cache_group_separation_and_rear_sem_prox():
+    """
+    (c) Verify:
+      1. SemanticObjectCache separates dedup by Ch2 class group (GAS_HAZARD, person, AUDIO_DISTRESS
+         within dedup_radius_m=0.45m never overwrite each other).
+      2. person & AUDIO_DISTRESS pass allow_mq2_escape=False so CBF never invokes mq2_escape on them.
+      3. Rear survivor at (5.85, 0.45) behind robot returning west from (4.74, 0.21) yields sem_prox == 0.0,
+         whereas forward hazard yields high sem_prox.
+    """
+    from disaster_recovery.recovery_controller import RecoveryController, SemanticObjectCache
+
+    cache = SemanticObjectCache(dedup_radius_m=0.45, default_ch2_radius_m=0.55)
+    cache.upsert_object("person", 3.00, 0.20, radius=0.45, channel=2, marker_id=11)
+    cache.upsert_object("GAS_HAZARD", 3.10, 0.25, radius=0.55, channel=2, marker_id=10)
+    cache.upsert_object("AUDIO_DISTRESS", 3.05, 0.22, radius=0.40, channel=2, marker_id=12)
+    assert len(cache) == 3, "GAS_HAZARD, person, and AUDIO_DISTRESS within 0.45m must not overwrite each other"
+
+    _, ch2_cbf = cache.get_cbf_channel_tuples()
+    assert len(ch2_cbf) == 3
+    gas_flags = [item[3] for item in ch2_cbf]
+    assert gas_flags.count(True) == 1 and gas_flags.count(False) == 2
+
+    # Even deep proximity to person/AUDIO_DISTRESS must NEVER trigger mq2_escape
+    shield = DiscreteSoftCBFShield(v_min=-0.06, slip_margin_mps=0.015, enable_mq2_lifo_escape=True)
+    non_gas_only = [item for item in ch2_cbf if not item[3]]
+    res_p = shield.filter(
+        v_nom=0.15,
+        w_nom=0.0,
+        rx=3.02,
+        ry=0.20,
+        rth=0.0,
+        ch2_hazards=non_gas_only,
+        lifo_waypoints=[(0.0, 0.0), (1.0, 0.0)],
+        update_stats=True,
+    )
+    assert res_p.mq2_escape_active is False
+    assert shield.get_stats()["mq2_escape_steps"] == 0.0
+    assert res_p.num_constraints >= 4
+
+    # Rear survivor sem_prox attenuation vs forward hazard
+    ctrl = RecoveryController.__new__(RecoveryController)
+    ctrl.current_x = 4.74
+    ctrl.current_y = 0.21
+    ctrl.current_theta = math.pi  # Facing west toward base camp (0, 0)
+    rear_survivor = [(5.85, 0.45, 0.45)]
+    prox_rear = ctrl._compute_semantic_proximity([], rear_survivor, target_xy=(4.20, 0.10))
+    assert prox_rear < 0.05, f"Rear survivor must not saturate sem_prox, got {prox_rear:.4f}"
+
+    # Forward gas hazard ahead in -x direction still triggers full sem_prox
+    fwd_gas = [(3.80, 0.21, 0.55)]  # d=0.94, clearance=0.39 -> base_prox=1.0, cos=+1.0
+    prox_fwd = ctrl._compute_semantic_proximity([], fwd_gas, target_xy=(3.50, 0.20))
+    assert prox_fwd > 0.95, f"Forward hazard must retain full sem_prox, got {prox_fwd:.4f}"
+
+
+def test_ultra_close_positive_ray_clamp_stalled_latch_and_runtime_slip_margin():
+    """
+    (d) Verify:
+      1. Positive ultra-close rays (0 < r < 0.120m) are distinguished from 0.0/inf/nan dropouts
+         and clamped to min_range=0.120m in both transform_scan_to_base_footprint and _apply_near_ray_latch.
+      2. Prolonged obstacle-pressed stall (> 6 ticks of inf/0 dropouts at same pose) keeps barrier latched
+         in CBF without vanishing, while moving away or seeing clear hit (>= 0.185m) releases it.
+      3. Operates cleanly with production cbf_slip_margin_mps=0.015 and v_min=-0.06.
+    """
+    shield = DiscreteSoftCBFShield(
+        v_min=-0.06,
+        v_max=0.20,
+        w_max=0.65,
+        slip_margin_mps=0.015,
+    )
+    # Positive ultra-close 0.075 m straight ahead (even without prior arming)
+    scan_ultra = _make_open_scan(360, fill=3.5)
+    scan_ultra[0] = 0.075
+    scan_ultra[90] = 0.0   # dropout -> must NOT create obstacle on left
+    scan_ultra[270] = math.nan  # dropout -> must NOT create obstacle on right
+    r_ultra = shield.filter(
+        v_nom=0.18, w_nom=0.0, rx=1.0, ry=0.0, rth=0.0, scan_ranges=scan_ultra, update_stats=True
+    )
+    expected_h_val = (0.088 - DEFAULT_L_F) ** 2 - DEFAULT_R_SAFE_STATIC ** 2
+    assert math.isclose(r_ultra.min_h_static, expected_h_val, abs_tol=1e-6)
+    assert r_ultra.min_h_static < 0.0
+    assert r_ultra.v < 0.0  # Actively brakes/backs off under cbf_slip_margin_mps=0.015
+
+    # Prolonged wall-pressed stall: 12 consecutive ticks (> ttl=6) of inf dropout at SAME pose (1.0, 0.0, 0.0)
+    scan_inf = _make_open_scan(360, fill=3.5)
+    scan_inf[0] = math.inf
+    for _ in range(12):
+        r_stall = shield.filter(
+            v_nom=0.18, w_nom=0.0, rx=1.0, ry=0.0, rth=0.0, scan_ranges=scan_inf, update_stats=True
+        )
+        assert r_stall.min_h_static < 0.0, "Barrier vanished during prolonged wall-pressed stall!"
+        assert r_stall.v < 0.0
+
+    # Once robot backs away >= 0.03 m, TTL decays over 6 ticks so no permanent ghost barrier remains
+    for _ in range(7):
+        r_away = shield.filter(
+            v_nom=0.18, w_nom=0.0, rx=0.95, ry=0.0, rth=0.0, scan_ranges=scan_inf, update_stats=True
+        )
+    assert r_away.min_h_static > 0.0
+    assert r_away.v > 0.15
+
+
+def test_episode_reset_completeness_fresh_odom_scan_binding_and_status_telemetry():
+    """
+    Step 2.1 unit test:
+      1. cb_reset_episode() calls stop_robot(), refreshes last_heartbeat_time, clears residual
+         variables (previous_state, aruco_start_time, td3_avoid_step, _start_icp_diag_count,
+         last_icp_stats), and sets odom_initialized=False so stale pre-reset raw_odom is NEVER
+         bound as start_pose and start_scan_pts is NEVER left stuck as None.
+      2. Fresh /odom + /scan arriving in either order (odom->scan or scan->odom) bind start_pose
+         and start_scan_pts cleanly at (0, 0), and control_loop transitions INIT -> NORMAL_TELEOP
+         without spurious HEARTBEAT_TIMEOUT while publishing mq2_escape_steps, DYN, and CROSS.
+    """
+    from collections import deque
+    import types
+    from disaster_recovery.recovery_controller import (
+        CrossingLaneScheduler,
+        RecoveryController,
+        SemanticObjectCache,
+        SystemState,
+        Waypoint,
+    )
+
+    class _FakeTime:
+        def __init__(self, ns: int):
+            self.nanoseconds = int(ns)
+
+        def __sub__(self, other):
+            return _FakeTime(self.nanoseconds - other.nanoseconds)
+
+    def _make_ctrl():
+        c = RecoveryController.__new__(RecoveryController)
+        c.state = SystemState.BACKTRACKING_HYBRID
+        c.previous_state = SystemState.LOCAL_TD3_AVOIDANCE
+        c.aruco_start_time = _FakeTime(123)
+        c.td3_avoid_step = 42
+        c._start_icp_diag_count = 145
+        c.last_icp_stats = {"ok": False, "inlier_ratio": 0.10}
+        c.odom_initialized = True
+        c.heartbeat_received_once = True
+        c.heartbeat_timeout = 3.0
+        c.gas_threshold = 0.40
+        c.gas_stale_timeout = 2.0
+        c.gas_stale_triggers = False
+        c.current_gas_level = 0.0
+        c.last_gas_time = None
+        c.raw_odom_x = 3.80
+        c.raw_odom_y = 0.20
+        c.raw_odom_theta = 1.57
+        c.current_x = 3.80
+        c.current_y = 0.20
+        c.current_theta = 1.57
+        c.corr_x = 0.12
+        c.corr_y = -0.05
+        c.corr_th = 0.03
+        c.scan_match_count = 17
+        c.log_dist_th = 0.30
+        c.log_angle_th = math.radians(25.0)
+        c.last_logged_x = 3.80
+        c.last_logged_y = 0.20
+        c.last_logged_theta = 1.57
+        c.waypoint_stack = deque([Waypoint(0.0, 0.0, 0.0), Waypoint(3.80, 0.20, 1.57)])
+        c.start_pose = c.waypoint_stack[0]
+        c.start_scan_pts = np.ones((40, 2), dtype=np.float32)
+        c.latest_scan_pts = np.ones((40, 2), dtype=np.float32)
+        c.latest_raw_ranges = [2.0] * 360
+        c.latest_scan_spike_ratio = 0.05
+        c.latest_scan_pose = (3.80, 0.20, 1.57)
+        c.latest_scan_stamp_sec = 100.0
+        c.latest_scan_angle_min = 0.0
+        c.latest_scan_angle_increment = 2.0 * math.pi / 360.0
+        c.latest_dynamic_tracks = []
+        c.latest_dynamic_ch3 = None
+        c.semantic_cache = SemanticObjectCache()
+        c.semantic_cache.upsert_object("chair", 2.0, 0.1, channel=1)
+        c.local_planner = None
+        c.context_rl_policy = None
+        c.dynamic_tracker = None
+        c.cbf_shield = DiscreteSoftCBFShield(v_min=-0.06, slip_margin_mps=0.015)
+        c.cbf_shield.mq2_escape_steps = 7
+        c.crossing_scheduler = CrossingLaneScheduler()
+        c.recovery_strategy = "proposed_rl"
+        c.enable_lidar_despike = False
+        c.smoke_lidar_noise_prob = 0.0
+        c._scan_tick_seq = 0
+        c.lidar_fov = math.radians(20.0)
+        c.lidar_min_dist = 0.12
+        c.lidar_danger_dist = 0.25
+        c.td3_clearance_dist = 0.42
+        c.enable_lidar_slip_residual = False
+        c._prev_slip_scan_pts = None
+        c._prev_slip_scan_stamp = None
+        c.enable_teleop_rl_warmup = False
+        c.clear_stack_on_link_restore = False
+        c.reset_corr_on_episode = True
+        c.docking_dist_th = 0.50
+        c.last_cmd_v = 0.18
+        c.last_cmd_w = 0.40
+        c.actual_v = 0.18
+        c.actual_w = 0.40
+        c.last_heartbeat_time = _FakeTime(int(10.0 * 1e9))
+        c._clock_now_ns = int(150.0 * 1e9)  # 140 s stale heartbeat before reset!
+        c.get_clock = lambda: types.SimpleNamespace(now=lambda: _FakeTime(c._clock_now_ns))
+        c.stop_calls = 0
+        orig_stop = c.stop_robot
+
+        def _spy_stop():
+            c.stop_calls += 1
+            orig_stop()
+
+        c.stop_robot = _spy_stop
+        c.statuses = []
+        c.pub_system_status = types.SimpleNamespace(publish=lambda m: c.statuses.append(m.data))
+        c.pub_cmd_vel = types.SimpleNamespace(publish=lambda m: None)
+        c.get_logger = lambda: types.SimpleNamespace(
+            info=lambda *a, **k: None, warn=lambda *a, **k: None, error=lambda *a, **k: None
+        )
+        return c
+
+    odom_origin = types.SimpleNamespace(
+        pose=types.SimpleNamespace(
+            pose=types.SimpleNamespace(
+                position=types.SimpleNamespace(x=0.0, y=0.0),
+                orientation=types.SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0),
+            )
+        ),
+        twist=types.SimpleNamespace(
+            twist=types.SimpleNamespace(
+                linear=types.SimpleNamespace(x=0.0),
+                angular=types.SimpleNamespace(z=0.0),
+            )
+        ),
+    )
+    scan_origin = types.SimpleNamespace(
+        ranges=[1.8] * 360,
+        angle_min=0.0,
+        angle_increment=2.0 * math.pi / 360.0,
+        header=types.SimpleNamespace(stamp=types.SimpleNamespace(sec=150, nanosec=200000000)),
+    )
+
+    # Order 1: reset -> fresh /odom -> fresh /scan -> control_loop
+    c1 = _make_ctrl()
+    c1.cb_reset_episode(types.SimpleNamespace(data=True))
+    assert c1.stop_calls == 1
+    assert c1.last_cmd_v == 0.0 and c1.last_cmd_w == 0.0
+    assert c1.last_heartbeat_time.nanoseconds == int(150.0 * 1e9)
+    assert c1.previous_state == SystemState.INIT
+    assert c1.aruco_start_time is None
+    assert c1.td3_avoid_step == 0
+    assert c1._start_icp_diag_count == 0
+    assert c1.last_icp_stats is None
+    assert c1.odom_initialized is False
+    assert c1.start_pose is None and c1.start_scan_pts is None
+    assert len(c1.waypoint_stack) == 0
+    assert c1.state == SystemState.INIT
+    assert c1.cbf_shield.mq2_escape_steps == 0
+
+    c1.cb_odometry(odom_origin)
+    assert c1.odom_initialized is True
+    assert c1.start_pose is not None
+    assert math.hypot(c1.start_pose.x, c1.start_pose.y) < 1e-6
+    assert len(c1.waypoint_stack) == 1
+    c1.cb_scan(scan_origin)
+    assert c1.start_scan_pts is not None and c1.start_pose.scan_pts is not None
+    c1._clock_now_ns = int(150.2 * 1e9)
+    c1.control_loop()  # INIT -> NORMAL_TELEOP
+    assert c1.state == SystemState.NORMAL_TELEOP
+    c1._clock_now_ns = int(150.3 * 1e9)
+    c1.control_loop()  # Must NOT trigger stale 140s HEARTBEAT_TIMEOUT
+    assert c1.state == SystemState.NORMAL_TELEOP
+    assert "|DYN:0|CROSS:INACTIVE" in c1.statuses[-1]
+    cbf_part = [p for p in c1.statuses[-1].split("|") if p.startswith("CBF:")][0]
+    assert len(cbf_part.split(":", 1)[1].split(",")) == 9
+
+    # Order 2: reset -> fresh /scan -> fresh /odom -> start_pose & start_scan_pts both bound!
+    c2 = _make_ctrl()
+    c2.cb_reset_episode(types.SimpleNamespace(data=True))
+    c2.cb_scan(scan_origin)
+    assert c2.start_pose is None and c2.start_scan_pts is None
+    c2.cb_odometry(odom_origin)
+    assert c2.odom_initialized is True
+    assert c2.start_pose is not None and math.hypot(c2.start_pose.x, c2.start_pose.y) < 1e-6
+    assert c2.start_scan_pts is not None and c2.start_pose.scan_pts is not None
+    assert len(c2.waypoint_stack) == 1
+
+
+def test_semantic_world_min_wall_geom_exact_openings_pillars_and_survivor():
+    """Verify Step 2.2 exact geometric wall distance in disaster_semantic_rescue_world.world."""
+    scripts_host = os.path.abspath(os.path.join(PKG_SRC_DIR, "..", "..", "scripts", "host"))
+    if scripts_host not in sys.path:
+        sys.path.insert(0, scripts_host)
+    from run_phase3_semantic_suite import compute_semantic_world_min_wall_geom
+
+    # Partition 1 doorway exact opening: p1_n y>=+0.945, p1_s y<=-0.745 at x=1.45 (thick 0.16)
+    assert math.isclose(compute_semantic_world_min_wall_geom([(1.45, 0.845)]), 0.100, abs_tol=1e-6)
+    assert math.isclose(compute_semantic_world_min_wall_geom([(1.45, -0.645)]), 0.100, abs_tol=1e-6)
+    # Partition 2 doorway exact opening: p2_n y>=+0.745, p2_s y<=-0.945 at x=4.35
+    assert math.isclose(compute_semantic_world_min_wall_geom([(4.35, 0.645)]), 0.100, abs_tol=1e-6)
+    assert math.isclose(compute_semantic_world_min_wall_geom([(4.35, -0.845)]), 0.100, abs_tol=1e-6)
+    # Internal pillars pil_1(0.40,1.65,0.36), pil_2(3.00,-1.75,0.40), pil_3(6.60,-1.55,0.45)
+    assert math.isclose(compute_semantic_world_min_wall_geom([(0.40, 1.37)]), 0.100, abs_tol=1e-6)
+    assert math.isclose(compute_semantic_world_min_wall_geom([(3.00, -1.45)]), 0.100, abs_tol=1e-6)
+    assert math.isclose(compute_semantic_world_min_wall_geom([(6.60, -1.225)]), 0.100, abs_tol=1e-6)
+    # Standing survivor_person(5.85, 0.45, r=0.22)
+    assert math.isclose(compute_semantic_world_min_wall_geom([(5.53, 0.45)]), 0.100, abs_tol=1e-6)
+
+
+

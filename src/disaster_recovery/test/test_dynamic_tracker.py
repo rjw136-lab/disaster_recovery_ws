@@ -149,14 +149,14 @@ def test_close_range_cylinder_not_dropped_without_nc_cap():
         ranges = _raycast_scene(0.0, 0.0, 0.0, boxes_wall_segments=walls)
         tracker.update(0.0, 0.0, 0.0, ranges, scan_stamp_sec=k * 0.20)
 
-    # Moving cylinder passing close at d = 0.45 m ahead-ish (subtends ~55 deg = ~55 rays > 35)
-    # Put two ticks at y = -0.05 -> +0.05 at x = 0.45 m (speed 0.50 m/s)
-    positions = [(0.45, -0.08), (0.45, 0.00), (0.45, 0.08)]
+    # Moving cylinder passing close at d = 0.45 m ahead-ish (subtends > 35 deg = > 35 rays)
+    # 5 consecutive moving ticks at speed 0.40 m/s ending at (0.45, 0.08)
+    positions = [(0.45, -0.24), (0.45, -0.16), (0.45, -0.08), (0.45, 0.00), (0.45, 0.08)]
     tracks: List[TrackedObstacle] = []
     for i, (cx, cy) in enumerate(positions):
         ranges = _raycast_scene(0.0, 0.0, 0.0, cylinders=[(cx, cy, 0.21)], boxes_wall_segments=walls)
-        # Sanity check that cylinder occupies > 35 rays at d=0.45m
-        n_close = int(np.sum((ranges < 0.70) & np.isfinite(ranges)))
+        # Sanity check that cylinder occupies > 35 rays at close range
+        n_close = int(np.sum((ranges < 0.80) & np.isfinite(ranges)))
         assert n_close > 35
         tracks = tracker.update(0.0, 0.0, 0.0, ranges, scan_stamp_sec=(3 + i) * 0.20)
 
@@ -181,7 +181,7 @@ def test_wraparound_merge_beam_dropout_and_chord_radius_filters():
         tracker.update(0.0, 0.0, 0.0, _raycast_scene(0.0, 0.0, 0.0, boxes_wall_segments=walls), scan_stamp_sec=k * 0.20)
 
     # Cylinder straddling 0/359 deg (moving along +x at y=0.0) with forced 2-ray dropout right at rays 0 & 1
-    for i, cx in enumerate([1.60, 1.50, 1.40]):
+    for i, cx in enumerate([1.80, 1.70, 1.60, 1.50, 1.40]):
         ranges = _raycast_scene(0.0, 0.0, 0.0, cylinders=[(cx, 0.0, 0.21)], boxes_wall_segments=walls)
         ranges[0] = np.inf
         ranges[1] = np.inf
@@ -238,8 +238,8 @@ def test_damped_cv_exact_propagation_and_harmonic_turnaround_protection():
     for k in range(3):
         tracker.update(0.0, 0.0, 0.0, _raycast_scene(0.0, 0.0, 0.0, boxes_wall_segments=walls), scan_stamp_sec=k * 0.20)
 
-    # Move into corridor -> confirm -> stop at turnaround for 8 ticks (1.6 s)
-    ys = [-0.20, -0.10, 0.00] + [0.02] * 8
+    # Move into corridor -> confirm at hit 5 -> stop at turnaround for 8 ticks (1.6 s)
+    ys = [-0.40, -0.30, -0.20, -0.10, 0.00] + [0.02] * 8
     for i, cy in enumerate(ys):
         ranges = _raycast_scene(0.0, 0.0, 0.0, cylinders=[(1.20, cy, 0.21)], boxes_wall_segments=walls)
         tracks = tracker.update(0.0, 0.0, 0.0, ranges, scan_stamp_sec=(3 + i) * 0.20)
@@ -348,7 +348,7 @@ def test_ch3_projection_denominator_fix():
         vx=0.0,
         vy=0.0,
         radius=0.20,
-        P_4x4=np.diag([0.04, 0.04, 0.0, 0.0]).astype(np.float64),  # std=0.20 => r_eff = 0.20 + 1.5*0.20 = 0.50
+        P_4x4=np.diag([0.04, 0.04, 0.0, 0.0]).astype(np.float64),  # std=0.20 => 1.5*0.20=0.30 capped to CH3_MAX_R_INFL=0.28
         last_update_stamp=1.0,
         age=3,
         hits=3,
@@ -359,9 +359,9 @@ def test_ch3_projection_denominator_fix():
 
     # Cell center (0.375, 0.075) is grid index (8, 6): d = 0 <= r_c => ch3 == 1.0
     assert abs(float(ch3[8, 6]) - 1.0) < 1e-5
-    # Cell center at (-0.075, 0.075) is index (5, 6): d = 0.45 m, r_c = 0.20, r_eff = 0.50
-    # Expected = 1 - (0.45 - 0.20) / (0.50 - 0.20) = 1 - 0.25 / 0.30 = 1/6
-    assert abs(float(ch3[5, 6]) - (1.0 / 6.0)) < 1e-4
+    # Cell center at (-0.075, 0.075) is index (5, 6): d = 0.45 m, r_c = 0.20, r_infl = min(0.30, 0.28) = 0.28
+    # Expected = 1 - (0.45 - 0.20) / 0.28 = 3/28
+    assert abs(float(ch3[5, 6]) - (3.0 / 28.0)) < 1e-4
 
     # Zero-covariance edge case checks eps guard without NaN
     tracker.tracks[1].P_4x4 = np.zeros((4, 4), dtype=np.float64)
@@ -509,3 +509,369 @@ def test_cpu_latency_under_0_3_ms():
         tracker.project_ch3(0.0, 0.0, 0.0, now_sec=now_t)
     mean_ms = ((time.perf_counter() - t0) / 200.0) * 1000.0
     assert mean_ms < 0.30, f"Mean tracker+Ch3 latency {mean_ms:.4f} ms >= 0.30 ms"
+
+
+def test_imm_harmonic_crossfire_and_gauntlet_5hz_prediction():
+    """
+    Verify Step B 2-model (CV + Harmonic) IMM tracker at 5 Hz noisy 360-ray LiDAR:
+      1) crossfire-type (A=0.38 m, omega=0.95 rad/s): PCA axis, omega/A, sweep endpoints,
+         and predict_trajectory(tau in [0.0, 4.5] s) ADE/FDE accuracy.
+      2) gauntlet-type (A=0.93 m, omega=0.45 rad/s): PCA axis, omega/A, sweep endpoints,
+         and predict_trajectory(tau in [0.0, 4.5] s) ADE/FDE accuracy.
+      3) Pure constant-velocity motion favors CV weight (mu_cv > mu_harm).
+      4) Per-tick update + 30-step IMM predict_trajectory stays < 0.50 ms.
+    """
+    walls = [
+        (-2.0, -2.2, 4.2, -2.2),
+        (4.2, -2.2, 4.2, 2.2),
+        (4.2, 2.2, -2.0, 2.2),
+        (-2.0, 2.2, -2.0, -2.2),
+    ]
+    taus = np.arange(0, 31, dtype=np.float64) * 0.15  # 0.0 .. 4.5 s
+
+    def _run_harmonic_scenario(
+        seed: int,
+        amp_gt: float,
+        omega_gt: float,
+        axis_gt: Tuple[float, float],
+        center_gt: Tuple[float, float],
+    ) -> dict:
+        rng = np.random.default_rng(seed)
+        tracker = DynamicObstacleTracker()
+        for k in range(3):
+            r0 = _raycast_scene(0.0, 0.0, 0.0, boxes_wall_segments=walls, noise_std=0.01, rng=rng)
+            tracker.update(0.0, 0.0, 0.0, r0, scan_stamp_sec=k * 0.20)
+
+        ades, fdes_45, mu_hs, omegas, amps, axis_dots, sweep_errs = [], [], [], [], [], [], []
+        midtick_errs = []
+        pregen_scans: List[np.ndarray] = []
+        for k in range(75):
+            tm = k * 0.20
+            cx = center_gt[0] + axis_gt[0] * amp_gt * math.sin(omega_gt * tm)
+            cy = center_gt[1] + axis_gt[1] * amp_gt * math.sin(omega_gt * tm)
+            pregen_scans.append(
+                _raycast_scene(
+                    0.0,
+                    0.0,
+                    0.0,
+                    cylinders=[(cx, cy, 0.21)],
+                    boxes_wall_segments=walls,
+                    noise_std=0.01,
+                    dropout_prob=0.06,
+                    rng=rng,
+                )
+            )
+
+        for k in range(75):
+            t = (3 + k) * 0.20
+            tm = k * 0.20
+            ranges = pregen_scans[k]
+            tracks = tracker.update(0.0, 0.0, 0.0, ranges, scan_stamp_sec=t, now_sec=t)
+            conf = [tr for tr in tracks if tr.is_confirmed]
+            if conf:
+                tr = conf[0]
+                pred = tracker.predict_trajectory(tr, taus)
+                if tm >= 5.0:
+                    gt_x = center_gt[0] + axis_gt[0] * amp_gt * np.sin(omega_gt * (tm + taus))
+                    gt_y = center_gt[1] + axis_gt[1] * amp_gt * np.sin(omega_gt * (tm + taus))
+                    errs = np.hypot(pred.centers[:, 0] - gt_x, pred.centers[:, 1] - gt_y)
+                    ades.append(float(errs.mean()))
+                    fdes_45.append(float(errs[-1]))
+                    mu_hs.append(pred.mu_harm)
+                    omegas.append(pred.omega)
+                    amps.append(pred.amplitude)
+                    axis_dots.append(abs(pred.u_hat[0] * axis_gt[0] + pred.u_hat[1] * axis_gt[1]))
+                    # Check sweep endpoints against true [center - A*axis, center + A*axis]
+                    gt_s0 = (center_gt[0] - amp_gt * axis_gt[0], center_gt[1] - amp_gt * axis_gt[1])
+                    gt_s1 = (center_gt[0] + amp_gt * axis_gt[0], center_gt[1] + amp_gt * axis_gt[1])
+                    d_direct = 0.5 * (
+                        math.hypot(pred.sweep_start[0] - gt_s0[0], pred.sweep_start[1] - gt_s0[1])
+                        + math.hypot(pred.sweep_end[0] - gt_s1[0], pred.sweep_end[1] - gt_s1[1])
+                    )
+                    d_swap = 0.5 * (
+                        math.hypot(pred.sweep_start[0] - gt_s1[0], pred.sweep_start[1] - gt_s1[1])
+                        + math.hypot(pred.sweep_end[0] - gt_s0[0], pred.sweep_end[1] - gt_s0[1])
+                    )
+                    sweep_errs.append(min(d_direct, d_swap))
+
+                    # Verify 10 Hz mid-tick extrapolation preserves IMM phase alignment
+                    mid_tracks = tracker.update(0.0, 0.0, 0.0, ranges, scan_stamp_sec=t, now_sec=t + 0.10)
+                    mid_conf = [mt for mt in mid_tracks if mt.is_confirmed]
+                    assert len(mid_conf) == 1
+                    pred_mid = tracker.predict_trajectory(mid_conf[0], taus)
+                    gt_mx = center_gt[0] + axis_gt[0] * amp_gt * np.sin(omega_gt * (tm + 0.10 + taus))
+                    gt_my = center_gt[1] + axis_gt[1] * amp_gt * np.sin(omega_gt * (tm + 0.10 + taus))
+                    midtick_errs.append(
+                        float(np.hypot(pred_mid.centers[:, 0] - gt_mx, pred_mid.centers[:, 1] - gt_my).mean())
+                    )
+
+        # Steady-state 10 Hz tick timing (alternating 5 Hz scan updates + 10 Hz mid-ticks + predict_trajectory)
+        t_bench0 = time.perf_counter()
+        n_bench = 120
+        for tick in range(n_bench):
+            s_idx = (tick // 2) % len(pregen_scans)
+            s_stamp = 100.0 + (tick // 2) * 0.20
+            now_t = 100.0 + tick * 0.10
+            trks_b = tracker.update(0.0, 0.0, 0.0, pregen_scans[s_idx], scan_stamp_sec=s_stamp, now_sec=now_t)
+            for tb in trks_b:
+                if tb.is_confirmed:
+                    tracker.predict_trajectory(tb, taus)
+        mean_ms = ((time.perf_counter() - t_bench0) / float(n_bench)) * 1000.0
+
+        return {
+            "n_eval": len(ades),
+            "ade": float(np.mean(ades)),
+            "fde45": float(np.mean(fdes_45)),
+            "mid_ade": float(np.mean(midtick_errs)),
+            "mu_harm": float(np.mean(mu_hs)),
+            "omega": float(np.mean(omegas)),
+            "amp": float(np.mean(amps)),
+            "axis_dot": float(np.mean(axis_dots)),
+            "sweep_err": float(np.mean(sweep_errs)),
+            "mean_ms": mean_ms,
+        }
+
+    # 1) Crossfire: A=0.38 m, omega=0.95 rad/s (lateral y-axis)
+    cf = _run_harmonic_scenario(2026, 0.38, 0.95, (0.0, 1.0), (1.45, 0.0))
+    assert cf["n_eval"] >= 45
+    assert cf["axis_dot"] > 0.98
+    assert cf["mu_harm"] > 0.90
+    assert abs(cf["omega"] - 0.95) < 0.05
+    assert abs(cf["amp"] - 0.38) < 0.04
+    assert cf["sweep_err"] < 0.06
+    assert cf["ade"] < 0.05, f"crossfire 0-4.5s ADE {cf['ade']:.4f} m >= 0.05 m"
+    assert cf["fde45"] < 0.08, f"crossfire 4.5s FDE {cf['fde45']:.4f} m >= 0.08 m"
+    assert cf["mid_ade"] < 0.05
+    assert cf["mean_ms"] < 0.50, f"crossfire IMM tick time {cf['mean_ms']:.3f} ms >= 0.50 ms"
+
+    # 2) Gauntlet: A=0.93 m, omega=0.45 rad/s (axial x-axis)
+    gn = _run_harmonic_scenario(2027, 0.93, 0.45, (1.0, 0.0), (1.90, 0.0))
+    assert gn["n_eval"] >= 45
+    assert gn["axis_dot"] > 0.98
+    assert gn["mu_harm"] > 0.85
+    assert abs(gn["omega"] - 0.45) < 0.07
+    assert abs(gn["amp"] - 0.93) < 0.12
+    assert gn["sweep_err"] < 0.14
+    assert gn["ade"] < 0.10, f"gauntlet 0-4.5s ADE {gn['ade']:.4f} m >= 0.10 m"
+    assert gn["fde45"] < 0.20, f"gauntlet 4.5s FDE {gn['fde45']:.4f} m >= 0.20 m"
+    assert gn["mid_ade"] < 0.10
+    assert gn["mean_ms"] < 0.50, f"gauntlet IMM tick time {gn['mean_ms']:.3f} ms >= 0.50 ms"
+
+    # 3) Pure constant-velocity obstacle must keep CV model dominant (mu_cv > mu_harm)
+    rng_cv = np.random.default_rng(2028)
+    trk_cv = DynamicObstacleTracker()
+    for k in range(3):
+        trk_cv.update(0.0, 0.0, 0.0, _raycast_scene(0.0, 0.0, 0.0, boxes_wall_segments=walls), scan_stamp_sec=k * 0.20)
+    last_pred_cv = None
+    for k in range(18):
+        t = (3 + k) * 0.20
+        cy = -1.6 + 0.18 * (k * 0.20)
+        r = _raycast_scene(0.0, 0.0, 0.0, cylinders=[(1.50, cy, 0.21)], boxes_wall_segments=walls, noise_std=0.008, rng=rng_cv)
+        tracks = trk_cv.update(0.0, 0.0, 0.0, r, scan_stamp_sec=t)
+        conf = [tr for tr in tracks if tr.is_confirmed]
+        if conf:
+            last_pred_cv = trk_cv.predict_trajectory(conf[0], taus)
+    assert last_pred_cv is not None
+    assert last_pred_cv.mu_cv > last_pred_cv.mu_harm
+
+
+def test_smoke_spike_ratio_and_promotion_guards_block_false_positives():
+    """
+    Verify Step B smoke false-positive promotion guards:
+      1) spike_ratio >= 0.03 blocks track promotion completely (0 confirmed FPs).
+      2) hits < 5 stays tentative; 5th consecutive hit promotes.
+      3) Speed < 0.12 m/s stays tentative.
+      4) Diameter outside [0.20, 0.55] m (e.g. r=0.07 m or r=0.34 m) stays tentative.
+    """
+    walls = [
+        (-2.0, -2.0, 3.2, -2.0),
+        (3.2, -2.0, 3.2, 2.0),
+        (3.2, 2.0, -2.0, 2.0),
+        (-2.0, 2.0, -2.0, -2.0),
+    ]
+
+    # 1) Smoke noise (spike_ratio >= 0.03) blocks promotion even if a moving cluster appears
+    trk_smoke = DynamicObstacleTracker()
+    for k in range(3):
+        trk_smoke.update(0.0, 0.0, 0.0, _raycast_scene(0.0, 0.0, 0.0, boxes_wall_segments=walls), scan_stamp_sec=k * 0.20)
+    rng = np.random.default_rng(909)
+    for k in range(15):
+        cy = -0.7 + 0.08 * k
+        r = _raycast_scene(0.0, 0.0, 0.0, cylinders=[(1.40, cy, 0.21)], boxes_wall_segments=walls, noise_std=0.01, rng=rng)
+        # Inject smoke-like random short spikes across 18 rays (~5%)
+        spike_idx = rng.choice(360, size=18, replace=False)
+        r[spike_idx] = rng.uniform(0.25, 0.90, size=18).astype(np.float32)
+        tracks = trk_smoke.update(0.0, 0.0, 0.0, r, scan_stamp_sec=(3 + k) * 0.20, spike_ratio=0.035)
+        assert not any(tr.is_confirmed for tr in tracks), "spike_ratio >= 0.03 must block track confirmation"
+
+    # 2) Boundary check: spike_ratio = 0.030 blocks, spike_ratio = 0.029 allows confirmation at hit 5
+    trk_clean = DynamicObstacleTracker()
+    for k in range(3):
+        trk_clean.update(0.0, 0.0, 0.0, _raycast_scene(0.0, 0.0, 0.0, boxes_wall_segments=walls), scan_stamp_sec=k * 0.20)
+    for k in range(5):
+        cy = -0.30 + 0.08 * k  # 0.40 m/s >= 0.12 m/s, diam 0.42 m in [0.20, 0.55]
+        r = _raycast_scene(0.0, 0.0, 0.0, cylinders=[(1.40, cy, 0.21)], boxes_wall_segments=walls)
+        tracks = trk_clean.update(0.0, 0.0, 0.0, r, scan_stamp_sec=(3 + k) * 0.20, spike_ratio=0.029)
+        if k < 4:
+            assert not any(tr.is_confirmed for tr in tracks), f"Must not confirm before hit 5 (k={k})"
+        else:
+            assert sum(1 for tr in tracks if tr.is_confirmed) == 1
+
+    # 3) Slow speed (< 0.12 m/s, e.g., 0.06 m/s) stays unconfirmed
+    trk_slow = DynamicObstacleTracker()
+    for k in range(3):
+        trk_slow.update(0.0, 0.0, 0.0, _raycast_scene(0.0, 0.0, 0.0, boxes_wall_segments=walls), scan_stamp_sec=k * 0.20)
+    for k in range(8):
+        cy = -0.10 + 0.012 * k  # 0.06 m/s < 0.12 m/s
+        r = _raycast_scene(0.0, 0.0, 0.0, cylinders=[(1.40, cy, 0.21)], boxes_wall_segments=walls)
+        tracks = trk_slow.update(0.0, 0.0, 0.0, r, scan_stamp_sec=(3 + k) * 0.20, spike_ratio=0.0)
+        assert not any(tr.is_confirmed for tr in tracks), "Speed < 0.12 m/s must not confirm"
+
+    # 4) Out-of-range diameters (< 0.20 m and > 0.55 m) stay unconfirmed
+    for rad_bad in (0.07, 0.34):
+        trk_diam = DynamicObstacleTracker()
+        for k in range(3):
+            trk_diam.update(0.0, 0.0, 0.0, _raycast_scene(0.0, 0.0, 0.0, boxes_wall_segments=walls), scan_stamp_sec=k * 0.20)
+        for k in range(8):
+            cy = -0.40 + 0.08 * k
+            r = _raycast_scene(0.0, 0.0, 0.0, cylinders=[(1.40, cy, rad_bad)], boxes_wall_segments=walls)
+            tracks = trk_diam.update(0.0, 0.0, 0.0, r, scan_stamp_sec=(3 + k) * 0.20, spike_ratio=0.0)
+            assert not any(tr.is_confirmed for tr in tracks), f"Diameter {2*rad_bad:.2f} m outside [0.20, 0.55] must not confirm"
+
+
+def test_static_partition_doorway_pass_and_fast_rotation_zero_false_positives():
+    """
+    Regression for Phase 4 static semantic world false positives:
+      1) Passing through thin 0.16 m partition doorways (Partition 1 at x=1.45, Partition 2 at x=4.35)
+         with grazing parallel rays + 180 deg fast rotation (|omega|=0.65 rad/s with 40 ms yaw skew)
+         next to static survivor cylinder (5.85, 0.45, r=0.22) must yield 0 confirmed dynamic tracks.
+      2) A genuine moving cylinder (r=0.21 m, v=0.36 m/s) oscillating in front of a 1.15 m pinch gate
+         must still confirm promptly on hit 5 without delay.
+    """
+    def _box_segs(cx: float, cy: float, sx: float, sy: float) -> List[Tuple[float, float, float, float]]:
+        hx, hy = 0.5 * sx, 0.5 * sy
+        return [
+            (cx - hx, cy - hy, cx + hx, cy - hy),
+            (cx + hx, cy - hy, cx + hx, cy + hy),
+            (cx + hx, cy + hy, cx - hx, cy + hy),
+            (cx - hx, cy + hy, cx - hx, cy - hy),
+        ]
+
+    # Exact static wall + partition geometry of disaster_semantic_rescue_world.world
+    sem_walls: List[Tuple[float, float, float, float]] = [
+        (-1.11, -2.31, 7.51, -2.31),
+        (-1.11, 2.31, 7.51, 2.31),
+        (-1.11, -2.31, -1.11, 2.31),
+        (7.51, -2.31, 7.51, 2.31),
+    ]
+    sem_walls += _box_segs(1.45, 1.67, 0.16, 1.45)   # p1_n_c
+    sem_walls += _box_segs(1.45, -1.57, 0.16, 1.65)  # p1_s_c
+    sem_walls += _box_segs(4.35, 1.57, 0.16, 1.65)   # p2_n_c
+    sem_walls += _box_segs(4.35, -1.67, 0.16, 1.45)  # p2_s_c
+    sem_walls += _box_segs(0.40, 1.65, 0.36, 0.36)   # pil_1
+    sem_walls += _box_segs(3.00, -1.75, 0.40, 0.40)  # pil_2
+    sem_walls += _box_segs(6.60, -1.55, 0.45, 0.45)  # pil_3
+    static_survivor = [(5.85, 0.45, 0.22)]
+
+    rng = np.random.default_rng(2419)
+    tracker = DynamicObstacleTracker()
+    max_confirmed = 0
+
+    # Build outbound -> fast 180 deg turn (with 40 ms scan-odom yaw skew) -> return pose sequence
+    poses: List[Tuple[float, float, float, float, float]] = []  # (rx, ry, rth_true, rth_odom, omega)
+    # Outbound along north safe path: (0.0,0.0) -> (1.55,0.55) -> (4.74,0.28)
+    for k in range(125):
+        frac = k / 124.0
+        rx = 4.74 * frac
+        if rx < 1.55:
+            ry = 0.55 * (rx / 1.55)
+        elif rx < 3.95:
+            ry = 0.55 + 0.04 * math.sin(math.pi * (rx - 1.55) / 2.40)
+        else:
+            ry = 0.55 - 0.27 * ((rx - 3.95) / 0.79)
+        poses.append((rx, ry, 0.0, 0.0, 0.0))
+    # Fast in-place 180 deg rotation at (4.74, 0.28) with omega=0.65 rad/s and 40 ms yaw skew (0.026 rad)
+    for k in range(25):
+        th_true = min(math.pi, (k + 1) * 0.65 * 0.20)
+        omega_k = 0.65 if th_true < math.pi - 1e-3 else 0.0
+        th_odom = th_true - omega_k * 0.04  # 40 ms latency skew
+        poses.append((4.74, 0.28, th_true, th_odom, omega_k))
+    # Return west through Partition 2 and Partition 1 back to (0.0, 0.0)
+    for k in range(125):
+        frac = k / 124.0
+        rx = 4.74 * (1.0 - frac)
+        ry = 0.28 + 0.40 * math.sin(math.pi * frac) if rx > 1.2 else 0.0
+        poses.append((rx, ry, math.pi, math.pi, 0.0))
+
+    for step_i, (rx, ry, rth_true, rth_odom, om) in enumerate(poses):
+        ranges = _raycast_scene(
+            rx,
+            ry,
+            rth_true,
+            cylinders=static_survivor,
+            boxes_wall_segments=sem_walls,
+            noise_std=0.01,
+            rng=rng,
+        )
+        tracks = tracker.update(
+            rx=rx,
+            ry=ry,
+            rth=rth_odom,
+            raw_ranges=ranges,
+            scan_stamp_sec=step_i * 0.20,
+            omega=om,
+        )
+        n_conf = sum(1 for tr in tracks if tr.is_confirmed)
+        if n_conf > max_confirmed:
+            max_confirmed = n_conf
+    assert max_confirmed == 0, f"Static semantic world doorway+rotation produced {max_confirmed} confirmed FPs"
+
+    # 2) Verify genuine moving cylinder near a 1.15 m pinch gate still confirms on hit 5
+    gate_walls: List[Tuple[float, float, float, float]] = [
+        (-1.0, -2.3, 5.0, -2.3),
+        (-1.0, 2.3, 5.0, 2.3),
+        (-1.0, -2.3, -1.0, 2.3),
+        (5.0, -2.3, 5.0, 2.3),
+    ]
+    gate_walls += _box_segs(2.50, 1.4375, 0.20, 1.725)
+    gate_walls += _box_segs(2.50, -1.4375, 0.20, 1.725)
+    trk_gate = DynamicObstacleTracker()
+    for k in range(3):
+        r0 = _raycast_scene(0.80, 0.0, 0.0, boxes_wall_segments=gate_walls)
+        trk_gate.update(0.80, 0.0, 0.0, r0, scan_stamp_sec=k * 0.20)
+    confirmed_at = None
+    for k in range(7):
+        cy = -0.32 + 0.072 * k  # 0.36 m/s across pinch gate at x=2.15
+        rk = _raycast_scene(0.80, 0.0, 0.0, cylinders=[(2.15, cy, 0.21)], boxes_wall_segments=gate_walls)
+        trks = trk_gate.update(0.80, 0.0, 0.0, rk, scan_stamp_sec=(3 + k) * 0.20)
+        if any(tr.is_confirmed for tr in trks):
+            confirmed_at = k + 1
+            break
+    assert confirmed_at == 5, f"Expected real pinch-gate cylinder to confirm on hit 5, got hit {confirmed_at}"
+
+    # 3) Close cylinder next to a perpendicular pinch-gate wall during active steering (|omega|=0.60 rad/s)
+    #    must NOT be rejected as a static wall fragment and must confirm on hit 5 once disp >= 0.25 m.
+    gate2_walls: List[Tuple[float, float, float, float]] = [
+        (2.0, -2.3, 8.0, -2.3),
+        (2.0, 2.3, 8.0, 2.3),
+        (2.0, -2.3, 2.0, 2.3),
+        (8.0, -2.3, 8.0, 2.3),
+    ]
+    gate2_walls += _box_segs(5.30, -1.075, 0.20, 2.45)  # g2_bot_c (y <= 0.15)
+    gate2_walls += _box_segs(5.30, 1.80, 0.20, 1.00)    # g2_top_c (y >= 1.30)
+    trk_steer = DynamicObstacleTracker()
+    for k in range(3):
+        r0 = _raycast_scene(4.45, 0.65, -0.35, boxes_wall_segments=gate2_walls)
+        trk_steer.update(4.45, 0.65, -0.35, r0, scan_stamp_sec=k * 0.20, omega=0.0)
+    confirmed_steer = None
+    for k in range(7):
+        cy = 0.56 - 0.075 * k  # 0.375 m/s passing right beside perpendicular g2_bot_c
+        rk = _raycast_scene(4.45, 0.65, -0.35, cylinders=[(5.05, cy, 0.21)], boxes_wall_segments=gate2_walls)
+        trks = trk_steer.update(4.45, 0.65, -0.35, rk, scan_stamp_sec=(3 + k) * 0.20, omega=-0.60)
+        if any(tr.is_confirmed for tr in trks):
+            confirmed_steer = k + 1
+            break
+    assert confirmed_steer == 5, (
+        f"Expected moving cylinder next to perpendicular gate wall under |omega|=0.60 to confirm on hit 5, "
+        f"got hit {confirmed_steer}"
+    )

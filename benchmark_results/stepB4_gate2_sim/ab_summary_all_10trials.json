@@ -1,0 +1,110 @@
+{
+  "collapsed": {
+    "baseline": {
+      "scenario": "collapsed",
+      "label_ko": "붕괴 건물 (기본 재난환경)",
+      "strategy": "baseline",
+      "trials": 0,
+      "passes": 0,
+      "success_rate_pct": 0.0,
+      "arrival_passes": 0,
+      "arrival_success_rate_pct": 0.0,
+      "collision_trials": 0,
+      "mean_error_cm_all": NaN,
+      "mean_error_cm_pass": null,
+      "mean_time_s_all": NaN,
+      "mean_time_s_pass": null,
+      "mean_ret_path_m_pass": null,
+      "mean_explored_m": NaN
+    },
+    "proposed": {
+      "scenario": "collapsed",
+      "label_ko": "붕괴 건물 (기본 재난환경)",
+      "strategy": "phase4",
+      "trials": 10,
+      "passes": 9,
+      "success_rate_pct": 90.0,
+      "arrival_passes": 9,
+      "arrival_success_rate_pct": 90.0,
+      "collision_trials": 0,
+      "mean_error_cm_all": 8.7,
+      "mean_error_cm_pass": 6.08,
+      "mean_time_s_all": 100.39,
+      "mean_time_s_pass": 103.62,
+      "mean_ret_path_m_pass": 15.48,
+      "mean_explored_m": 15.28
+    }
+  },
+  "u_pocket_trap": {
+    "baseline": {
+      "scenario": "u_pocket_trap",
+      "label_ko": "ㄷ자 막다른 함정 (후진·대우회 필수)",
+      "strategy": "baseline",
+      "trials": 0,
+      "passes": 0,
+      "success_rate_pct": 0.0,
+      "arrival_passes": 0,
+      "arrival_success_rate_pct": 0.0,
+      "collision_trials": 0,
+      "mean_error_cm_all": NaN,
+      "mean_error_cm_pass": null,
+      "mean_time_s_all": NaN,
+      "mean_time_s_pass": null,
+      "mean_ret_path_m_pass": null,
+      "mean_explored_m": NaN
+    },
+    "proposed": {
+      "scenario": "u_pocket_trap",
+      "label_ko": "ㄷ자 막다른 함정 (후진·대우회 필수)",
+      "strategy": "phase4",
+      "trials": 10,
+      "passes": 10,
+      "success_rate_pct": 100.0,
+      "arrival_passes": 10,
+      "arrival_success_rate_pct": 100.0,
+      "collision_trials": 0,
+      "mean_error_cm_all": 3.68,
+      "mean_error_cm_pass": 3.68,
+      "mean_time_s_all": 101.03,
+      "mean_time_s_pass": 101.03,
+      "mean_ret_path_m_pass": 15.06,
+      "mean_explored_m": 15.56
+    }
+  },
+  "smoke_lidar_corruption": {
+    "baseline": {
+      "scenario": "smoke_lidar_corruption",
+      "label_ko": "화재 연기·분진 협곡 (LiDAR 산란 스파이크·결측)",
+      "strategy": "baseline",
+      "trials": 0,
+      "passes": 0,
+      "success_rate_pct": 0.0,
+      "arrival_passes": 0,
+      "arrival_success_rate_pct": 0.0,
+      "collision_trials": 0,
+      "mean_error_cm_all": NaN,
+      "mean_error_cm_pass": null,
+      "mean_time_s_all": NaN,
+      "mean_time_s_pass": null,
+      "mean_ret_path_m_pass": null,
+      "mean_explored_m": NaN
+    },
+    "proposed": {
+      "scenario": "smoke_lidar_corruption",
+      "label_ko": "화재 연기·분진 협곡 (LiDAR 산란 스파이크·결측)",
+      "strategy": "phase4",
+      "trials": 10,
+      "passes": 10,
+      "success_rate_pct": 100.0,
+      "arrival_passes": 10,
+      "arrival_success_rate_pct": 100.0,
+      "collision_trials": 0,
+      "mean_error_cm_all": 6.38,
+      "mean_error_cm_pass": 6.38,
+      "mean_time_s_all": 76.69,
+      "mean_time_s_pass": 76.69,
+      "mean_ret_path_m_pass": 12.61,
+      "mean_explored_m": 14.15
+    }
+  }
+}

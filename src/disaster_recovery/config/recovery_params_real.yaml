@@ -6,9 +6,40 @@ recovery_controller:
     recovery_strategy: "proposed_rl"
     enable_phase2b_envelope: true
     context_rl_onnx_path: "real_tb3_policy_student.onnx"
-    use_semantic_rl_policy: false     # Phase 3 3-channel Semantic RL policy switch (false=1ch Track B default)
-    semantic_rl_onnx_path: ""         # Auto-resolve real_tb3_policy_student_semantic_v3.onnx when use_semantic_rl_policy=true
+    use_semantic_rl_policy: false     # Phase 3/4 multi-channel RL policy switch (false=1ch Track B default)
+    semantic_rl_onnx_path: ""         # Empty auto-resolves Phase 3 3-ch real_tb3_policy_student_semantic_v3.onnx
+    phase4_rl_onnx_path: "real_tb3_policy_student_phase4.onnx"  # Phase 4 4-ch CPPO Track B student ONNX
     smoke_lidar_noise_prob: 0.0       # Never inject synthetic smoke noise on real LDS-01 scans
+    enable_lidar_despike: false       # Preserve thin physical obstacles on clean real LDS-01
+    clear_stack_on_link_restore: false
+
+    # Stage 0 Extensions (default-safe)
+    enable_semantic_astar_cost: false
+    enable_dynamic_headon_hold: false
+    enable_teleop_rl_warmup: false
+    enable_lidar_slip_residual: false
+
+    # Phase 4 Extensions (default-safe for Phase 3 backward compatibility)
+    enable_dynamic_tracker: false
+    enable_cbf_safety_shield: false
+    cbf_inner_loop_hz: 10.0
+    cbf_front_offset_m: 0.020
+    cbf_rear_offset_m: 0.060
+    cbf_circle_radius_m: 0.098
+    cbf_v_min: -0.08
+    cbf_gamma_dynamic_s: 3.0
+    cbf_gamma_static_s: 6.0
+    cbf_gamma_gas_s: 8.0
+    cbf_w_v: 1.0
+    cbf_w_w: 0.05
+    cbf_slip_margin_mps: 0.020
+    cbf_lidar_voxel_m: 0.10
+    cbf_lidar_max_points: 16
+    cbf_enable_mq2_lifo_escape: true
+    dynamic_graze_buffer_m: 0.06
+    alpha_max_step_base: 0.15
+    alpha_max_step_sem_gain: 0.10
+    alpha_valve_deadband: 0.02
 
     # Safety Watchdog
     heartbeat_timeout_sec: 3.0

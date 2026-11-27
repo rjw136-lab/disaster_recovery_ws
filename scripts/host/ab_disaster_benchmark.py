@@ -23,6 +23,7 @@ import random
 import signal
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass, asdict
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
@@ -551,6 +552,12 @@ class SimHarnessNode(Node):
         self.ctrl_pose = (0.0, 0.0, 0.0)
         self.last_status_ts = 0.0
         self.cbf_status_stats: Dict[str, float] = {}
+        self.max_confirmed_dyn_tracks = 0
+        self.crossing_scheduler_modes: set = set()
+        self.ctrl_hz_sum = 0.0
+        self.ctrl_hz_n = 0
+        self.ctrl_hz_min = float("inf")
+        self._last_cb_status_ts: Optional[float] = None
         self.recording_cmd_telemetry = False
         self.cmd_v_hist: List[float] = []
         self.cmd_w_hist: List[float] = []
@@ -648,8 +655,6 @@ class SimHarnessNode(Node):
         cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
         self.cur_th = math.atan2(siny, cosy)
         self.odom_ready = True
-        if self.recording_return_path:
-            self._append_return_point(self.cur_x, self.cur_y)
 
     def _cb_scan(self, msg: LaserScan):
         ranges = np.array(msg.ranges, dtype=np.float32)
@@ -681,6 +686,14 @@ class SimHarnessNode(Node):
 
     def _cb_status(self, msg: String):
         self.last_status_ts = self.sim_now()
+        t_now = time.time()
+        if self._last_cb_status_ts is not None:
+            period = t_now - self._last_cb_status_ts
+            if 0.0 < period < 5.0:
+                self.ctrl_hz_sum += 1.0 / period
+                self.ctrl_hz_n += 1
+                self.ctrl_hz_min = min(self.ctrl_hz_min, 1.0 / period)
+        self._last_cb_status_ts = t_now
         for part in msg.data.split("|"):
             if part.startswith("STATE:"):
                 self.ctrl_state = part.split(":", 1)[1]
@@ -708,8 +721,21 @@ class SimHarnessNode(Node):
                             "max_slack_seen": float(vals[5]),
                             "mean_solve_ms": float(vals[6]),
                         }
+                        if len(vals) >= 8:
+                            self.cbf_status_stats["max_solve_ms"] = float(vals[7])
                 except ValueError:
                     pass
+            elif part.startswith("DYN:"):
+                try:
+                    n_dyn = int(part.split(":", 1)[1])
+                    if n_dyn > self.max_confirmed_dyn_tracks:
+                        self.max_confirmed_dyn_tracks = n_dyn
+                except ValueError:
+                    pass
+            elif part.startswith("CROSS:"):
+                mode_s = part.split(":", 1)[1].strip()
+                if mode_s:
+                    self.crossing_scheduler_modes.add(mode_s)
 
     def _cb_cmd_vel(self, msg: Twist):
         if self.recording_cmd_telemetry:
@@ -870,9 +896,26 @@ def get_gazebo_true_pose(model_name: str = "burger") -> Optional[Tuple[float, fl
 
 
 def run_cmd_bounded(cmd: str, timeout_s: float = 4.0) -> int:
+    proc = subprocess.Popen(
+        ["bash", "-c", cmd],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        preexec_fn=os.setsid,
+    )
     try:
-        return subprocess.call(cmd, shell=True, timeout=timeout_s)
+        return proc.wait(timeout=timeout_s)
     except subprocess.TimeoutExpired:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        try:
+            proc.wait(timeout=1.0)
+        except Exception:
+            pass
         return -1
 
 
@@ -890,7 +933,7 @@ def _kill_matching_gazebo_procs(gz_master_uri: str) -> None:
         try:
             with open(f"/proc/{pid}/comm", "rb") as f:
                 comm = f.read().decode(errors="ignore").strip()
-            if not any(comm.startswith(t[:15]) for t in targets):
+            if comm != "gz" and not any(comm.startswith(t[:15]) for t in targets):
                 continue
             with open(f"/proc/{pid}/environ", "rb") as f:
                 env_entries = f.read().split(b"\x00")
@@ -958,7 +1001,29 @@ def launch_stack(
             raise RuntimeError(f"Gazebo launch exited prematurely for {cfg.name}/{strategy}")
 
     params_file = os.path.join(WS_ROOT, "src", "disaster_recovery", "config", "recovery_params.yaml")
-    onnx_override = f" -p context_rl_onnx_path:={context_rl_onnx_path}" if context_rl_onnx_path else ""
+    if strategy in ("phase4", "phase4_real"):
+        actual_strategy = "proposed_rl"
+        default_p4_name = (
+            "real_tb3_policy_student_phase4.onnx"
+            if strategy == "phase4_real"
+            else "sim_policy_student_phase4.onnx"
+        )
+        default_cbf_v_min = -0.08 if strategy == "phase4_real" else -0.06
+        eff_onnx = context_rl_onnx_path or os.path.join(
+            WS_ROOT, "src", "disaster_recovery", "config", default_p4_name
+        )
+        onnx_override = (
+            f" -p use_semantic_rl_policy:=true"
+            f" -p enable_dynamic_tracker:=true"
+            f" -p enable_cbf_safety_shield:=true"
+            f" -p cbf_v_min:={default_cbf_v_min}"
+            f" -p context_rl_onnx_path:={eff_onnx}"
+            f" -p semantic_rl_onnx_path:={eff_onnx}"
+            f" -p phase4_rl_onnx_path:={eff_onnx}"
+        )
+    else:
+        actual_strategy = strategy
+        onnx_override = f" -p context_rl_onnx_path:={context_rl_onnx_path}" if context_rl_onnx_path else ""
     env_override = " -p enable_phase2b_envelope:=false" if disable_phase2b_envelope else ""
     smoke_override = f" -p smoke_lidar_noise_prob:={cfg.smoke_noise_prob}" if cfg.smoke_noise_prob > 0.0 else ""
     extra_override = "".join(f" -p {p}" for p in (extra_controller_params or ()))
@@ -966,7 +1031,7 @@ def launch_stack(
         env_prefix
         + "ros2 run disaster_recovery recovery_controller --ros-args "
         f"--params-file {params_file} "
-        f"-p use_sim_time:=true -p use_aruco_docking:=false -p recovery_strategy:={strategy}"
+        f"-p use_sim_time:=true -p use_aruco_docking:=false -p recovery_strategy:={actual_strategy}"
         + onnx_override
         + env_override
         + smoke_override
@@ -1101,40 +1166,62 @@ def run_strategy_suite(
         return _summarize_results(cfg, strategy, results)
 
     gz_master_uri = f"http://127.0.0.1:{gz_port}"
-    procs, logs = launch_stack(
-        cfg,
-        strategy,
-        rtf,
-        gz_port=gz_port,
-        ros_domain_id=ros_domain_id,
-        kill_stale=kill_stale,
-        context_rl_onnx_path=context_rl_onnx_path,
-        disable_phase2b_envelope=disable_phase2b_envelope,
-        extra_controller_params=extra_controller_params,
-    )
-    rclpy.init()
-    node = SimHarnessNode()
-    node.crossfire_dynamic = cfg.crossfire_dynamic
-
-    # Wait for sim clock, odom, scan, and controller status
-    t_wait = time.time()
-    while time.time() - t_wait < 60.0:
-        rclpy.spin_once(node, timeout_sec=0.05)
-        if node.odom_ready and node.scan_ready and node.sim_now() > 0.1:
-            break
-    if not (node.odom_ready and node.scan_ready):
-        stop_stack(procs, logs, gz_port=gz_port)
-        node.destroy_node()
-        rclpy.shutdown()
-        raise RuntimeError("Sensors failed to become ready in benchmark suite")
-
     u_rate = int(round(rtf / cfg.max_step_size))
-    run_cmd_bounded(
-        f"GAZEBO_MASTER_URI={gz_master_uri} timeout -k 1 2 gz physics -u {u_rate} >/dev/null 2>&1",
-        timeout_s=4.0,
-    )
+    rclpy.init()
+    procs: List[subprocess.Popen] = []
+    logs: list = []
+    node: Optional[SimHarnessNode] = None
+
+    def _start_stack_and_wait() -> Tuple[List[subprocess.Popen], list, SimHarnessNode]:
+        new_procs, new_logs = launch_stack(
+            cfg,
+            strategy,
+            rtf,
+            gz_port=gz_port,
+            ros_domain_id=ros_domain_id,
+            kill_stale=kill_stale,
+            context_rl_onnx_path=context_rl_onnx_path,
+            disable_phase2b_envelope=disable_phase2b_envelope,
+            extra_controller_params=extra_controller_params,
+        )
+        new_node = SimHarnessNode()
+        new_node.crossfire_dynamic = cfg.crossfire_dynamic
+        t_wait = time.time()
+        while time.time() - t_wait < 60.0:
+            rclpy.spin_once(new_node, timeout_sec=0.05)
+            if new_node.odom_ready and new_node.scan_ready and new_node.sim_now() > 0.1:
+                break
+        if not (new_node.odom_ready and new_node.scan_ready):
+            stop_stack(new_procs, new_logs, gz_port=gz_port)
+            new_node.destroy_node()
+            raise RuntimeError("Sensors failed to become ready in benchmark suite")
+        run_cmd_bounded(
+            f"GAZEBO_MASTER_URI={gz_master_uri} timeout -k 1 2 gz physics -u {u_rate} >/dev/null 2>&1",
+            timeout_s=4.0,
+        )
+        return new_procs, new_logs, new_node
+
+    def _restart_stack(reason: str) -> None:
+        nonlocal procs, logs, node
+        print(f"  [STACK RECOVERY] {cfg.name}/{strategy}: restarting Gazebo/ROS stack ({reason})...")
+        if node is not None:
+            try:
+                node.destroy_node()
+            except Exception:
+                pass
+            node = None
+        if procs or logs:
+            stop_stack(procs, logs, gz_port=gz_port)
+        procs, logs, node = _start_stack_and_wait()
+
+    try:
+        procs, logs, node = _start_stack_and_wait()
+    except Exception:
+        rclpy.shutdown()
+        raise
 
     base_x, base_y, base_yaw = cfg.reset_pose
+    debris_cleanup_count = max(16, cfg.debris_max + 2)
 
     try:
         for spec in pending_specs:
@@ -1145,69 +1232,84 @@ def run_strategy_suite(
             target_depth = spec["target_depth"]
             goal_pool = spec["goal_pool"]
 
-            def _perform_verified_reset() -> None:
-                reset_ok = False
-                for rst_attempt in range(1, 5):
-                    node.set_heartbeat(True)
-                    node.stop_drive()
-                    node.recording_return_path = False
-                    node.trigger_episode_reset()
-                    node.sim_sleep(0.2)
-                    delete_debris_entities(max_count=12)
-                    node.reset_gazebo_world(timeout_s=3.0)
-                    rc_pose = run_cmd_bounded(
-                        f"GAZEBO_MASTER_URI={gz_master_uri} timeout -k 1 2 gz model -m burger -x {base_x} -y {base_y} -z 0.01 -R 0 -P 0 -Y {base_yaw} >/dev/null 2>&1",
-                        timeout_s=3.0,
-                    )
-                    run_cmd_bounded(
-                        f"GAZEBO_MASTER_URI={gz_master_uri} timeout -k 1 2 gz physics -u {u_rate} >/dev/null 2>&1",
-                        timeout_s=4.0,
-                    )
-                    node.sim_sleep(0.6)
-                    node.trigger_episode_reset()
-                    node.sim_sleep(0.6)
+            def _stack_alive() -> bool:
+                return all(p.poll() is None for p in procs)
 
-                    # Confirm controller ready in NORMAL_TELEOP with pose error < 0.10m and monotonic /clock
-                    wait_t0 = node.sim_now()
-                    wait_w0 = time.time()
-                    prev_clk = wait_t0
-                    mono_ticks = 0
-                    while (time.time() - wait_w0) < 12.0:
-                        rclpy.spin_once(node, timeout_sec=0.02)
-                        now_clk = node.sim_now()
-                        if now_clk < prev_clk - 1e-3:
-                            mono_ticks = 0
-                            wait_t0 = now_clk
-                        elif now_clk > prev_clk + 1e-3:
-                            mono_ticks += 1
-                        prev_clk = now_clk
-                        pose_err = math.hypot(node.cur_x - base_x, node.cur_y - base_y)
-                        if (
-                            rc_pose == 0
-                            and node.ctrl_state == "NORMAL_TELEOP"
-                            and pose_err < 0.10
-                            and mono_ticks >= 5
-                        ):
-                            reset_ok = True
+            def _perform_verified_reset() -> None:
+                for stack_restart_idx in range(3):
+                    if not _stack_alive():
+                        _restart_stack(f"process exited before trial #{t_idx}")
+                    reset_ok = False
+                    for rst_attempt in range(1, 5):
+                        if not _stack_alive():
                             break
-                        if (now_clk - wait_t0) >= 6.0 and mono_ticks >= 5:
+                        node.set_heartbeat(True)
+                        node.stop_drive()
+                        node.recording_return_path = False
+                        node.trigger_episode_reset()
+                        node.sim_sleep(0.2)
+                        delete_debris_entities(max_count=debris_cleanup_count)
+                        node.reset_gazebo_world(timeout_s=3.0)
+                        rc_pose = run_cmd_bounded(
+                            f"GAZEBO_MASTER_URI={gz_master_uri} timeout -k 1 2 gz model -m burger -x {base_x} -y {base_y} -z 0.01 -R 0 -P 0 -Y {base_yaw} >/dev/null 2>&1",
+                            timeout_s=3.0,
+                        )
+                        run_cmd_bounded(
+                            f"GAZEBO_MASTER_URI={gz_master_uri} timeout -k 1 2 gz physics -u {u_rate} >/dev/null 2>&1",
+                            timeout_s=4.0,
+                        )
+                        node.sim_sleep(0.6)
+                        node.trigger_episode_reset()
+                        node.sim_sleep(0.6)
+
+                        # Confirm controller ready in NORMAL_TELEOP with pose error < 0.10m and monotonic /clock
+                        wait_t0 = node.sim_now()
+                        wait_w0 = time.time()
+                        prev_clk = wait_t0
+                        mono_ticks = 0
+                        while (time.time() - wait_w0) < 12.0:
+                            rclpy.spin_once(node, timeout_sec=0.02)
+                            now_clk = node.sim_now()
+                            if now_clk < prev_clk - 1e-3:
+                                mono_ticks = 0
+                                wait_t0 = now_clk
+                            elif now_clk > prev_clk + 1e-3:
+                                mono_ticks += 1
+                            prev_clk = now_clk
+                            pose_err = math.hypot(node.cur_x - base_x, node.cur_y - base_y)
+                            if (
+                                rc_pose == 0
+                                and node.ctrl_state == "NORMAL_TELEOP"
+                                and pose_err < 0.10
+                                and mono_ticks >= 5
+                            ):
+                                reset_ok = True
+                                break
+                            if (now_clk - wait_t0) >= 6.0 and mono_ticks >= 5:
+                                break
+                        if reset_ok:
                             break
+                        print(
+                            f"  [RESET RETRY {rst_attempt}/4] {cfg.name} #{t_idx:02d}: "
+                            f"state={node.ctrl_state}, dist={math.hypot(node.cur_x - base_x, node.cur_y - base_y):.3f}m (require < 0.10m)"
+                        )
                     if reset_ok:
-                        break
-                    print(
-                        f"  [RESET RETRY {rst_attempt}/4] {cfg.name} #{t_idx:02d}: "
-                        f"state={node.ctrl_state}, dist={math.hypot(node.cur_x - base_x, node.cur_y - base_y):.3f}m (require < 0.10m)"
-                    )
-                node.trigger_episode_reset()
-                node.reset_outbound_grid()
-                node.sim_sleep(0.4)
+                        node.trigger_episode_reset()
+                        node.reset_outbound_grid()
+                        node.sim_sleep(0.4)
+                        final_reset_err = math.hypot(node.cur_x - base_x, node.cur_y - base_y)
+                        if final_reset_err < 0.10:
+                            return
+                    if stack_restart_idx < 2:
+                        _restart_stack(
+                            f"reset failed for trial #{t_idx} (state={node.ctrl_state}, alive={_stack_alive()})"
+                        )
                 final_reset_err = math.hypot(node.cur_x - base_x, node.cur_y - base_y)
-                if not reset_ok or final_reset_err >= 0.10:
-                    raise RuntimeError(
-                        f"Reset verification failed for {cfg.name} trial #{t_idx}: "
-                        f"pose=({node.cur_x:.3f}, {node.cur_y:.3f}) vs reset_pose=({base_x:.3f}, {base_y:.3f}), "
-                        f"err={final_reset_err:.3f}m >= 0.10m"
-                    )
+                raise RuntimeError(
+                    f"Reset verification failed for {cfg.name} trial #{t_idx}: "
+                    f"pose=({node.cur_x:.3f}, {node.cur_y:.3f}) vs reset_pose=({base_x:.3f}, {base_y:.3f}), "
+                    f"err={final_reset_err:.3f}m >= 0.10m"
+                )
 
             ref_out_path = spec.get("reference_outbound_path") if not save_debris_into_specs else None
             ref_turnoff = spec.get("reference_turnoff_pose") if not save_debris_into_specs else None
@@ -1395,6 +1497,8 @@ def run_strategy_suite(
             node.sim_sleep(0.2)
 
             turnoff_x, turnoff_y = node.cur_x, node.cur_y
+            if save_debris_into_specs:
+                spec["reference_turnoff_pose"] = [round(turnoff_x, 3), round(turnoff_y, 3)]
             dist_from_base = math.hypot(turnoff_x - base_x, turnoff_y - base_y)
             if cfg.crossfire_dynamic:
                 run_cmd_bounded(
@@ -1421,65 +1525,104 @@ def run_strategy_suite(
             node.cmd_v_hist = []
             node.cmd_w_hist = []
             node.cbf_status_stats = {}
+            node.max_confirmed_dyn_tracks = 0
+            node.crossing_scheduler_modes = set()
+            node.ctrl_hz_sum = 0.0
+            node.ctrl_hz_n = 0
+            node.ctrl_hz_min = float("inf")
+            node._last_cb_status_ts = None
             node.recording_cmd_telemetry = True
 
             t_wall_ret0 = time.time()
             max_wall_ret = max(180.0, max_return_wait * 1.5)
-            while sim_elapsed_s < max_return_wait:
-                if time.time() - t_wall_ret0 > max_wall_ret:
-                    break
-                t_step = node.sim_now()
-                t_w_step = time.time()
-                while (node.sim_now() - t_step) < 0.10 and (time.time() - t_w_step) < 0.8:
-                    rclpy.spin_once(node, timeout_sec=0.01)
-                    now_clk = node.sim_now()
-                    dt_clk = now_clk - prev_sim_clock
-                    if 0.0 < dt_clk < 5.0:
-                        sim_elapsed_s += dt_clk
-                    elif dt_clk < -1e-3:
-                        # Guard against asynchronous /clock reset jump
-                        t_step = now_clk
-                    prev_sim_clock = now_clk
+            latest_tp: List[Optional[Tuple[float, float, float]]] = [get_gazebo_true_pose("burger")]
+            stop_tp_poll = threading.Event()
 
-                states_visited.add(node.ctrl_state)
-                if node.ctrl_state in (
-                    "BACKTRACKING_ROTATE",
-                    "BACKTRACKING_TRANSLATE",
-                    "BACKTRACKING_HYBRID",
-                    "LOCAL_TD3_AVOIDANCE",
-                    "OBSTACLE_HOLD",
-                    "HANDOVER_TO_ARUCO",
-                    "MISSION_COMPLETE",
-                ):
-                    saw_recovery = True
-                elif (
-                    "EMERGENCY_STOP" in states_visited
-                    and node.ctrl_state == "NORMAL_TELEOP"
-                    and math.hypot(node.cur_x - base_x, node.cur_y - base_y) <= max_arrival_error_m
-                ):
-                    saw_recovery = True
+            def _poll_true_pose() -> None:
+                while not stop_tp_poll.is_set():
+                    tp_val = get_gazebo_true_pose("burger")
+                    if tp_val is not None:
+                        latest_tp[0] = tp_val
+                    stop_tp_poll.wait(0.04)
 
-                if saw_recovery:
-                    if node.scan_all_min < min_scan_m:
-                        min_scan_m = node.scan_all_min
-                    if node.scan_all_min <= 0.121:
-                        lidar_collision_steps += 1
-                    if debris_positions:
-                        px_chk = node.true_x if node.true_pose_ready else node.cur_x
-                        py_chk = node.true_y if node.true_pose_ready else node.cur_y
-                        cur_debris_d = min(math.hypot(px_chk - dx, py_chk - dy) for dx, dy in debris_positions)
-                        min_debris_dist_m = min(min_debris_dist_m, cur_debris_d)
+            tp_thread = threading.Thread(target=_poll_true_pose, daemon=True)
+            tp_thread.start()
+            try:
+                while sim_elapsed_s < max_return_wait and (node.sim_now() - t_blackout) < max_return_wait:
+                    if time.time() - t_wall_ret0 > max_wall_ret:
+                        break
+                    t_step = node.sim_now()
+                    t_w_step = time.time()
+                    while (node.sim_now() - t_step) < 0.10 and (time.time() - t_w_step) < 0.8:
+                        rclpy.spin_once(node, timeout_sec=0.01)
+                        now_clk = node.sim_now()
+                        dt_clk = now_clk - prev_sim_clock
+                        if 0.0 < dt_clk < 5.0:
+                            sim_elapsed_s += dt_clk
+                        elif dt_clk < -1e-3:
+                            # Guard against asynchronous /clock reset jump
+                            t_step = now_clk
+                        prev_sim_clock = now_clk
 
-                node._append_return_point(node.cur_x, node.cur_y)
+                    for _ in range(25):
+                        rclpy.spin_once(node, timeout_sec=0.0)
 
-                if saw_recovery and node.ctrl_state in ("MISSION_COMPLETE", "NORMAL_TELEOP", "ARUCO_DOCKING"):
-                    success = True
-                    break
+                    tp_now = (
+                        (node.true_x, node.true_y, node.true_th)
+                        if node.true_pose_ready
+                        else latest_tp[0]
+                    )
+                    px_chk, py_chk = (
+                        (tp_now[0], tp_now[1]) if tp_now is not None else (node.cur_x, node.cur_y)
+                    )
+
+                    states_visited.add(node.ctrl_state)
+                    if node.ctrl_state in (
+                        "BACKTRACKING_ROTATE",
+                        "BACKTRACKING_TRANSLATE",
+                        "BACKTRACKING_HYBRID",
+                        "LOCAL_TD3_AVOIDANCE",
+                        "OBSTACLE_HOLD",
+                        "HANDOVER_TO_ARUCO",
+                        "MISSION_COMPLETE",
+                    ):
+                        saw_recovery = True
+                    elif (
+                        node.ctrl_state != "NORMAL_TELEOP"
+                        and math.hypot(px_chk - turnoff_x, py_chk - turnoff_y) >= 0.15
+                    ):
+                        saw_recovery = True
+                    elif (
+                        "EMERGENCY_STOP" in states_visited
+                        and node.ctrl_state == "NORMAL_TELEOP"
+                        and math.hypot(px_chk - base_x, py_chk - base_y) <= max_arrival_error_m
+                    ):
+                        saw_recovery = True
+
+                    if saw_recovery:
+                        if node.scan_all_min < min_scan_m:
+                            min_scan_m = node.scan_all_min
+                        if node.scan_all_min <= 0.121:
+                            lidar_collision_steps += 1
+                        if debris_positions:
+                            cur_debris_d = min(math.hypot(px_chk - dx, py_chk - dy) for dx, dy in debris_positions)
+                            min_debris_dist_m = min(min_debris_dist_m, cur_debris_d)
+
+                    node._append_return_point(px_chk, py_chk)
+
+                    if node.ctrl_state == "MISSION_COMPLETE":
+                        saw_recovery = True
+                        success = True
+                        break
+                    if saw_recovery and node.ctrl_state in ("NORMAL_TELEOP", "ARUCO_DOCKING"):
+                        success = True
+                        break
+            finally:
+                stop_tp_poll.set()
+                tp_thread.join(timeout=1.0)
 
             node.recording_return_path = False
             node.recording_cmd_telemetry = False
-            node._append_return_point(node.cur_x, node.cur_y)
-            return_trajectory = list(node.return_trajectory)
             raw_return_duration = node.sim_now() - t_blackout
             if raw_return_duration >= 0.0 and abs(raw_return_duration - sim_elapsed_s) < 5.0:
                 return_duration = raw_return_duration
@@ -1489,12 +1632,14 @@ def run_strategy_suite(
             true_pose = (
                 (node.true_x, node.true_y, node.true_th)
                 if node.true_pose_ready
-                else get_gazebo_true_pose("burger")
+                else (get_gazebo_true_pose("burger") or latest_tp[0])
             )
             if true_pose is not None:
                 final_x, final_y, final_th = true_pose
             else:
                 final_x, final_y, final_th = node.cur_x, node.cur_y, node.cur_th
+            node._append_return_point(final_x, final_y)
+            return_trajectory = list(node.return_trajectory)
 
             err_m = math.hypot(final_x - base_x, final_y - base_y)
             if success and err_m > max_arrival_error_m:
@@ -1597,6 +1742,17 @@ def run_strategy_suite(
                 "cmd_mean_abs_dv": round(cmd_mean_abs_dv, 5),
                 "cmd_mean_abs_dw": round(cmd_mean_abs_dw, 5),
                 "cbf_stats": dict(node.cbf_status_stats) if node.cbf_status_stats else None,
+                "max_confirmed_dyn_tracks": int(node.max_confirmed_dyn_tracks),
+                "crossing_scheduler_modes": sorted(node.crossing_scheduler_modes),
+                "cbf_max_solve_ms": (
+                    round(node.cbf_status_stats["max_solve_ms"], 3)
+                    if node.cbf_status_stats and "max_solve_ms" in node.cbf_status_stats
+                    else None
+                ),
+                "ctrl_hz_mean": (
+                    round(node.ctrl_hz_sum / node.ctrl_hz_n, 3) if node.ctrl_hz_n > 0 else None
+                ),
+                "ctrl_hz_min": round(node.ctrl_hz_min, 3) if node.ctrl_hz_n > 0 else None,
                 "outbound_path": outbound_path,
                 "return_path": return_trajectory,
             }
@@ -1612,8 +1768,12 @@ def run_strategy_suite(
                 f"d_rock={min_debris_dist_m:4.2f}m | err={err_m*100:6.1f}cm | time={return_duration:6.1f}s | end={node.ctrl_state} | RTF={sim_dt/wall_dt:.1f}x"
             )
     finally:
-        delete_debris_entities(max_count=12)
-        node.destroy_node()
+        delete_debris_entities(max_count=debris_cleanup_count)
+        if node is not None:
+            try:
+                node.destroy_node()
+            except Exception:
+                pass
         rclpy.shutdown()
         stop_stack(procs, logs, gz_port=gz_port)
 
@@ -1655,8 +1815,8 @@ def main():
     parser.add_argument(
         "--proposed-strategy",
         default="proposed",
-        choices=["proposed", "proposed_rl"],
-        help="Controller recovery_strategy to benchmark for the proposed slot (default proposed)",
+        choices=["proposed", "proposed_rl", "phase4", "phase4_real"],
+        help="Controller recovery_strategy to benchmark for the proposed slot (default proposed; phase4/phase4_real auto-enables Phase 4 ONNX + dynamic tracker + CBF shield)",
     )
     parser.add_argument(
         "--context-rl-onnx",
@@ -1706,6 +1866,11 @@ def main():
         default=[],
         help="Extra ROS 2 parameter override for proposed recovery_controller (repeatable, e.g. enable_cbf_safety_shield:=true)",
     )
+    parser.add_argument(
+        "--disable-spatiotemporal-control",
+        action="store_true",
+        help="Pass enable_spatiotemporal_dynamic_control:=false to recovery_controller for Step B~B-4 ablation control",
+    )
     args = parser.parse_args()
 
     os.environ["ROS_LOCALHOST_ONLY"] = "1"
@@ -1735,6 +1900,24 @@ def main():
 
         base_src_dir = args.baseline_dir if args.baseline_dir else args.out_dir
         base_in_path = os.path.join(base_src_dir, f"ab_{s_name}_{args.trials}trials.json")
+
+        if args.resume and os.path.exists(out_path):
+            try:
+                with open(out_path, "r") as f:
+                    done_data = json.load(f)
+                done_base = list(done_data.get("baseline", {}).get("trials", []))
+                done_prop = list(done_data.get("proposed", {}).get("trials", []))
+                base_ok = args.proposed_only or len(done_base) >= args.trials
+                prop_ok = len(done_prop) >= args.trials
+                if base_ok and prop_ok:
+                    all_reports[s_name] = {
+                        "baseline": done_data.get("baseline", {}).get("summary", {}),
+                        "proposed": done_data.get("proposed", {}).get("summary", {}),
+                    }
+                    print(f"\n[RESUME SKIP] {s_name}: already completed ({out_path})")
+                    continue
+            except Exception:
+                pass
 
         if (args.reuse_baseline or args.proposed_only) and os.path.exists(base_in_path):
             with open(base_in_path, "r") as f:
@@ -1813,6 +1996,10 @@ def main():
             if base_res is None:
                 base_res = _summarize_results(cfg, "baseline", [])
 
+        prop_extra_params = list(args.controller_param)
+        if args.disable_spatiotemporal_control:
+            prop_extra_params.append("enable_spatiotemporal_dynamic_control:=false")
+
         prop_res = run_strategy_suite(
             cfg,
             args.proposed_strategy,
@@ -1828,7 +2015,7 @@ def main():
             disable_phase2b_envelope=args.disable_phase2b_envelope,
             strict_collision_free=(not args.allow_collision_pass),
             max_arrival_error_m=args.max_arrival_error_m,
-            extra_controller_params=args.controller_param,
+            extra_controller_params=prop_extra_params,
         )
 
         # Save fixed specs and A/B comparison JSON

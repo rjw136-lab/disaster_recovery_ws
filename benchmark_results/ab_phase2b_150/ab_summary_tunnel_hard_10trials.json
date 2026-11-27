@@ -1,0 +1,38 @@
+{
+  "tunnel_hard": {
+    "baseline": {
+      "scenario": "tunnel_hard",
+      "label_ko": "지하 터널 HARD (7~10개 교대 봉쇄)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 0,
+      "success_rate_pct": 0.0,
+      "arrival_passes": 5,
+      "arrival_success_rate_pct": 50.0,
+      "collision_trials": 10,
+      "mean_error_cm_all": 128.87,
+      "mean_error_cm_pass": null,
+      "mean_time_s_all": 173.41,
+      "mean_time_s_pass": null,
+      "mean_ret_path_m_pass": null,
+      "mean_explored_m": 17.16
+    },
+    "proposed": {
+      "scenario": "tunnel_hard",
+      "label_ko": "지하 터널 HARD (7~10개 교대 봉쇄)",
+      "strategy": "proposed_rl",
+      "trials": 10,
+      "passes": 10,
+      "success_rate_pct": 100.0,
+      "arrival_passes": 10,
+      "arrival_success_rate_pct": 100.0,
+      "collision_trials": 0,
+      "mean_error_cm_all": 8.22,
+      "mean_error_cm_pass": 8.22,
+      "mean_time_s_all": 114.06,
+      "mean_time_s_pass": 114.06,
+      "mean_ret_path_m_pass": 281.76,
+      "mean_explored_m": 17.01
+    }
+  }
+}

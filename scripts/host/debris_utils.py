@@ -150,25 +150,27 @@ def delete_debris_entities(
 
     env = os.environ.copy()
     env.setdefault("ROS_LOCALHOST_ONLY", "1")
-    procs = []
-    for name in targets:
-        cmd = (
-            "source /opt/ros/humble/setup.bash && "
-            f"timeout -k 1 3 ros2 service call /delete_entity gazebo_msgs/srv/DeleteEntity \"{{name: '{name}'}}\""
-        )
-        p = subprocess.Popen(
-            ["bash", "-c", cmd],
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            preexec_fn=os.setsid,
-        )
-        procs.append(p)
+    batch_size = 3 if wait else len(targets)
+    for idx in range(0, len(targets), max(1, batch_size)):
+        procs = []
+        for name in targets[idx : idx + max(1, batch_size)]:
+            cmd = (
+                "source /opt/ros/humble/setup.bash && "
+                f"timeout -k 1 3 ros2 service call /delete_entity gazebo_msgs/srv/DeleteEntity \"{{name: '{name}'}}\""
+            )
+            p = subprocess.Popen(
+                ["bash", "-c", cmd],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                preexec_fn=os.setsid,
+            )
+            procs.append(p)
 
-    if wait:
-        for p in procs:
-            try:
-                p.wait(timeout=4.0)
-            except subprocess.TimeoutExpired:
-                _kill_proc_group(p)
-                p.wait()
+        if wait:
+            for p in procs:
+                try:
+                    p.wait(timeout=4.0)
+                except subprocess.TimeoutExpired:
+                    _kill_proc_group(p)
+                    p.wait()

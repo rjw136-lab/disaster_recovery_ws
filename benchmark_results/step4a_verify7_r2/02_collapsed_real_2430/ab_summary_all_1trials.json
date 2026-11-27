@@ -1,0 +1,38 @@
+{
+  "collapsed": {
+    "baseline": {
+      "scenario": "collapsed",
+      "label_ko": "붕괴 건물 (기본 재난환경)",
+      "strategy": "baseline",
+      "trials": 0,
+      "passes": 0,
+      "success_rate_pct": 0.0,
+      "arrival_passes": 0,
+      "arrival_success_rate_pct": 0.0,
+      "collision_trials": 0,
+      "mean_error_cm_all": NaN,
+      "mean_error_cm_pass": null,
+      "mean_time_s_all": NaN,
+      "mean_time_s_pass": null,
+      "mean_ret_path_m_pass": null,
+      "mean_explored_m": NaN
+    },
+    "proposed": {
+      "scenario": "collapsed",
+      "label_ko": "붕괴 건물 (기본 재난환경)",
+      "strategy": "phase4_real",
+      "trials": 1,
+      "passes": 1,
+      "success_rate_pct": 100.0,
+      "arrival_passes": 1,
+      "arrival_success_rate_pct": 100.0,
+      "collision_trials": 0,
+      "mean_error_cm_all": 8.79,
+      "mean_error_cm_pass": 8.79,
+      "mean_time_s_all": 100.6,
+      "mean_time_s_pass": 100.6,
+      "mean_ret_path_m_pass": 16.74,
+      "mean_explored_m": 17.81
+    }
+  }
+}

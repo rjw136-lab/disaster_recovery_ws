@@ -119,12 +119,24 @@ def transform_scan_to_base_footprint(
         ys = pts[:, 1]
         finite = np.isfinite(xs) & np.isfinite(ys)
         r2 = xs * xs + ys * ys
-        valid = finite & (r2 >= min_range * min_range) & (r2 <= max_range * max_range)
+        r_min_f = float(min_range)
+        r_max_f = float(max_range)
+        valid = finite & (r2 > 1e-12) & (r2 <= r_max_f * r_max_f)
         if not np.any(valid):
             return np.empty((0, 2), dtype=np.float64)
-        out = np.empty((int(np.count_nonzero(valid)), 2), dtype=np.float64)
-        out[:, 0] = xs[valid] + float(lidar_offset_x)
-        out[:, 1] = ys[valid] + float(lidar_offset_y)
+        xv = xs[valid]
+        yv = ys[valid]
+        r2v = r2[valid]
+        ultra = r2v < (r_min_f * r_min_f)
+        if np.any(ultra):
+            scale = r_min_f / np.sqrt(r2v[ultra])
+            xv = xv.copy()
+            yv = yv.copy()
+            xv[ultra] *= scale
+            yv[ultra] *= scale
+        out = np.empty((xv.shape[0], 2), dtype=np.float64)
+        out[:, 0] = xv + float(lidar_offset_x)
+        out[:, 1] = yv + float(lidar_offset_y)
         return out
 
     if scan_ranges is None:
@@ -134,7 +146,9 @@ def transform_scan_to_base_footprint(
     if n == 0:
         return np.empty((0, 2), dtype=np.float64)
 
-    valid = np.isfinite(r) & (r >= float(min_range)) & (r <= float(max_range))
+    r_min_f = float(min_range)
+    r_max_f = float(max_range)
+    valid = np.isfinite(r) & (r > 0.0) & (r <= r_max_f)
     if not np.any(valid):
         return np.empty((0, 2), dtype=np.float64)
 
@@ -148,7 +162,7 @@ def transform_scan_to_base_footprint(
         c_arr = np.cos(angs)
         s_arr = np.sin(angs)
 
-    rv = r[valid]
+    rv = np.maximum(r[valid], r_min_f)
     out = np.empty((rv.shape[0], 2), dtype=np.float64)
     out[:, 0] = rv * c_arr + float(lidar_offset_x)
     out[:, 1] = rv * s_arr + float(lidar_offset_y)
@@ -573,6 +587,7 @@ class DiscreteSoftCBFShield:
         w_w: float = DEFAULT_W_W,
         slip_margin_mps: float = DEFAULT_SLIP_MARGIN_MPS,
         a_o_max_dynamic: float = DEFAULT_A_O_MAX_DYNAMIC,
+        dynamic_graze_buffer_m: float = 0.06,
         lidar_voxel_m: float = DEFAULT_LIDAR_VOXEL_M,
         lidar_max_points: int = DEFAULT_LIDAR_MAX_POINTS,
         lidar_min_range_m: float = DEFAULT_LIDAR_MIN_RANGE_M,
@@ -582,6 +597,11 @@ class DiscreteSoftCBFShield:
         max_pdas_iters: int = 25,
         kkt_tol: float = 1e-9,
         chatter_deadband_mps: float = 0.01,
+        rate_penalty_v: float = 0.25,
+        rate_penalty_w: float = 0.01,
+        tangential_steer_gain: float = 0.55,
+        reverse_hysteresis_ticks: int = 1,
+        rear_reverse_block_m: float = 0.165,
     ) -> None:
         self.l_f = float(l_f)
         self.l_r = float(l_r)
@@ -601,6 +621,10 @@ class DiscreteSoftCBFShield:
         self.w_max = float(w_max)
         self._u_lo = np.array([self.v_min, -self.w_max], dtype=np.float64)
         self._u_hi = np.array([self.v_max, self.w_max], dtype=np.float64)
+        self._u_lo_buf = self._u_lo.copy()
+        self._u_hi_buf = self._u_hi.copy()
+        self._u_lo_zero = np.array([0.0, -self.w_max], dtype=np.float64)
+        self._u_nom_buf = np.zeros(2, dtype=np.float64)
 
         self.gamma_dynamic = float(gamma_dynamic)
         self.gamma_static = float(gamma_static)
@@ -617,6 +641,7 @@ class DiscreteSoftCBFShield:
         self.w_w = float(w_w)
         self.slip_margin_mps = float(slip_margin_mps)
         self.a_o_max_dynamic = float(a_o_max_dynamic)
+        self.dynamic_graze_buffer_m = float(dynamic_graze_buffer_m)
 
         self.lidar_voxel_m = float(lidar_voxel_m)
         self.lidar_max_points = int(lidar_max_points)
@@ -627,12 +652,20 @@ class DiscreteSoftCBFShield:
         self.max_pdas_iters = int(max_pdas_iters)
         self.kkt_tol = float(kkt_tol)
         self.chatter_deadband_mps = float(chatter_deadband_mps)
+        self.rate_penalty_v = max(0.0, float(rate_penalty_v))
+        self.rate_penalty_w = max(0.0, float(rate_penalty_w))
+        self.tangential_steer_gain = max(0.0, float(tangential_steer_gain))
+        self.reverse_hysteresis_ticks = max(0, int(reverse_hysteresis_ticks))
+        self.rear_reverse_block_m = max(0.0, float(rear_reverse_block_m))
 
-        # Cached trig LUT and LDS-01 (<0.12 m -> inf) near-ray latch buffer
+        # Cached trig LUT and LDS-01 (<0.12 m -> inf/0/ultra-close) near-ray latch buffer
         self._lut_key: Optional[Tuple[int, float, float]] = None
         self._cos_lut: Optional[np.ndarray] = None
         self._sin_lut: Optional[np.ndarray] = None
         self._near_ray_ttl: Optional[np.ndarray] = None
+        self._near_ray_arm_x: Optional[np.ndarray] = None
+        self._near_ray_arm_y: Optional[np.ndarray] = None
+        self._near_ray_arm_th: Optional[np.ndarray] = None
 
         # Episode telemetry counters (chattering, intervention, timing)
         self.reset()
@@ -650,7 +683,16 @@ class DiscreteSoftCBFShield:
         self._prev_w: Optional[float] = None
         self._prev_nonzero_v_sign: int = 0
         self._prev_moving_fwd: Optional[bool] = None
+        self._rev_hyst_ticks: int = 0
+        self._last_tan_sign: float = 0.0
+        self._last_rear_min_m: float = math.inf
+        self._last_dyn_threat_ycpa: Optional[float] = None
+        self._last_has_dyn: bool = False
+        self._last_dyn_block_reverse: bool = False
         self._near_ray_ttl = None
+        self._near_ray_arm_x = None
+        self._near_ray_arm_y = None
+        self._near_ray_arm_th = None
         self.sum_abs_dv = 0.0
         self.sum_abs_dw = 0.0
         self.sum_intervention_norm = 0.0
@@ -705,37 +747,94 @@ class DiscreteSoftCBFShield:
         safe_escape_wp: Optional[Tuple[float, float]],
     ) -> Optional[Tuple[float, float]]:
         """
-        Select the most recent LIFO waypoint outside all violated Ch2 gas zones.
-        Falls back to the waypoint with maximum clearance if all stack entries lie inside.
+        Select the most recent LIFO waypoint outside all violated Ch2 gas zones whose
+        robot->waypoint segment neither heads into nor cuts a chord through any violated
+        gas zone. Falls back to a radial outward escape target (never a chord-cutting WP)
+        if no safe non-chord LIFO waypoint exists.
         """
         if safe_escape_wp is not None:
             return float(safe_escape_wp[0]), float(safe_escape_wp[1])
-        if not lifo_waypoints:
-            return None
 
-        best_wp: Optional[Tuple[float, float]] = None
-        best_min_clr = -math.inf
-
-        for wp in reversed(lifo_waypoints):
-            if hasattr(wp, "x") and hasattr(wp, "y"):
-                wx, wy = float(wp.x), float(wp.y)
-            else:
-                wx, wy = float(wp[0]), float(wp[1])
-
-            # Skip waypoints essentially colocated with current contaminated robot pose
-            min_clr = math.inf
+        def _is_segment_safe(wx: float, wy: float) -> bool:
+            vx = wx - rx
+            vy = wy - ry
+            seg_len = math.hypot(vx, vy)
+            if seg_len <= 0.05:
+                return False
+            ux = vx / seg_len
+            uy = vy / seg_len
             for hx, hy, hr in violated_ch2_world:
-                r_safe_h = self.r_circle + hr + self.semantic_margin
-                clr = math.hypot(wx - hx, wy - hy) - r_safe_h
-                if clr < min_clr:
-                    min_clr = clr
-            if min_clr > 0.0 and math.hypot(wx - rx, wy - ry) > 0.05:
-                return wx, wy
-            if min_clr > best_min_clr:
-                best_min_clr = min_clr
-                best_wp = (wx, wy)
+                dx_h = hx - rx
+                dy_h = hy - ry
+                dist_r = math.hypot(dx_h, dy_h)
+                if dist_r <= 0.12:
+                    # Robot is essentially at gas center (local MQ-2 trigger): any direction moves outward
+                    continue
+                t_proj = dx_h * ux + dy_h * uy
+                cos_to_center = t_proj / dist_r
+                # Reject waypoints directed toward the gas center
+                if cos_to_center > 0.20:
+                    return False
+                if t_proj > 0.0:
+                    t_clamped = min(seg_len, t_proj)
+                    d_seg_min = math.hypot((rx + t_clamped * ux) - hx, (ry + t_clamped * uy) - hy)
+                    if d_seg_min < min(dist_r - 0.02, hr):
+                        return False
+            return True
 
-        return best_wp
+        best_safe_wp: Optional[Tuple[float, float]] = None
+        best_safe_clr = -math.inf
+        best_any_wp: Optional[Tuple[float, float]] = None
+        best_any_clr = -math.inf
+
+        if lifo_waypoints:
+            for wp in reversed(lifo_waypoints):
+                if hasattr(wp, "x") and hasattr(wp, "y"):
+                    wx, wy = float(wp.x), float(wp.y)
+                else:
+                    wx, wy = float(wp[0]), float(wp[1])
+
+                dist_wp = math.hypot(wx - rx, wy - ry)
+                min_clr = math.inf
+                for hx, hy, hr in violated_ch2_world:
+                    r_safe_h = self.r_circle + hr + self.semantic_margin
+                    clr = math.hypot(wx - hx, wy - hy) - r_safe_h
+                    if clr < min_clr:
+                        min_clr = clr
+
+                seg_ok = _is_segment_safe(wx, wy)
+                if min_clr > 0.0 and dist_wp > 0.05 and seg_ok:
+                    return wx, wy
+                if seg_ok and dist_wp > 0.05 and min_clr > best_safe_clr:
+                    best_safe_clr = min_clr
+                    best_safe_wp = (wx, wy)
+                if min_clr > best_any_clr:
+                    best_any_clr = min_clr
+                    best_any_wp = (wx, wy)
+
+        if best_safe_wp is not None and best_safe_clr > -0.10:
+            return best_safe_wp
+
+        # Radial outward fallback away from violated gas zone center(s) (never cuts a chord)
+        out_x = 0.0
+        out_y = 0.0
+        max_r_safe = 0.0
+        for hx, hy, hr in violated_ch2_world:
+            dx_o = rx - hx
+            dy_o = ry - hy
+            d_o = math.hypot(dx_o, dy_o)
+            r_safe_h = self.r_circle + hr + self.semantic_margin
+            if r_safe_h > max_r_safe:
+                max_r_safe = r_safe_h
+            if d_o > 1e-4:
+                out_x += dx_o / d_o
+                out_y += dy_o / d_o
+        out_norm = math.hypot(out_x, out_y)
+        if out_norm > 1e-4:
+            step_d = max(0.35, max_r_safe + 0.25)
+            return (rx + (out_x / out_norm) * step_d, ry + (out_y / out_norm) * step_d)
+
+        return best_any_wp
 
     def _compute_mq2_escape_nominal(
         self,
@@ -845,30 +944,69 @@ class DiscreteSoftCBFShield:
                 self.v_stall_toggles += 1
                 self._prev_moving_fwd = True
 
-    def _apply_near_ray_latch(self, ranges: np.ndarray) -> np.ndarray:
+    def _apply_near_ray_latch(
+        self,
+        ranges: np.ndarray,
+        rx: float = 0.0,
+        ry: float = 0.0,
+        rth: float = 0.0,
+    ) -> np.ndarray:
         """
-        Guard against LDS-01 minimum-range blind spot (< 0.12 m returning inf/nan/0):
-        when a ray recently observed a close obstacle (< 0.185 m) and drops to non-finite
-        or < min_range, latch it at lidar_min_range_m for up to 6 ticks so the obstacle
-        never vanishes from the CBF shield.
+        Guard against LDS-01 minimum-range blind spot (< 0.12 m returning 0/inf/nan or
+        positive ultra-close values 0 < r < min_range):
+          - Positive ultra-close returns (0 < r < min_range) are distinguished from 0/inf/nan
+            dropouts, clamped to lidar_min_range_m, and arm/refresh the latch TTL.
+          - Close valid hits (min_range <= r < 0.185 m) arm/refresh TTL and store armed pose.
+          - Dropouts (<= 0 / inf / nan) on latched rays stay clamped at lidar_min_range_m;
+            TTL only decrements once the robot moves/rotates away from the armed pose
+            (>= 0.03 m or >= 0.08 rad) so prolonged wall-pressed stalls never lose the barrier.
         """
         n = ranges.shape[0]
         if self._near_ray_ttl is None or self._near_ray_ttl.shape[0] != n:
             self._near_ray_ttl = np.zeros(n, dtype=np.int16)
+            self._near_ray_arm_x = np.zeros(n, dtype=np.float64)
+            self._near_ray_arm_y = np.zeros(n, dtype=np.float64)
+            self._near_ray_arm_th = np.zeros(n, dtype=np.float64)
         ttl = self._near_ray_ttl
+        arm_x = self._near_ray_arm_x
+        arm_y = self._near_ray_arm_y
+        arm_th = self._near_ray_arm_th
 
         r_min = self.lidar_min_range_m
-        finite_ge = np.isfinite(ranges) & (ranges >= r_min)
-        close_hit = finite_ge & (ranges < 0.185)
-        clear_hit = finite_ge & (ranges >= 0.185)
-        dropped = (~finite_ge) & (ttl > 0)
+        rx_f = float(rx)
+        ry_f = float(ry)
+        rth_f = float(rth)
 
-        ttl[close_hit] = 6
+        finite_pos = np.isfinite(ranges) & (ranges > 0.0)
+        ultra_close = finite_pos & (ranges < r_min)
+        close_hit = finite_pos & (ranges >= r_min) & (ranges < 0.185)
+        clear_hit = finite_pos & (ranges >= 0.185)
+        arm_mask = ultra_close | close_hit
+        dropped = (~finite_pos) & (ttl > 0)
+
+        if np.any(arm_mask):
+            ttl[arm_mask] = 6
+            arm_x[arm_mask] = rx_f
+            arm_y[arm_mask] = ry_f
+            arm_th[arm_mask] = rth_f
         ttl[clear_hit] = 0
-        if np.any(dropped):
+
+        has_ultra = bool(np.any(ultra_close))
+        has_drop = bool(np.any(dropped))
+        if has_ultra or has_drop:
             out = ranges.copy()
-            out[dropped] = r_min
-            ttl[dropped] -= 1
+            if has_ultra:
+                out[ultra_close] = r_min
+            if has_drop:
+                out[dropped] = r_min
+                drop_idx = np.flatnonzero(dropped)
+                dx = rx_f - arm_x[drop_idx]
+                dy = ry_f - arm_y[drop_idx]
+                d2 = dx * dx + dy * dy
+                dth = np.abs(((rth_f - arm_th[drop_idx] + math.pi) % (2.0 * math.pi)) - math.pi)
+                moved_away = (d2 >= 0.03 * 0.03) | (dth >= 0.08)
+                if np.any(moved_away):
+                    ttl[drop_idx[moved_away]] -= 1
             return out
         return ranges
 
@@ -918,7 +1056,7 @@ class DiscreteSoftCBFShield:
             cos_lut, sin_lut = self._get_trig_lut(len(scan_ranges), angle_min, angle_increment)
             if use_near_latch:
                 r_arr = scan_ranges if (isinstance(scan_ranges, np.ndarray) and scan_ranges.dtype == np.float64) else np.asarray(scan_ranges, dtype=np.float64)
-                ranges_use = self._apply_near_ray_latch(r_arr)
+                ranges_use = self._apply_near_ray_latch(r_arr, rx=rx_f, ry=ry_f, rth=float(rth))
 
         pts_body = transform_scan_to_base_footprint(
             scan_ranges=ranges_use,
@@ -959,6 +1097,7 @@ class DiscreteSoftCBFShield:
             max_points=self.lidar_max_points,
             max_dist_m=self.lidar_max_range_m,
         )
+        self._last_rear_min_m = math.inf
 
         # Collect non-LiDAR extra obstacles (typically 0..6 items) into compact tuples first
         aodt_static = compute_alpha(self.gamma_static, dt_use) / dt_use
@@ -979,15 +1118,17 @@ class DiscreteSoftCBFShield:
                 if math.hypot(xb, yb) - r_safe <= 1.50:
                     extra_obs.append((xb, yb, 0.0, 0.0, r_safe, aodt_static, self.p_delta_static, 0.0, 0))
 
-        # 3. Ch2 gas/survivor zones + MQ-2 inside (h < 0) LIFO escape exception branch
+        # 3. Ch2 gas/survivor zones + MQ-2 inside (deep interior / local MQ-2) LIFO escape branch
         mq2_escape_active = False
         mq2_escape_target: Optional[Tuple[float, float]] = None
         min_h_gas = math.inf
         violated_ch2_world: List[Tuple[float, float, float]] = []
 
         if ch2_hazards:
-            for hx, hy, hrad in ch2_hazards:
-                hx_f, hy_f, hr_f = float(hx), float(hy), float(hrad)
+            for item in ch2_hazards:
+                hx_f, hy_f, hr_f = float(item[0]), float(item[1]), float(item[2])
+                allow_mq2 = bool(item[3]) if len(item) >= 4 else True
+                is_local_mq2 = bool(item[4]) if len(item) >= 5 else False
                 dxw = hx_f - rx_f
                 dyw = hy_f - ry_f
                 xb = cos_th * dxw + sin_th * dyw
@@ -999,9 +1140,22 @@ class DiscreteSoftCBFShield:
                 if h_min_i < min_h_gas:
                     min_h_gas = h_min_i
 
-                if self.enable_mq2_lifo_escape and h_min_i < 0.0:
+                d_center = math.hypot(xb, yb)
+                # Trigger MQ-2 LIFO escape ONLY for GAS_HAZARD entries when either:
+                #   (a) locally triggered by onboard MQ-2 while robot center is inside hr (d < hr), OR
+                #   (b) robot center is deep inside the actual gas radius hr (singularity risk zone).
+                # Outer padding grazing (hr <= d < r_safe) and non-gas classes (person/AUDIO_DISTRESS)
+                # MUST retain standard Ch2 CBF repulsion and never invoke mq2_escape.
+                deep_gas_r = min(0.75 * hr_f, max(0.50 * hr_f, hr_f - self.r_circle - self.semantic_margin))
+                in_mq2_escape_zone = (
+                    self.enable_mq2_lifo_escape
+                    and allow_mq2
+                    and (h_min_i < 0.0)
+                    and ((is_local_mq2 and d_center < hr_f) or (d_center < deep_gas_r))
+                )
+                if in_mq2_escape_zone:
                     violated_ch2_world.append((hx_f, hy_f, hr_f))
-                elif math.hypot(xb, yb) - r_safe <= 1.50:
+                elif d_center - r_safe <= 1.50:
                     extra_obs.append((xb, yb, 0.0, 0.0, r_safe, aodt_gas, self.p_delta_gas, 0.0, 2))
 
             if violated_ch2_world:
@@ -1016,7 +1170,13 @@ class DiscreteSoftCBFShield:
 
         # 4. Stage 1 confirmed dynamic obstacles (world -> body frame)
         has_dyn = False
+        best_dyn_d = 1.25
+        best_dyn_ycpa: Optional[float] = None
+        dyn_block_reverse = False
+        dyn_rear_aw_zero_flags: List[bool] = []
+        dyn_cpa_av_override: List[Optional[Tuple[float, float]]] = []
         if dynamic_obstacles:
+            l_f_val = self.l_f
             for dob in dynamic_obstacles:
                 if hasattr(dob, "is_confirmed") and not bool(dob.is_confirmed):
                     continue
@@ -1032,12 +1192,43 @@ class DiscreteSoftCBFShield:
                     sc_v = 1.0 / spd_v
                     vxb *= sc_v
                     vyb *= sc_v
+                    spd_v = 1.0
                 sigma_pad = min(0.14, self.dynamic_cov_sigma_mult * math.sqrt(max(0.0, lam_max)))
                 m_pad = self.dynamic_margin_base + sigma_pad
                 r_safe = self.r_circle + rad + m_pad
-                if math.hypot(xb, yb) - r_safe <= 2.20:
+                d_o = math.hypot(xb, yb)
+                if d_o - r_safe <= 2.20:
                     extra_obs.append((xb, yb, vxb, vyb, r_safe, aodt_dyn, self.p_delta_dynamic, self.a_o_max_dynamic, 1))
                     has_dyn = True
+                    front_app_i = (xb > l_f_val) and (((xb - l_f_val) * vxb + yb * vyb) < 0.0)
+                    dot_app = xb * vxb + yb * vyb
+                    lat_exit_i = False
+                    cpa_ov_i: Optional[Tuple[float, float]] = None
+                    if (d_o <= r_safe + 1.20) and (spd_v > 0.05) and (dot_app < 0.0):
+                        inv_spd = 1.0 / spd_v
+                        ux_d = vxb * inv_spd
+                        uy_d = vyb * inv_spd
+                        d_lat_d = xb * uy_d - yb * ux_d
+                        abs_d_lat_d = abs(d_lat_d)
+                        if (abs_d_lat_d > 0.02) and (abs_d_lat_d < r_safe + 0.25):
+                            exit_align_i = (d_lat_d * (-uy_d)) / abs_d_lat_d
+                            if exit_align_i > 0.20:
+                                lat_exit_i = True
+                                dyn_block_reverse = True
+                                if exit_align_i > 0.25:
+                                    t_cpa0 = min(0.6, max(0.0, -dot_app / max(spd_v * spd_v, 1e-4)))
+                                    av_cpa_i = -2.0 * t_cpa0 * d_lat_d * (-uy_d)
+                                    cpa_ov_i = (av_cpa_i, r_safe - 0.03)
+                    dyn_rear_aw_zero_flags.append(front_app_i or lat_exit_i)
+                    dyn_cpa_av_override.append(cpa_ov_i)
+                    if d_o < best_dyn_d and (dot_app < 0.0 or (d_o - r_safe) < 0.20):
+                        rvx = vxb - 0.12
+                        t_cpa = max(0.0, min(1.5, -(xb * rvx + yb * vyb) / max(rvx * rvx + vyb * vyb, 1e-6)))
+                        best_dyn_d = d_o
+                        best_dyn_ycpa = yb + vyb * t_cpa
+        self._last_dyn_threat_ycpa = best_dyn_ycpa
+        self._last_has_dyn = has_dyn
+        self._last_dyn_block_reverse = dyn_block_reverse
 
         n_stat = static_pts.shape[0]
         n_ext = len(extra_obs)
@@ -1117,17 +1308,45 @@ class DiscreteSoftCBFShield:
             base_rate = dv_slip_2 + (vw_term + abs(s_k) * w2_term) * dt_use
             if has_dyn:
                 eps_dt_slip = d * (base_rate + amax_arr * dt_use)
+                # Grazing guard: d*(...) vanishes as d -> 0, so enforce an absolute floor
+                # on dynamic rows only (static rows and QP dimensions are unchanged).
+                if dyn_start < n_obs:
+                    v_rel_cap = (
+                        self.v_max + abs(s_k) * self.w_max + self.a_o_max_dynamic * dt_use
+                    )
+                    eps_dt_slip[dyn_start:] = np.maximum(
+                        eps_dt_slip[dyn_start:],
+                        v_rel_cap * dt_use + self.dynamic_graze_buffer_m,
+                    )
                 b_vec[sl] = aodt_arr * h - 2.0 * (dx * vxb_arr + neg_yb * vyb_arr) - eps_dt_slip
             else:
                 b_vec[sl] = aodt_arr * h - d * base_rate
             A[sl, 0] = -2.0 * dx
             A[sl, 1] = (-2.0 * s_k) * neg_yb
+            if has_dyn and dyn_start < n_obs:
+                row_base = k_idx * n_obs + dyn_start
+                for i_d, cpa_ov in enumerate(dyn_cpa_av_override):
+                    if cpa_ov is not None and d[dyn_start + i_d] > cpa_ov[1]:
+                        A[row_base + i_d, 0] = cpa_ov[0]
+                if k_idx == 1:
+                    # Front-approaching or laterally-exited dynamic obstacles:
+                    # project rear-circle a_w -> 0 so rear leverage (-l_r) never counter-steers
+                    # the nose into the obstacle against the front circle (+l_f).
+                    for i_d, zero_aw in enumerate(dyn_rear_aw_zero_flags):
+                        if zero_aw:
+                            A[row_base + i_d, 1] = 0.0
             p_vec[sl] = p_front if k_idx == 0 else pdel_arr
 
             if stat_end > 0:
                 hs_min = float(h[:stat_end].min())
                 if hs_min < min_h_static:
                     min_h_static = hs_min
+                if use_near_latch and k_idx == 1 and n_stat > 0 and self.v_min < 0.0:
+                    # Rear static points directly behind chassis rear circle (-l_r): dx > 0 and |y| <= 0.105m
+                    dx_s = dx[:n_stat]
+                    rear_m = (dx_s > 0.0) & (np.abs(yb_arr[:n_stat]) <= 0.105)
+                    if np.any(rear_m):
+                        self._last_rear_min_m = float(d[:n_stat][rear_m].min()) + self.l_r + self.lidar_offset_x
             if has_dyn and dyn_start < n_obs:
                 hd_min = float(h[dyn_start:].min())
                 if hd_min < min_h_dynamic:
@@ -1163,6 +1382,8 @@ class DiscreteSoftCBFShield:
         lifo_waypoints: Optional[Sequence[Any]] = None,
         safe_escape_wp: Optional[Tuple[float, float]] = None,
         update_stats: bool = True,
+        prefer_no_reverse: bool = False,
+        suppress_tangential_steer: bool = False,
     ) -> CBFResult:
         """
         Filter nominal command (v_nom, w_nom) through the 2-Circle Soft-CBF-QP safety shield.
@@ -1206,23 +1427,173 @@ class DiscreteSoftCBFShield:
                 target_xy=mq2_escape_target,
             )
 
-        u_nom_arr = np.array([v_eff, w_eff], dtype=np.float64)
-        u_opt, iters, kkt_res, max_slack, sum_slack_sq, n_act = solve_soft_cbf_qp_pdas(
-            u_nom=u_nom_arr,
-            A=A,
-            b=b_vec,
-            p_delta=p_vec,
-            w_v=self.w_v,
-            w_w=self.w_w,
-            u_lo=self._u_lo,
-            u_hi=self._u_hi,
-            max_iters=self.max_pdas_iters,
-            kkt_tol=self.kkt_tol,
+        u_nom_buf = self._u_nom_buf
+        u_nom_buf[0] = v_eff
+        u_nom_buf[1] = w_eff
+
+        # Block unnecessary reverse during verified crossing HOLD/DASH when barriers are not breached
+        # (full reverse remains available whenever min_h_dynamic < 0 or min_h_static < -0.002).
+        block_rev_step = (
+            self._last_dyn_block_reverse
+            or (
+                bool(prefer_no_reverse)
+                and (min_h_dynamic >= 0.0)
+                and (min_h_static >= -0.002)
+            )
         )
+        u_lo_step = self._u_lo_zero if (block_rev_step and self.v_min < 0.0) else self._u_lo
+        v_min_step = 0.0 if (block_rev_step and self.v_min < 0.0) else self.v_min
+
+        if not update_stats:
+            u_opt, iters, kkt_res, max_slack, sum_slack_sq, n_act = solve_soft_cbf_qp_pdas(
+                u_nom=u_nom_buf,
+                A=A,
+                b=b_vec,
+                p_delta=p_vec,
+                w_v=self.w_v,
+                w_w=self.w_w,
+                u_lo=u_lo_step,
+                u_hi=self._u_hi,
+                max_iters=self.max_pdas_iters,
+                kkt_tol=self.kkt_tol,
+            )
+            solve_ms = (time.perf_counter() - t0) * 1000.0
+            v_out = float(u_opt[0])
+            w_out = float(u_opt[1])
+            interv_norm = math.hypot(v_out - float(v_nom), w_out - float(w_nom))
+            intervened = (interv_norm > 1e-4) or mq2_escape_active
+            return CBFResult(
+                v=v_out,
+                w=w_out,
+                v_nom=v_eff,
+                w_nom=w_eff,
+                intervened=intervened,
+                intervention_norm=interv_norm,
+                num_constraints=int(A.shape[0]),
+                num_active_constraints=n_act,
+                max_slack=max_slack,
+                sum_slack_sq=sum_slack_sq,
+                min_h_static=min_h_static,
+                min_h_dynamic=min_h_dynamic,
+                min_h_gas=min_h_gas,
+                pdas_iters=iters,
+                kkt_residual=kkt_res,
+                mq2_escape_active=mq2_escape_active,
+                mq2_escape_target=mq2_escape_target,
+                solve_time_ms=solve_ms,
+            )
+
+        u_lo_use = u_lo_step
+        u_hi_use = self._u_hi
+        wv_use = self.w_v
+        ww_use = self.w_w
+
+        # Fast-path check: keep exact zero intervention inside safe interior when not in hysteresis
+        has_nom_viol = False
+        if A.shape[0] > 0:
+            v_clip = self.v_max if v_eff > self.v_max else (v_min_step if v_eff < v_min_step else v_eff)
+            w_clip = self.w_max if w_eff > self.w_max else (-self.w_max if w_eff < -self.w_max else w_eff)
+            u_nom_buf[0] = v_clip
+            u_nom_buf[1] = w_clip
+            has_nom_viol = bool((A @ u_nom_buf > b_vec).any())
+            u_nom_buf[0] = v_eff
+            u_nom_buf[1] = w_eff
+
+        hyst_active = False
+        if self._rev_hyst_ticks > 0:
+            if min_h_dynamic >= 0.015 and min_h_static >= 0.005:
+                self._rev_hyst_ticks = 0
+            else:
+                hyst_active = True
+
+        if has_nom_viol or hyst_active:
+            v_lo_eff = v_min_step
+            v_hi_eff = self.v_max
+
+            # 1) Block backing into a close rear static wall/corner (cached in build_constraints)
+            if v_lo_eff < 0.0 and self.rear_reverse_block_m > 0.0 and self._last_rear_min_m < self.rear_reverse_block_m:
+                v_lo_eff = 0.0
+
+            # 2) Tangential steering preference for nearby/approaching dynamic obstacles (cached in build_constraints)
+            best_ycpa = self._last_dyn_threat_ycpa
+            if (
+                (not suppress_tangential_steer)
+                and self.tangential_steer_gain > 0.0
+                and best_ycpa is not None
+                and not mq2_escape_active
+            ):
+                if abs(best_ycpa) < 0.06 and self._last_tan_sign != 0.0:
+                    tan_sign = self._last_tan_sign
+                else:
+                    tan_sign = -1.0 if best_ycpa >= 0.0 else 1.0
+                    self._last_tan_sign = tan_sign
+                w_tan = tan_sign * min(self.w_max, self.tangential_steer_gain)
+                w_eff = max(-self.w_max, min(self.w_max, 0.35 * w_eff + 0.65 * w_tan))
+
+            # 3) Forward-reverse hysteresis: hold v <= 0 for 1 tick while barrier is still deeply active
+            if hyst_active and v_hi_eff > 0.0:
+                v_hi_eff = 0.0
+
+            # 4) Lightweight analytic velocity-rate penalty (only when dynamic obstacles are active;
+            #    keep static wall braking/reversing crisp in static scenarios)
+            if self._last_has_dyn and self._prev_v is not None and self._prev_w is not None:
+                lv = self.rate_penalty_v
+                lw = self.rate_penalty_w
+                if lv > 0.0 or lw > 0.0:
+                    wv_use = self.w_v + lv
+                    ww_use = self.w_w + lw
+                    u_nom_buf[0] = (self.w_v * v_eff + lv * self._prev_v) / wv_use
+                    u_nom_buf[1] = (self.w_w * w_eff + lw * self._prev_w) / ww_use
+                else:
+                    u_nom_buf[0] = v_eff
+                    u_nom_buf[1] = w_eff
+            else:
+                u_nom_buf[0] = v_eff
+                u_nom_buf[1] = w_eff
+
+            u_lo_use = self._u_lo_buf
+            u_lo_use[0] = v_lo_eff
+            u_lo_use[1] = -self.w_max
+            u_hi_use = self._u_hi_buf
+            u_hi_use[0] = v_hi_eff
+            u_hi_use[1] = self.w_max
+
+            u_opt, iters, kkt_res, max_slack, sum_slack_sq, n_act = solve_soft_cbf_qp_pdas(
+                u_nom=u_nom_buf,
+                A=A,
+                b=b_vec,
+                p_delta=p_vec,
+                w_v=wv_use,
+                w_w=ww_use,
+                u_lo=u_lo_use,
+                u_hi=u_hi_use,
+                max_iters=self.max_pdas_iters,
+                kkt_tol=self.kkt_tol,
+            )
+        else:
+            u_opt, iters, kkt_res, max_slack, sum_slack_sq, n_act = solve_soft_cbf_qp_pdas(
+                u_nom=u_nom_buf,
+                A=A,
+                b=b_vec,
+                p_delta=p_vec,
+                w_v=self.w_v,
+                w_w=self.w_w,
+                u_lo=u_lo_step,
+                u_hi=self._u_hi,
+                max_iters=self.max_pdas_iters,
+                kkt_tol=self.kkt_tol,
+            )
 
         solve_ms = (time.perf_counter() - t0) * 1000.0
         v_out = float(u_opt[0])
         w_out = float(u_opt[1])
+        if update_stats:
+            if v_out < -self.chatter_deadband_mps:
+                self._rev_hyst_ticks = self.reverse_hysteresis_ticks
+            elif self._rev_hyst_ticks > 0:
+                self._rev_hyst_ticks -= 1
+            if not has_nom_viol and min_h_dynamic >= 0.15:
+                self._last_tan_sign = 0.0
         interv_norm = math.hypot(v_out - float(v_nom), w_out - float(w_nom))
         intervened = (interv_norm > 1e-4) or mq2_escape_active
 

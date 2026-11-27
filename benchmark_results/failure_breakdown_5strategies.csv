@@ -1,0 +1,76 @@
+﻿strategy,scenario,trials,succ,fail,lidar_collision,debris_collision,timeout,other_fail
+Baseline,collapsed,10,1,9,3,5,1,0
+Baseline,collapsed_heavy,10,0,10,3,7,0,0
+Baseline,tunnel,10,1,9,7,2,0,0
+Baseline,house,10,0,10,7,3,0,0
+Baseline,maze,10,0,10,9,1,0,0
+Baseline,collapsed_hard,10,0,10,6,4,0,0
+Baseline,collapsed_heavy_hard,10,0,10,2,7,1,0
+Baseline,tunnel_hard,10,0,10,5,5,0,0
+Baseline,house_hard,10,0,10,7,3,0,0
+Baseline,maze_hard,10,0,10,6,4,0,0
+Baseline,u_pocket_trap,10,0,10,2,8,0,0
+Baseline,slip_chicane,10,0,10,3,7,0,0
+Baseline,dynamic_gauntlet,10,0,10,2,8,0,0
+Baseline,dynamic_crossfire_alley,10,0,10,6,4,0,0
+Baseline,smoke_lidar_corruption,10,0,10,1,1,8,0
+Phase 2-B,collapsed,10,7,3,3,0,0,0
+Phase 2-B,collapsed_heavy,10,9,1,1,0,0,0
+Phase 2-B,tunnel,10,10,0,0,0,0,0
+Phase 2-B,house,10,4,6,6,0,0,0
+Phase 2-B,maze,10,9,1,1,0,0,0
+Phase 2-B,collapsed_hard,10,7,3,2,1,0,0
+Phase 2-B,collapsed_heavy_hard,10,3,7,2,5,0,0
+Phase 2-B,tunnel_hard,10,10,0,0,0,0,0
+Phase 2-B,house_hard,10,2,8,6,2,0,0
+Phase 2-B,maze_hard,10,10,0,0,0,0,0
+Phase 2-B,u_pocket_trap,10,10,0,0,0,0,0
+Phase 2-B,slip_chicane,10,6,4,3,1,0,0
+Phase 2-B,dynamic_gauntlet,10,4,6,6,0,0,0
+Phase 2-B,dynamic_crossfire_alley,10,0,10,10,0,0,0
+Phase 2-B,smoke_lidar_corruption,10,8,2,2,0,0,0
+Phase 3,collapsed,10,9,1,1,0,0,0
+Phase 3,collapsed_heavy,10,8,2,2,0,0,0
+Phase 3,tunnel,10,9,1,1,0,0,0
+Phase 3,house,10,4,6,5,1,0,0
+Phase 3,maze,10,10,0,0,0,0,0
+Phase 3,collapsed_hard,10,8,2,2,0,0,0
+Phase 3,collapsed_heavy_hard,10,3,7,3,4,0,0
+Phase 3,tunnel_hard,10,10,0,0,0,0,0
+Phase 3,house_hard,10,2,8,7,1,0,0
+Phase 3,maze_hard,10,10,0,0,0,0,0
+Phase 3,u_pocket_trap,10,10,0,0,0,0,0
+Phase 3,slip_chicane,10,5,5,4,1,0,0
+Phase 3,dynamic_gauntlet,10,7,3,3,0,0,0
+Phase 3,dynamic_crossfire_alley,10,0,10,10,0,0,0
+Phase 3,smoke_lidar_corruption,10,7,3,1,2,0,0
+Phase 4 (Sim),collapsed,10,10,0,0,0,0,0
+Phase 4 (Sim),collapsed_heavy,10,9,1,1,0,0,0
+Phase 4 (Sim),tunnel,10,10,0,0,0,0,0
+Phase 4 (Sim),house,10,6,4,3,0,1,0
+Phase 4 (Sim),maze,10,10,0,0,0,0,0
+Phase 4 (Sim),collapsed_hard,10,10,0,0,0,0,0
+Phase 4 (Sim),collapsed_heavy_hard,10,5,5,3,2,0,0
+Phase 4 (Sim),tunnel_hard,10,10,0,0,0,0,0
+Phase 4 (Sim),house_hard,10,5,5,4,0,1,0
+Phase 4 (Sim),maze_hard,10,10,0,0,0,0,0
+Phase 4 (Sim),u_pocket_trap,10,10,0,0,0,0,0
+Phase 4 (Sim),slip_chicane,10,6,4,2,2,0,0
+Phase 4 (Sim),dynamic_gauntlet,10,6,4,4,0,0,0
+Phase 4 (Sim),dynamic_crossfire_alley,10,0,10,10,0,0,0
+Phase 4 (Sim),smoke_lidar_corruption,10,10,0,0,0,0,0
+Phase 4 (Real),collapsed,10,10,0,0,0,0,0
+Phase 4 (Real),collapsed_heavy,10,9,1,0,1,0,0
+Phase 4 (Real),tunnel,10,10,0,0,0,0,0
+Phase 4 (Real),house,10,5,5,5,0,0,0
+Phase 4 (Real),maze,10,10,0,0,0,0,0
+Phase 4 (Real),collapsed_hard,10,9,1,1,0,0,0
+Phase 4 (Real),collapsed_heavy_hard,10,5,5,4,1,0,0
+Phase 4 (Real),tunnel_hard,10,10,0,0,0,0,0
+Phase 4 (Real),house_hard,10,6,4,2,1,1,0
+Phase 4 (Real),maze_hard,10,10,0,0,0,0,0
+Phase 4 (Real),u_pocket_trap,10,10,0,0,0,0,0
+Phase 4 (Real),slip_chicane,10,6,4,3,1,0,0
+Phase 4 (Real),dynamic_gauntlet,10,3,7,7,0,0,0
+Phase 4 (Real),dynamic_crossfire_alley,10,4,6,6,0,0,0
+Phase 4 (Real),smoke_lidar_corruption,10,10,0,0,0,0,0

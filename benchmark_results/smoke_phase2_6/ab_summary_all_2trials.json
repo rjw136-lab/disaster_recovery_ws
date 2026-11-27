@@ -1,0 +1,74 @@
+{
+  "u_pocket_trap": {
+    "baseline": {
+      "scenario": "u_pocket_trap",
+      "label_ko": "ㄷ자 막다른 함정 (후진·대우회 필수)",
+      "strategy": "baseline",
+      "trials": 0,
+      "passes": 0,
+      "success_rate_pct": 0.0,
+      "arrival_passes": 0,
+      "arrival_success_rate_pct": 0.0,
+      "collision_trials": 0,
+      "mean_error_cm_all": NaN,
+      "mean_error_cm_pass": null,
+      "mean_time_s_all": NaN,
+      "mean_time_s_pass": null,
+      "mean_ret_path_m_pass": null,
+      "mean_explored_m": NaN
+    },
+    "proposed": {
+      "scenario": "u_pocket_trap",
+      "label_ko": "ㄷ자 막다른 함정 (후진·대우회 필수)",
+      "strategy": "phase4",
+      "trials": 2,
+      "passes": 2,
+      "success_rate_pct": 100.0,
+      "arrival_passes": 2,
+      "arrival_success_rate_pct": 100.0,
+      "collision_trials": 0,
+      "mean_error_cm_all": 6.87,
+      "mean_error_cm_pass": 6.87,
+      "mean_time_s_all": 89.3,
+      "mean_time_s_pass": 89.3,
+      "mean_ret_path_m_pass": 268.15,
+      "mean_explored_m": 14.53
+    }
+  },
+  "dynamic_gauntlet": {
+    "baseline": {
+      "scenario": "dynamic_gauntlet",
+      "label_ko": "동적 장애물 교차 홀 (다중 낙석 + 회전 격벽)",
+      "strategy": "baseline",
+      "trials": 0,
+      "passes": 0,
+      "success_rate_pct": 0.0,
+      "arrival_passes": 0,
+      "arrival_success_rate_pct": 0.0,
+      "collision_trials": 0,
+      "mean_error_cm_all": NaN,
+      "mean_error_cm_pass": null,
+      "mean_time_s_all": NaN,
+      "mean_time_s_pass": null,
+      "mean_ret_path_m_pass": null,
+      "mean_explored_m": NaN
+    },
+    "proposed": {
+      "scenario": "dynamic_gauntlet",
+      "label_ko": "동적 장애물 교차 홀 (다중 낙석 + 회전 격벽)",
+      "strategy": "phase4",
+      "trials": 2,
+      "passes": 1,
+      "success_rate_pct": 50.0,
+      "arrival_passes": 2,
+      "arrival_success_rate_pct": 100.0,
+      "collision_trials": 1,
+      "mean_error_cm_all": 4.17,
+      "mean_error_cm_pass": 2.44,
+      "mean_time_s_all": 103.8,
+      "mean_time_s_pass": 125.2,
+      "mean_ret_path_m_pass": 323.66,
+      "mean_explored_m": 23.46
+    }
+  }
+}

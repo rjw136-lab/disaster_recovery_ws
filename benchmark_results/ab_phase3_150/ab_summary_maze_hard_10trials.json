@@ -1,0 +1,38 @@
+{
+  "maze_hard": {
+    "baseline": {
+      "scenario": "maze_hard",
+      "label_ko": "미로 격벽 HARD (동적 장애물 + 4~6개 낙석)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 0,
+      "success_rate_pct": 0.0,
+      "arrival_passes": 9,
+      "arrival_success_rate_pct": 90.0,
+      "collision_trials": 10,
+      "mean_error_cm_all": 22.05,
+      "mean_error_cm_pass": null,
+      "mean_time_s_all": 155.8,
+      "mean_time_s_pass": null,
+      "mean_ret_path_m_pass": null,
+      "mean_explored_m": 15.36
+    },
+    "proposed": {
+      "scenario": "maze_hard",
+      "label_ko": "미로 격벽 HARD (동적 장애물 + 4~6개 낙석)",
+      "strategy": "proposed_rl",
+      "trials": 10,
+      "passes": 10,
+      "success_rate_pct": 100.0,
+      "arrival_passes": 10,
+      "arrival_success_rate_pct": 100.0,
+      "collision_trials": 0,
+      "mean_error_cm_all": 8.13,
+      "mean_error_cm_pass": 8.13,
+      "mean_time_s_all": 17.74,
+      "mean_time_s_pass": 17.74,
+      "mean_ret_path_m_pass": 39.13,
+      "mean_explored_m": 14.82
+    }
+  }
+}

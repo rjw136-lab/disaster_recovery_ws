@@ -30,6 +30,7 @@ import numpy as np
 
 PATCH_SIZE = 12
 PATCH_SPAN_M = 1.8
+CH3_MAX_R_INFL = 0.28
 
 
 def _build_ego_grid_xy() -> Tuple[np.ndarray, np.ndarray]:
@@ -73,10 +74,509 @@ class TrackedObstacle:
     birth_x: float = 0.0
     birth_y: float = 0.0
     max_speed_seen: float = 0.0
+    max_disp_seen: float = 0.0
+    pos_history: Tuple[Tuple[float, float, float], ...] = ()
+    imm_valid: bool = False
+    imm_u_hat: Tuple[float, float] = (1.0, 0.0)
+    imm_p_c: Tuple[float, float] = (0.0, 0.0)
+    imm_amp: float = 0.0
+    imm_omega: float = 0.0
+    imm_phi: float = 0.0
+    imm_t_ref: float = 0.0
+    imm_mu_cv: float = 1.0
+    imm_mu_harm: float = 0.0
+    imm_sigma_h0: float = 0.03
+    imm_sigma_omega: float = 0.25
+    imm_harm_rmse: float = 0.0
+    imm_cv_rmse: float = 0.0
 
     @property
     def speed(self) -> float:
         return math.hypot(self.vx, self.vy)
+
+
+@dataclass
+class TrajectoryPrediction:
+    """IMM trajectory rollout result over horizon grid `taus`."""
+
+    taus: np.ndarray
+    centers: np.ndarray
+    sigmas: np.ndarray
+    u_hat: Tuple[float, float]
+    p_c: Tuple[float, float]
+    amplitude: float
+    omega: float
+    phi: float
+    sweep_start: Tuple[float, float]
+    sweep_end: Tuple[float, float]
+    mu_cv: float
+    mu_harm: float
+    is_harmonic: bool
+
+
+_IMM_W_COARSE = np.linspace(0.25, 2.20, 16, dtype=np.float64)
+_IMM_FINE_OFFSETS = np.linspace(-1.0, 1.0, 7, dtype=np.float64)
+_IMM_WARM_OFFSETS = np.linspace(-0.08, 0.08, 7, dtype=np.float64)
+
+
+def _solve_sym3x3_batch(
+    a: np.ndarray,
+    b: np.ndarray,
+    c: np.ndarray,
+    d: np.ndarray,
+    e: np.ndarray,
+    f: np.ndarray,
+    r0: np.ndarray,
+    r1: np.ndarray,
+    r2: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Closed-form vectorized solver for symmetric 3x3 linear systems G x = r."""
+    c00 = d * f - e * e
+    c01 = c * e - b * f
+    c02 = b * e - c * d
+    c11 = a * f - c * c
+    c12 = b * c - a * e
+    c22 = a * d - b * b
+    det = a * c00 + b * c01 + c * c02
+    safe_det = np.where(np.abs(det) > 1e-12, det, 1.0)
+    inv_det = 1.0 / safe_det
+    x0 = (c00 * r0 + c01 * r1 + c02 * r2) * inv_det
+    x1 = (c01 * r0 + c11 * r1 + c12 * r2) * inv_det
+    x2 = (c02 * r0 + c12 * r1 + c22 * r2) * inv_det
+    return x0, x1, x2, det
+
+
+def _eval_harmonic_grid_1d(
+    dm: np.ndarray,
+    s: np.ndarray,
+    w_grid: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Evaluate variable-projection 1D harmonic OLS `s(dm) = s0 + a cos(w dm) + b sin(w dm)`
+    across all candidate frequencies in `w_grid` simultaneously.
+    Returns (s0, a_c, b_s, sse, det).
+    """
+    n_f = float(dm.shape[0])
+    ang = w_grid[:, None] * dm[None, :]
+    cs = np.cos(ang)
+    sn = np.sin(ang)
+
+    g00 = np.full(w_grid.shape[0], n_f + 1e-9, dtype=np.float64)
+    g01 = cs.sum(axis=1)
+    g02 = sn.sum(axis=1)
+    g11 = (cs * cs).sum(axis=1) + 1e-6
+    g12 = (cs * sn).sum(axis=1)
+    g22 = (sn * sn).sum(axis=1) + 1e-6
+
+    r0 = np.full(w_grid.shape[0], float(s.sum()), dtype=np.float64)
+    r1 = cs @ s
+    r2 = sn @ s
+
+    s0, a_c, b_s, det = _solve_sym3x3_batch(g00, g01, g02, g11, g12, g22, r0, r1, r2)
+    pred = s0[:, None] + a_c[:, None] * cs + b_s[:, None] * sn
+    err = s[None, :] - pred
+    sse = (err * err).sum(axis=1)
+    return s0, a_c, b_s, sse, det
+
+
+def fit_pca_and_harmonic_imm(
+    pos_history: Sequence[Tuple[float, float, float]],
+    fallback_vx: float = 0.0,
+    fallback_vy: float = 0.0,
+    meas_noise_std: float = 0.030,
+    min_samples: int = 10,
+    min_span_sec: float = 1.8,
+    w_min: float = 0.25,
+    w_max: float = 2.20,
+    max_amplitude_m: float = 2.20,
+    prev_omega: float = 0.0,
+) -> Dict[str, object]:
+    """
+    Estimate principal 1D oscillation axis `u_hat` via 2x2 PCA on recent position history
+    and fit parallel (a) 1D CV and (b) 1D Harmonic models with BIC-adjusted residual
+    likelihood IMM weights (`mu_cv`, `mu_harm`).
+    """
+    n = len(pos_history)
+    if n == 0:
+        spd = math.hypot(fallback_vx, fallback_vy)
+        u_hat = (fallback_vx / spd, fallback_vy / spd) if spd > 1e-6 else (1.0, 0.0)
+        return {
+            "valid": False,
+            "u_hat": u_hat,
+            "p_c": (0.0, 0.0),
+            "amp": 0.0,
+            "omega": 0.0,
+            "phi": 0.0,
+            "t_ref": 0.0,
+            "mu_cv": 1.0,
+            "mu_harm": 0.0,
+            "sigma_h0": max(0.03, float(meas_noise_std)),
+            "sigma_omega": 0.35,
+            "harm_rmse": 0.0,
+            "cv_rmse": 0.0,
+        }
+
+    arr = np.asarray(pos_history, dtype=np.float64)
+    ts = arr[:, 0]
+    xs = arr[:, 1]
+    ys = arr[:, 2]
+    t_ref = float(ts[-1])
+    t_span = float(ts[-1] - ts[0])
+
+    mx = float(xs.mean())
+    my = float(ys.mean())
+    dx = xs - mx
+    dy = ys - my
+
+    # 2x2 PCA for principal reciprocation axis u_hat
+    inv_n = 1.0 / float(n)
+    cxx = float((dx * dx).sum()) * inv_n
+    cyy = float((dy * dy).sum()) * inv_n
+    cxy = float((dx * dy).sum()) * inv_n
+    tr = cxx + cyy
+    disc = math.sqrt(max(0.0, (cxx - cyy) ** 2 + 4.0 * cxy * cxy))
+    lam1 = 0.5 * (tr + disc)
+    lam2 = max(0.0, 0.5 * (tr - disc))
+
+    if lam1 > 1e-6:
+        if abs(cxy) > 1e-12:
+            vx1, vy1 = lam1 - cyy, cxy
+            vx2, vy2 = cxy, lam1 - cxx
+            if (vx1 * vx1 + vy1 * vy1) >= (vx2 * vx2 + vy2 * vy2):
+                ux, uy = vx1, vy1
+            else:
+                ux, uy = vx2, vy2
+            un = math.hypot(ux, uy)
+            ux, uy = ux / un, uy / un
+        else:
+            ux, uy = (1.0, 0.0) if cxx >= cyy else (0.0, 1.0)
+    else:
+        spd = math.hypot(fallback_vx, fallback_vy)
+        ux, uy = (fallback_vx / spd, fallback_vy / spd) if spd > 1e-6 else (1.0, 0.0)
+
+    # Canonical sign for deterministic u_hat
+    if ux < -1e-6 or (abs(ux) <= 1e-6 and uy < 0.0):
+        ux, uy = -ux, -uy
+
+    s = dx * ux + dy * uy
+    s_min = float(s.min())
+    s_max = float(s.max())
+    s_mid_obs = 0.5 * (s_min + s_max)
+    r_obs = 0.5 * (s_max - s_min)
+    p_c_obs = (mx + s_mid_obs * ux, my + s_mid_obs * uy)
+    sigma_perp = math.sqrt(lam2)
+
+    if n < min_samples or t_span < min_span_sec or lam1 < 1e-4:
+        return {
+            "valid": False,
+            "u_hat": (float(ux), float(uy)),
+            "p_c": p_c_obs,
+            "amp": float(r_obs),
+            "omega": 0.0,
+            "phi": 0.0,
+            "t_ref": t_ref,
+            "mu_cv": 1.0,
+            "mu_harm": 0.0,
+            "sigma_h0": max(0.03, float(meas_noise_std), sigma_perp),
+            "sigma_omega": 0.35,
+            "harm_rmse": 0.0,
+            "cv_rmse": 0.0,
+        }
+
+    # Center time at midpoint for orthogonal cos/sin conditioning
+    t_mid = 0.5 * (float(ts[0]) + t_ref)
+    dm = ts - t_mid
+
+    # (a) 1D CV model along u_hat: s(dm) = c0 + c1 * dm
+    dm_mean = float(dm.mean())
+    s_mean = float(s.mean())
+    dm_c = dm - dm_mean
+    s_c = s - s_mean
+    denom_cv = float((dm_c * dm_c).sum())
+    c1 = float((dm_c * s_c).sum()) / max(denom_cv, 1e-12)
+    c0 = s_mean - c1 * dm_mean
+    err_cv = s - (c0 + c1 * dm)
+    sse_cv = float((err_cv * err_cv).sum())
+    cv_rmse = math.sqrt(sse_cv * inv_n)
+
+    # (b) 1D Harmonic model via warm-started / coarse-to-fine variable projection
+    def _pick_best_with_curv(
+        w_arr: np.ndarray,
+    ) -> Optional[Tuple[float, float, float, float, float, float]]:
+        s0_v, a_v, b_v, sse_v, det_v = _eval_harmonic_grid_1d(dm, s, w_arr)
+        amp_v = np.hypot(a_v, b_v)
+        valid_cand = (
+            (np.abs(det_v) > 1e-9)
+            & (amp_v >= 0.06)
+            & (amp_v <= max_amplitude_m)
+            & (np.abs(s0_v) <= max_amplitude_m)
+            & ((w_arr * t_span) >= 0.85)
+        )
+        if not np.any(valid_cand):
+            return None
+        masked_sse = np.where(valid_cand, sse_v, np.inf)
+        bi = int(np.argmin(masked_sse))
+        if not math.isfinite(float(masked_sse[bi])):
+            return None
+        d2_curv = 0.0
+        if 0 < bi < (len(w_arr) - 1):
+            sl = float(w_arr[bi] - w_arr[bi - 1])
+            sr = float(w_arr[bi + 1] - w_arr[bi])
+            if sl > 1e-4 and sr > 1e-4:
+                d2_curv = 2.0 * (
+                    (float(sse_v[bi + 1]) - float(sse_v[bi])) / sr
+                    - (float(sse_v[bi]) - float(sse_v[bi - 1])) / sl
+                ) / (sl + sr)
+        return (
+            float(w_arr[bi]),
+            float(s0_v[bi]),
+            float(a_v[bi]),
+            float(b_v[bi]),
+            float(sse_v[bi]),
+            float(d2_curv),
+        )
+
+    best = None
+    # Warm-start single-pass local search when previous omega is already locked cleanly
+    if w_min <= prev_omega <= w_max:
+        w_warm = np.clip(prev_omega + _IMM_WARM_OFFSETS, w_min, w_max)
+        cand_warm = _pick_best_with_curv(w_warm)
+        if cand_warm is not None:
+            warm_rmse = math.sqrt(max(0.0, cand_warm[4]) * inv_n)
+            # Accept warm start if interior minimum and clean residual
+            if warm_rmse <= 0.055 and abs(cand_warm[0] - prev_omega) < 0.068:
+                best = cand_warm
+
+    if best is None:
+        best_c = _pick_best_with_curv(_IMM_W_COARSE)
+        if best_c is None:
+            return {
+                "valid": False,
+                "u_hat": (float(ux), float(uy)),
+                "p_c": p_c_obs,
+                "amp": float(r_obs),
+                "omega": 0.0,
+                "phi": 0.0,
+                "t_ref": t_ref,
+                "mu_cv": 1.0,
+                "mu_harm": 0.0,
+                "sigma_h0": max(0.03, float(meas_noise_std), sigma_perp),
+                "sigma_omega": 0.35,
+                "harm_rmse": cv_rmse,
+                "cv_rmse": cv_rmse,
+            }
+        dw_coarse = float(_IMM_W_COARSE[1] - _IMM_W_COARSE[0])
+        w_fine = np.clip(best_c[0] + _IMM_FINE_OFFSETS * dw_coarse, w_min, w_max)
+        cand_f = _pick_best_with_curv(w_fine)
+        best = cand_f if (cand_f is not None and cand_f[4] <= best_c[4]) else best_c
+
+    w_opt, s0_opt, a_opt, b_opt, sse_harm, d2_sse = best
+    amp_opt = math.hypot(a_opt, b_opt)
+    phi_mid = math.atan2(a_opt, b_opt)
+    phi_ref = math.atan2(
+        math.sin(phi_mid + w_opt * (t_ref - t_mid)),
+        math.cos(phi_mid + w_opt * (t_ref - t_mid)),
+    )
+    harm_rmse = math.sqrt(max(0.0, sse_harm) * inv_n)
+    pc_x = mx + s0_opt * ux
+    pc_y = my + s0_opt * uy
+
+    # Estimate frequency uncertainty sigma_omega from SSE(omega) local curvature (Laplace / Fisher info)
+    noise_var = max(harm_rmse * harm_rmse, float(meas_noise_std) ** 2, 4e-4)
+    if d2_sse > 1e-6:
+        sigma_omega = math.sqrt(2.0 * noise_var / d2_sse)
+    else:
+        sigma_omega = 0.35
+    sigma_omega = max(0.015, min(0.45, sigma_omega))
+
+    # Reject non-1D (e.g. circular) or poorly-fitting harmonic hypotheses
+    anisotropy_ok = (lam2 / max(lam1, 1e-9)) < 0.28
+    fit_ok = harm_rmse <= 0.11
+    if anisotropy_ok and fit_ok:
+        sig0_sq = max(0.032 * 0.032, float(meas_noise_std) ** 2)
+        # BIC-penalized log-likelihood difference: Harmonic (4 params) vs CV (2 params)
+        delta_ell = (sse_cv - sse_harm) / (2.0 * sig0_sq) - math.log(float(n))
+        delta_ell_c = max(-20.0, min(20.0, delta_ell))
+        mu_harm = 1.0 / (1.0 + math.exp(-delta_ell_c))
+        mu_cv = 1.0 - mu_harm
+    else:
+        mu_harm = 0.0
+        mu_cv = 1.0
+
+    sigma_h0 = math.sqrt(max(harm_rmse * harm_rmse, float(meas_noise_std) ** 2) + lam2)
+    return {
+        "valid": True,
+        "u_hat": (float(ux), float(uy)),
+        "p_c": (float(pc_x), float(pc_y)),
+        "amp": float(amp_opt),
+        "omega": float(w_opt),
+        "phi": float(phi_ref),
+        "t_ref": t_ref,
+        "mu_cv": float(mu_cv),
+        "mu_harm": float(mu_harm),
+        "sigma_h0": float(sigma_h0),
+        "sigma_omega": float(sigma_omega),
+        "harm_rmse": float(harm_rmse),
+        "cv_rmse": float(cv_rmse),
+    }
+
+
+def predict_track_trajectory(
+    track: TrackedObstacle,
+    taus: Sequence[float],
+    beta: float = 0.35,
+    q_acc_base: float = 0.30,
+    enable_harmonic: bool = True,
+) -> TrajectoryPrediction:
+    """
+    Lightweight 2-model (CV + 1D Harmonic) IMM trajectory rollout for `tau in [0.0, 4.5+] s`.
+    Vectorized pure-NumPy implementation (< 0.05 ms for 30+ horizons).
+    """
+    taus_arr = np.maximum(0.0, np.asarray(taus, dtype=np.float64))
+    k_len = int(taus_arr.shape[0])
+
+    # Extract basic kinematic state (duck-type safe for lightweight mocks)
+    tx = float(getattr(track, "x", 0.0))
+    ty = float(getattr(track, "y", 0.0))
+    tvx = float(getattr(track, "vx", 0.0))
+    tvy = float(getattr(track, "vy", 0.0))
+    q_scale = float(getattr(track, "q_acc_scale", 1.0))
+    P = getattr(track, "P_4x4", None)
+    if P is None:
+        P = np.diag([0.0025, 0.0025, 0.04, 0.04]).astype(np.float64)
+    else:
+        P = np.asarray(P, dtype=np.float64)
+
+    # (a) Vectorized damped-CV state and covariance propagation
+    b = max(1e-6, float(beta))
+    u = b * taus_arr
+    e1 = np.exp(-u)
+    phi_cv = np.where(
+        u < 1e-4,
+        taus_arr * (1.0 - 0.5 * u + (u * u) / 6.0),
+        (1.0 - e1) / b,
+    )
+    e2 = np.exp(-2.0 * u)
+    q_pp = np.where(
+        u < 1e-3,
+        (taus_arr ** 3) / 3.0,
+        (2.0 * u - 3.0 + 4.0 * e1 - e2) / (2.0 * (b ** 3)),
+    )
+    q_eff = max(0.0, float(q_acc_base) * q_scale)
+
+    px_cv = tx + phi_cv * tvx
+    py_cv = ty + phi_cv * tvy
+
+    p00 = float(P[0, 0]) + 2.0 * phi_cv * float(P[0, 2]) + (phi_cv * phi_cv) * float(P[2, 2]) + q_eff * q_pp
+    p11 = float(P[1, 1]) + 2.0 * phi_cv * float(P[1, 3]) + (phi_cv * phi_cv) * float(P[3, 3]) + q_eff * q_pp
+    p01 = (
+        float(P[0, 1])
+        + phi_cv * (float(P[0, 3]) + float(P[1, 2]))
+        + (phi_cv * phi_cv) * float(P[2, 3])
+    )
+    disc_cv = np.sqrt(np.maximum(0.0, (p00 - p11) ** 2 + 4.0 * p01 * p01))
+    var_cv = np.maximum(0.0, 0.5 * (p00 + p11 + disc_cv))
+
+    # (b) IMM harmonic state & sweep parameters
+    imm_valid = bool(enable_harmonic) and bool(getattr(track, "imm_valid", False))
+    mu_harm = float(getattr(track, "imm_mu_harm", 0.0)) if imm_valid else 0.0
+    mu_harm = max(0.0, min(1.0, mu_harm))
+    mu_cv = 1.0 - mu_harm
+
+    raw_u = getattr(track, "imm_u_hat", None)
+    if raw_u is not None and (imm_valid or len(getattr(track, "pos_history", ())) >= 3):
+        ux, uy = float(raw_u[0]), float(raw_u[1])
+        un = math.hypot(ux, uy)
+        if un > 1e-6:
+            ux, uy = ux / un, uy / un
+        else:
+            spd = math.hypot(tvx, tvy)
+            ux, uy = (tvx / spd, tvy / spd) if spd > 1e-6 else (1.0, 0.0)
+    else:
+        spd = math.hypot(tvx, tvy)
+        ux, uy = (tvx / spd, tvy / spd) if spd > 1e-6 else (1.0, 0.0)
+
+    if imm_valid and mu_harm > 1e-4:
+        pc_x, pc_y = float(track.imm_p_c[0]), float(track.imm_p_c[1])
+        amp = float(track.imm_amp)
+        omega = float(track.imm_omega)
+        phi_ref = float(track.imm_phi)
+        dt_anchor = max(0.0, float(getattr(track, "last_update_stamp", 0.0)) - float(track.imm_t_ref))
+        dt_total = dt_anchor + taus_arr
+        s_h = amp * np.sin(omega * dt_total + phi_ref)
+        px_h = pc_x + ux * s_h
+        py_h = pc_y + uy * s_h
+
+        sig_h0 = max(0.025, float(getattr(track, "imm_sigma_h0", 0.03)))
+        sig_w = max(0.015, float(getattr(track, "imm_sigma_omega", 0.20)))
+        var_h = sig_h0 * sig_h0 + (amp * sig_w * dt_total) ** 2
+
+        px_mix = mu_cv * px_cv + mu_harm * px_h
+        py_mix = mu_cv * py_cv + mu_harm * py_h
+        d2_cv = (px_cv - px_mix) ** 2 + (py_cv - py_mix) ** 2
+        d2_h = (px_h - px_mix) ** 2 + (py_h - py_mix) ** 2
+        var_mix = mu_cv * (var_cv + d2_cv) + mu_harm * (var_h + d2_h)
+        sigmas = np.sqrt(np.maximum(0.0, var_mix))
+    else:
+        px_mix = px_cv
+        py_mix = py_cv
+        sigmas = np.sqrt(var_cv)
+        omega = float(getattr(track, "imm_omega", 0.0)) if imm_valid else 0.0
+        phi_ref = float(getattr(track, "imm_phi", 0.0)) if imm_valid else 0.0
+        # Sweep fallback for CV-dominant tracks: union of observed span + short 1.8s CV lookahead
+        hist = getattr(track, "pos_history", ())
+        v_along = tvx * ux + tvy * uy
+        proj_end = v_along * 1.8
+        if len(hist) >= 2:
+            s_vals = [(hx - tx) * ux + (hy - ty) * uy for (_, hx, hy) in hist]
+            s_lo = min(min(s_vals), 0.0, proj_end)
+            s_hi = max(max(s_vals), 0.0, proj_end)
+        else:
+            s_lo = min(0.0, proj_end)
+            s_hi = max(0.0, proj_end)
+        s_mid = 0.5 * (s_lo + s_hi)
+        pc_x = tx + s_mid * ux
+        pc_y = ty + s_mid * uy
+        amp = 0.5 * (s_hi - s_lo)
+
+    if imm_valid and mu_harm < 0.5:
+        # When harmonic is not yet dominant, keep conservative sweep span combining observed + short CV
+        hist = getattr(track, "pos_history", ())
+        v_along = tvx * ux + tvy * uy
+        proj_end = v_along * 1.8
+        if len(hist) >= 2:
+            s_vals = [(hx - tx) * ux + (hy - ty) * uy for (_, hx, hy) in hist]
+            s_lo = min(min(s_vals), 0.0, proj_end)
+            s_hi = max(max(s_vals), 0.0, proj_end)
+        else:
+            s_lo = min(0.0, proj_end)
+            s_hi = max(0.0, proj_end)
+        s_mid = 0.5 * (s_lo + s_hi)
+        pc_x = tx + s_mid * ux
+        pc_y = ty + s_mid * uy
+        amp = 0.5 * (s_hi - s_lo)
+
+    centers = np.empty((k_len, 2), dtype=np.float64)
+    centers[:, 0] = px_mix
+    centers[:, 1] = py_mix
+    sweep_start = (pc_x - amp * ux, pc_y - amp * uy)
+    sweep_end = (pc_x + amp * ux, pc_y + amp * uy)
+
+    return TrajectoryPrediction(
+        taus=taus_arr,
+        centers=centers,
+        sigmas=sigmas,
+        u_hat=(ux, uy),
+        p_c=(pc_x, pc_y),
+        amplitude=float(amp),
+        omega=float(omega),
+        phi=float(phi_ref),
+        sweep_start=sweep_start,
+        sweep_end=sweep_end,
+        mu_cv=float(mu_cv),
+        mu_harm=float(mu_harm),
+        is_harmonic=bool(imm_valid and mu_harm >= 0.5),
+    )
 
 
 def damped_cv_matrices(
@@ -412,17 +912,25 @@ class DynamicObstacleTracker:
         meas_noise_std_m: float = 0.030,
         init_vel_std_mps: float = 0.60,
         gating_dist_m: float = 0.45,
-        confirm_min_hits: int = 2,
-        confirm_min_speed_mps: float = 0.08,
+        confirm_min_hits: int = 5,
+        confirm_min_speed_mps: float = 0.12,
+        confirm_min_diameter_m: float = 0.20,
+        confirm_max_diameter_m: float = 0.55,
+        max_confirm_spike_ratio: float = 0.03,
+        imm_history_window_sec: float = 6.0,
+        imm_min_samples: int = 10,
+        imm_min_span_sec: float = 1.8,
         max_coast_ticks: int = 2,
         lidar_min_range_m: float = 0.12,
         lidar_max_range_m: float = 3.50,
         lidar_offset_x_m: float = 0.0,
-        confirm_min_disp_m: float = 0.045,
+        confirm_min_disp_m: float = 0.08,
         ch3_horizons: Sequence[float] = (0.5, 1.0, 1.5),
         ch3_weights: Sequence[float] = (1.0, 0.75, 0.50),
         ch3_eps: float = 1e-3,
+        enable_spatiotemporal_dynamic_control: bool = True,
     ) -> None:
+        self.enable_spatiotemporal_dynamic_control = bool(enable_spatiotemporal_dynamic_control)
         self.grid_size_m = float(grid_size_m)
         self.res = float(grid_res_m)
         self.n = int(round(self.grid_size_m / self.res))
@@ -448,6 +956,12 @@ class DynamicObstacleTracker:
         self.gating_dist_m = float(gating_dist_m)
         self.confirm_min_hits = int(confirm_min_hits)
         self.confirm_min_speed_mps = float(confirm_min_speed_mps)
+        self.confirm_min_diameter_m = float(confirm_min_diameter_m)
+        self.confirm_max_diameter_m = float(confirm_max_diameter_m)
+        self.max_confirm_spike_ratio = float(max_confirm_spike_ratio)
+        self.imm_history_window_sec = float(imm_history_window_sec)
+        self.imm_min_samples = int(imm_min_samples)
+        self.imm_min_span_sec = float(imm_min_span_sec)
         self.max_coast_ticks = int(max_coast_ticks)
         self.lidar_min_range_m = float(lidar_min_range_m)
         self.lidar_max_range_m = float(lidar_max_range_m)
@@ -511,6 +1025,8 @@ class DynamicObstacleTracker:
         self.last_did_update: bool = False
         self.scan_update_count: int = 0
         self.extrap_tick_count: int = 0
+        self.last_spike_ratio: float = 0.0
+        self.last_scan_corrupted: bool = False
 
     def reset(self) -> None:
         """Clear all tracks, background occupancy maps, and timestamp state."""
@@ -527,6 +1043,8 @@ class DynamicObstacleTracker:
         self.last_did_update = False
         self.scan_update_count = 0
         self.extrap_tick_count = 0
+        self.last_spike_ratio = 0.0
+        self.last_scan_corrupted = False
 
     def _get_trig_lut(
         self, n_rays: int, angle_min: float, angle_increment: Optional[float]
@@ -711,6 +1229,152 @@ class DynamicObstacleTracker:
                 out.append((cand_pts_w[s_i:e_i], (s_i, e_i), None))
         return out
 
+    def _is_static_wall_fragment(
+        self,
+        cl_pts: np.ndarray,
+        start_v_pos: int,
+        end_v_pos: int,
+        valid_idx: np.ndarray,
+        wx: np.ndarray,
+        wy: np.ndarray,
+        in_static: np.ndarray,
+        n_rays_total: int,
+        is_full_360: bool,
+    ) -> bool:
+        """
+        Reject non-static clusters carved out of a continuous static wall by grazing-ray
+        free-space carving or partial static_occ masking.
+
+        Checks whether immediate angular neighbor rays in the full valid scan belong to
+        `in_static` within `cluster_dist_thresh_m`:
+          - Both ends continuously attached to `in_static` -> static wall window.
+          - One end continuously attached to `in_static` AND collinear flat line
+            (spread_ratio < 0.008, neighbor perp_dist < 0.035 m) or extended static
+            segment chord > max_chord_m -> static wall edge fragment.
+        Isolated moving cylinders (both ends unattached) short-circuit in O(1).
+        """
+        n_valid = len(valid_idx)
+        if n_valid < 2:
+            return False
+
+        max_idx_diff = self.cluster_max_ray_gap + 1
+        dthresh2 = self.cluster_dist_thresh_m * self.cluster_dist_thresh_m
+
+        adj_left = False
+        v_prev = -1
+        if is_full_360 or start_v_pos > 0:
+            v_prev = (start_v_pos - 1) % n_valid
+            if v_prev != end_v_pos and bool(in_static[v_prev]):
+                r_s = int(valid_idx[start_v_pos])
+                r_p = int(valid_idx[v_prev])
+                gap_l = (r_s - r_p) % n_rays_total if is_full_360 else (r_s - r_p)
+                if 1 <= gap_l <= max_idx_diff:
+                    dx_l = float(wx[v_prev]) - float(cl_pts[0, 0])
+                    dy_l = float(wy[v_prev]) - float(cl_pts[0, 1])
+                    if (dx_l * dx_l + dy_l * dy_l) < dthresh2:
+                        adj_left = True
+
+        adj_right = False
+        v_next = -1
+        if is_full_360 or (end_v_pos + 1) < n_valid:
+            v_next = (end_v_pos + 1) % n_valid
+            if v_next != start_v_pos and bool(in_static[v_next]):
+                r_e = int(valid_idx[end_v_pos])
+                r_n = int(valid_idx[v_next])
+                gap_r = (r_n - r_e) % n_rays_total if is_full_360 else (r_n - r_e)
+                if 1 <= gap_r <= max_idx_diff:
+                    dx_r = float(wx[v_next]) - float(cl_pts[-1, 0])
+                    dy_r = float(wy[v_next]) - float(cl_pts[-1, 1])
+                    if (dx_r * dx_r + dy_r * dy_r) < dthresh2:
+                        adj_right = True
+
+        if not adj_left and not adj_right:
+            return False
+
+        # Compute cluster 2D covariance spread_ratio and chord line for collinearity verification
+        n_cl = cl_pts.shape[0]
+        inv_n = 1.0 / float(n_cl)
+        mx = float(cl_pts[:, 0].sum()) * inv_n
+        my = float(cl_pts[:, 1].sum()) * inv_n
+        dx_c = cl_pts[:, 0] - mx
+        dy_c = cl_pts[:, 1] - my
+        cxx = float((dx_c * dx_c).sum()) * inv_n
+        cyy = float((dy_c * dy_c).sum()) * inv_n
+        cxy = float((dx_c * dy_c).sum()) * inv_n
+        tr = cxx + cyy
+        if tr > 1e-10:
+            disc = math.sqrt(max(0.0, (cxx - cyy) ** 2 + 4.0 * cxy * cxy))
+            lam_max = 0.5 * (tr + disc)
+            lam_min = max(0.0, 0.5 * (tr - disc))
+            spread_ratio = lam_min / max(lam_max, 1e-12)
+        else:
+            spread_ratio = 0.0
+
+        lx = float(cl_pts[-1, 0] - cl_pts[0, 0])
+        ly = float(cl_pts[-1, 1] - cl_pts[0, 1])
+        l_len = math.hypot(lx, ly)
+        x0_c = float(cl_pts[0, 0])
+        y0_c = float(cl_pts[0, 1])
+
+        def _perp_dist(px: float, py: float) -> float:
+            if l_len <= 1e-6:
+                return 0.0
+            return abs((px - x0_c) * ly - (py - y0_c) * lx) / l_len
+
+        # Both ends flush & collinear with continuous static wall rays -> carved wall interior window
+        if adj_left and adj_right:
+            perp_l = _perp_dist(float(wx[v_prev]), float(wy[v_prev]))
+            perp_r = _perp_dist(float(wx[v_next]), float(wy[v_next]))
+            if spread_ratio < 0.015 and perp_l < 0.045 and perp_r < 0.045:
+                return True
+            return False
+
+        # Single-end static attachment: require collinearity with the static neighbor and walked wall
+        v_adj = v_prev if adj_left else v_next
+        ax = float(wx[v_adj])
+        ay = float(wy[v_adj])
+        perp_adj = _perp_dist(ax, ay)
+        if perp_adj >= 0.035:
+            return False
+        if spread_ratio < 0.008:
+            return True
+
+        # Walk outward along contiguous rays on the attached static side to verify collinear wall chord
+        step_dir = -1 if adj_left else 1
+        cur_v = v_adj
+        cur_x, cur_y = ax, ay
+        n_static_walked = 1 if bool(in_static[cur_v]) else 0
+        for _ in range(32):
+            nxt_v = (cur_v + step_dir) % n_valid if is_full_360 else (cur_v + step_dir)
+            if nxt_v < 0 or nxt_v >= n_valid or nxt_v == start_v_pos or nxt_v == end_v_pos:
+                break
+            r_cur = int(valid_idx[cur_v])
+            r_nxt = int(valid_idx[nxt_v])
+            gap_w = (
+                ((r_cur - r_nxt) % n_rays_total if is_full_360 else (r_cur - r_nxt))
+                if step_dir < 0
+                else ((r_nxt - r_cur) % n_rays_total if is_full_360 else (r_nxt - r_cur))
+            )
+            if not (1 <= gap_w <= max_idx_diff):
+                break
+            nx_w = float(wx[nxt_v])
+            ny_w = float(wy[nxt_v])
+            if ((nx_w - cur_x) ** 2 + (ny_w - cur_y) ** 2) >= dthresh2:
+                break
+            if _perp_dist(nx_w, ny_w) >= 0.06:
+                break
+            cur_v = nxt_v
+            cur_x, cur_y = nx_w, ny_w
+            if bool(in_static[cur_v]):
+                n_static_walked += 1
+
+        far_x = float(cl_pts[-1, 0]) if adj_left else float(cl_pts[0, 0])
+        far_y = float(cl_pts[-1, 1]) if adj_left else float(cl_pts[0, 1])
+        ext_chord = math.hypot(cur_x - far_x, cur_y - far_y)
+        if ext_chord > self.max_chord_m and n_static_walked >= 2 and spread_ratio < 0.015:
+            return True
+        return False
+
     def _update_background_grids(
         self,
         rx: float,
@@ -725,6 +1389,7 @@ class DynamicObstacleTracker:
         ix_valid: np.ndarray,
         iy_valid: np.ndarray,
         pre_obs_free_valid: np.ndarray,
+        rot_guard_active: bool = False,
     ) -> None:
         """
         Update observed_free and static_occ AFTER current scan dynamic extraction.
@@ -756,44 +1421,103 @@ class DynamicObstacleTracker:
         s_sub = sin_lut[parity::stride]
         valid_r = np.isfinite(r_sub) & (r_sub >= np.float32(self.lidar_min_range_m))
         max_r_o = np.float32(min(0.5 * self.grid_size_m - self.res, self.lidar_max_range_m - 0.10))
+        r_max_th = np.float32(self.lidar_max_range_m - 0.05)
         r_carve = np.where(
-            valid_r & (r_sub <= np.float32(self.lidar_max_range_m - 0.05)),
+            valid_r & (r_sub <= r_max_th),
             np.minimum(r_sub * np.float32(0.90), np.maximum(np.float32(0.0), r_sub - np.float32(0.06))),
-            max_r_o,
+            np.where(np.isposinf(r_sub) | (valid_r & (r_sub > r_max_th)), max_r_o, np.float32(0.0)),
         )
         active_rays = r_carve > np.float32(0.16)
         if active_rays.any():
             rc = r_carve[active_rays]
-            lx = rc * c_sub[active_rays]
+            off_x = np.float32(self.lidar_offset_x_m)
+            has_off = abs(self.lidar_offset_x_m) > 1e-6
+            lx = rc * c_sub[active_rays] + off_x if has_off else rc * c_sub[active_rays]
             ly = rc * s_sub[active_rays]
             if abs(rth) <= 1e-6:
+                sx_ray = rx_f + off_x if has_off else rx_f
+                sy_ray = ry_f
                 ex_all = rx_f + lx
                 ey_all = ry_f + ly
             else:
-                ex_all = rx_f + np.float32(c) * lx - np.float32(s) * ly
-                ey_all = ry_f + np.float32(s) * lx + np.float32(c) * ly
+                c_f = np.float32(c)
+                s_f = np.float32(s)
+                sx_ray = rx_f + c_f * off_x if has_off else rx_f
+                sy_ray = ry_f + s_f * off_x if has_off else ry_f
+                ex_all = rx_f + c_f * lx - s_f * ly
+                ey_all = ry_f + s_f * lx + c_f * ly
             min_gx = np.float32(self.origin_ix * self.res + 0.001)
             max_gx = np.float32((self.origin_ix + self.n) * self.res - 0.001)
             min_gy = np.float32(self.origin_iy * self.res + 0.001)
             max_gy = np.float32((self.origin_iy + self.n) * self.res - 0.001)
-            ex_all = np.minimum(max_gx, np.maximum(min_gx, ex_all))
-            ey_all = np.minimum(max_gy, np.maximum(min_gy, ey_all))
 
-            ray_x = rx_f + fracs * (ex_all - rx_f)[None, :]
-            ray_y = ry_f + fracs * (ey_all - ry_f)[None, :]
+            origin_in_box = (min_gx <= sx_ray <= max_gx) and (min_gy <= sy_ray <= max_gy)
+            # Ray-box proportional clipping from sensor origin (sx_ray, sy_ray) preserves true ray angle.
+            # Fast path skips division allocations when origin and all ray endpoints lie strictly inside the grid.
+            ex_clip = ex_all
+            ey_clip = ey_all
+            has_zero_t = False
+            if (
+                not origin_in_box
+                or float(ex_all.min()) < float(min_gx)
+                or float(ex_all.max()) > float(max_gx)
+                or float(ey_all.min()) < float(min_gy)
+                or float(ey_all.max()) > float(max_gy)
+            ):
+                dx_r = ex_all - sx_ray
+                dy_r = ey_all - sy_ray
+                t_max = np.ones_like(dx_r, dtype=np.float32)
+                pos_dx = dx_r > np.float32(1e-6)
+                if pos_dx.any():
+                    t_max[pos_dx] = np.minimum(t_max[pos_dx], (max_gx - sx_ray) / dx_r[pos_dx])
+                neg_dx = dx_r < np.float32(-1e-6)
+                if neg_dx.any():
+                    t_max[neg_dx] = np.minimum(t_max[neg_dx], (min_gx - sx_ray) / dx_r[neg_dx])
+                pos_dy = dy_r > np.float32(1e-6)
+                if pos_dy.any():
+                    t_max[pos_dy] = np.minimum(t_max[pos_dy], (max_gy - sy_ray) / dy_r[pos_dy])
+                neg_dy = dy_r < np.float32(-1e-6)
+                if neg_dy.any():
+                    t_max[neg_dy] = np.minimum(t_max[neg_dy], (min_gy - sy_ray) / dy_r[neg_dy])
+                t_max = np.clip(t_max, np.float32(0.0), np.float32(1.0))
+                has_zero_t = bool((t_max <= np.float32(0.0)).any())
+                ex_clip = sx_ray + t_max * dx_r
+                ey_clip = sy_ray + t_max * dy_r
+
+            ray_x = sx_ray + fracs * (ex_clip - sx_ray)[None, :]
+            ray_y = sy_ray + fracs * (ey_clip - sy_ray)[None, :]
             shift_off = 1024
             ix_f = (ray_x * inv_res - np.float32(self.origin_ix - shift_off)).astype(np.int32) - shift_off
             iy_f = (ray_y * inv_res - np.float32(self.origin_iy - shift_off)).astype(np.int32) - shift_off
-            flat_idx = (ix_f * self.n + iy_f).ravel()
-            self.observed_free.ravel()[flat_idx] = 1.0
-            self.static_occ.ravel()[flat_idx] = 0.0
+            if origin_in_box and not has_zero_t:
+                flat_idx = (ix_f * self.n + iy_f).ravel()
+                self.observed_free.ravel()[flat_idx] = 1.0
+                self.static_occ.ravel()[flat_idx] = 0.0
+            else:
+                in_bounds = (ix_f >= 0) & (ix_f < self.n) & (iy_f >= 0) & (iy_f < self.n)
+                if has_zero_t:
+                    in_bounds &= (t_max[None, :] > np.float32(0.0))
+                if in_bounds.any():
+                    flat_idx = ix_f[in_bounds] * self.n + iy_f[in_bounds]
+                    self.observed_free.ravel()[flat_idx] = 1.0
+                    self.static_occ.ravel()[flat_idx] = 0.0
 
         if len(wx_valid) > 0:
-            # Dynamic masking: exclude hit cells within confirmed track radius + 0.08 m
+            # Dynamic masking: exclude hit cells within confirmed track radius + 0.08 m,
+            # and also protect clean-scan actively moving tentative tracks (hits >= 2, speed >= 0.10 m/s)
+            # so overlapping cylinders are not prematurely solidified into static_occ before hit 5.
             masked_by_dyn = np.zeros(len(wx_valid), dtype=bool)
             for trk in self.tracks.values():
                 if trk.is_confirmed:
                     rad = trk.radius + self.dynamic_mask_margin_m
+                    masked_by_dyn |= ((wx_valid - trk.x) ** 2 + (wy_valid - trk.y) ** 2) <= (rad * rad)
+                elif (
+                    (not self.last_scan_corrupted)
+                    and (not rot_guard_active)
+                    and trk.consecutive_hits >= 2
+                    and trk.speed >= 0.10
+                ):
+                    rad = trk.radius + 0.04
                     masked_by_dyn |= ((wx_valid - trk.x) ** 2 + (wy_valid - trk.y) ** 2) <= (rad * rad)
 
             update_mask = (~masked_by_dyn) & (ix_valid >= 0) & (ix_valid < self.n) & (iy_valid >= 0) & (iy_valid < self.n)
@@ -826,12 +1550,44 @@ class DynamicObstacleTracker:
             self.observed_free[sx, sy] = 1.0
             self.static_occ[sx, sy] *= np.float32(0.25)
 
+    def _update_track_imm(self, trk: TrackedObstacle) -> None:
+        """Refit 2x2 PCA + CV/Harmonic IMM parameters on confirmed track position history."""
+        if not self.enable_spatiotemporal_dynamic_control:
+            trk.imm_valid = False
+            trk.imm_mu_cv = 1.0
+            trk.imm_mu_harm = 0.0
+            return
+        fit = fit_pca_and_harmonic_imm(
+            trk.pos_history,
+            fallback_vx=trk.vx,
+            fallback_vy=trk.vy,
+            meas_noise_std=self.meas_noise_std_m,
+            min_samples=self.imm_min_samples,
+            min_span_sec=self.imm_min_span_sec,
+            prev_omega=(trk.imm_omega if (trk.imm_valid and trk.imm_mu_harm >= 0.80) else 0.0),
+        )
+        trk.imm_valid = bool(fit["valid"])
+        trk.imm_u_hat = fit["u_hat"]  # type: ignore[assignment]
+        trk.imm_p_c = fit["p_c"]  # type: ignore[assignment]
+        trk.imm_amp = float(fit["amp"])
+        trk.imm_omega = float(fit["omega"])
+        trk.imm_phi = float(fit["phi"])
+        trk.imm_t_ref = float(fit["t_ref"])
+        trk.imm_mu_cv = float(fit["mu_cv"])
+        trk.imm_mu_harm = float(fit["mu_harm"])
+        trk.imm_sigma_h0 = float(fit["sigma_h0"])
+        trk.imm_sigma_omega = float(fit["sigma_omega"])
+        trk.imm_harm_rmse = float(fit["harm_rmse"])
+        trk.imm_cv_rmse = float(fit["cv_rmse"])
+
     def _kf_step_and_associate(
         self,
         detections: List[Tuple[float, float, float]],
         dt: float,
         stamp_sec: float,
         freeze_velocity: bool = False,
+        allow_confirm: bool = True,
+        rot_guard_active: bool = False,
     ) -> None:
         track_ids = list(self.tracks.keys())
         n_trk = len(track_ids)
@@ -932,7 +1688,11 @@ class DynamicObstacleTracker:
                         s_new = s_p + K_use @ y
                         s_new[2] = trk.vx
                         s_new[3] = trk.vy
-                        P_new = P_p
+                        H = np.array([[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]], dtype=np.float64)
+                        I_KH = np.eye(4, dtype=np.float64) - K_use @ H
+                        R_mat = np.diag([r_var, r_var])
+                        P_new = I_KH @ P_p @ I_KH.T + K_use @ R_mat @ K_use.T
+                        P_new = 0.5 * (P_new + P_new.T)
                     else:
                         s_new = s_p + K @ y
                         P_new = P_p - K @ (P_p[:2, :])
@@ -962,29 +1722,56 @@ class DynamicObstacleTracker:
                     trk.last_update_stamp = float(stamp_sec)
                     trk.age += 1
                     trk.hits += 1
-                    trk.consecutive_hits += 1
+                    if allow_confirm or trk.is_confirmed:
+                        trk.consecutive_hits += 1
+                    else:
+                        trk.consecutive_hits = 0
                     trk.missed_ticks = 0
                     trk.q_acc_scale = next_scale
                     trk.vel_history = new_hist
+                    t_cutoff = float(stamp_sec) - self.imm_history_window_sec
+                    trimmed_hist = tuple(
+                        item for item in trk.pos_history if item[0] >= t_cutoff
+                    )
+                    trk.pos_history = (trimmed_hist + ((float(stamp_sec), float(zx), float(zy)),))[-40:]
                     cur_spd = trk.speed
                     if cur_spd > trk.max_speed_seen:
                         trk.max_speed_seen = cur_spd
                     net_disp = math.hypot(trk.x - trk.birth_x, trk.y - trk.birth_y)
+                    if net_disp > trk.max_disp_seen:
+                        trk.max_disp_seen = net_disp
+                    diam_m = 2.0 * float(trk.radius)
+                    req_disp_m = (
+                        max(self.confirm_min_disp_m, 0.25)
+                        if rot_guard_active
+                        else self.confirm_min_disp_m
+                    )
                     if (
-                        not trk.is_confirmed
+                        allow_confirm
+                        and not trk.is_confirmed
                         and trk.consecutive_hits >= self.confirm_min_hits
                         and cur_spd >= self.confirm_min_speed_mps
-                        and net_disp >= self.confirm_min_disp_m
+                        and net_disp >= req_disp_m
+                        and self.confirm_min_diameter_m <= diam_m <= self.confirm_max_diameter_m
                     ):
                         trk.is_confirmed = True
                     elif (
                         trk.is_confirmed
                         and trk.hits >= 6
-                        and net_disp < 0.08
+                        and trk.max_disp_seen < 0.08
                         and trk.max_speed_seen < 0.16
                     ):
                         # Demote stationary debris/furniture mis-confirmed by transient sensor noise
                         trk.is_confirmed = False
+
+                    if trk.is_confirmed and len(trk.pos_history) >= 3:
+                        if (
+                            (not trk.imm_valid)
+                            or trk.imm_mu_harm < 0.80
+                            or len(trk.pos_history) <= 14
+                            or (trk.hits % 2 == 0)
+                        ):
+                            self._update_track_imm(trk)
 
         # 3. Coast unmatched tracks up to max_coast_ticks (2 ticks)
         to_remove: List[int] = []
@@ -1030,13 +1817,15 @@ class DynamicObstacleTracker:
                 age=1,
                 hits=1,
                 is_confirmed=False,
-                consecutive_hits=1,
+                consecutive_hits=(1 if allow_confirm else 0),
                 missed_ticks=0,
                 q_acc_scale=1.0,
                 vel_history=(),
                 birth_x=float(zx),
                 birth_y=float(zy),
                 max_speed_seen=0.0,
+                max_disp_seen=0.0,
+                pos_history=((float(stamp_sec), float(zx), float(zy)),),
             )
 
     def update(
@@ -1055,6 +1844,8 @@ class DynamicObstacleTracker:
         ext_origin_iy: int = 0,
         ext_res: float = 0.04,
         freeze_velocity: bool = False,
+        spike_ratio: float = 0.0,
+        scan_corrupted: bool = False,
     ) -> List[TrackedObstacle]:
         """
         Process a control tick.
@@ -1065,6 +1856,12 @@ class DynamicObstacleTracker:
         """
         t_eval = float(scan_stamp_sec if now_sec is None else now_sec)
         stamp_f = float(scan_stamp_sec)
+        spk_f = float(spike_ratio)
+        is_corrupt = bool(scan_corrupted) or (spk_f >= self.max_confirm_spike_ratio)
+        rot_guard_active = abs(float(omega)) > self.omega_rot_guard_rad_s
+        self.last_spike_ratio = spk_f
+        self.last_scan_corrupted = is_corrupt
+        allow_confirm = not is_corrupt
 
         # Mid-tick 5 Hz gating check
         if self._last_scan_stamp is not None and abs(stamp_f - self._last_scan_stamp) <= 1e-9:
@@ -1088,7 +1885,9 @@ class DynamicObstacleTracker:
         self._recenter_grid(rx, ry)
 
         if raw_ranges is None or len(raw_ranges) < 3:
-            self._kf_step_and_associate([], dt, stamp_f, freeze_velocity=freeze_velocity)
+            self._kf_step_and_associate(
+                [], dt, stamp_f, freeze_velocity=freeze_velocity, allow_confirm=allow_confirm
+            )
             return list(self.tracks.values())
 
         ranges = np.asarray(raw_ranges, dtype=np.float32)
@@ -1117,7 +1916,9 @@ class DynamicObstacleTracker:
                 np.empty(0, dtype=np.int32),
                 np.empty(0, dtype=np.float32),
             )
-            self._kf_step_and_associate([], dt, stamp_f, freeze_velocity=freeze_velocity)
+            self._kf_step_and_associate(
+                [], dt, stamp_f, freeze_velocity=freeze_velocity, allow_confirm=allow_confirm
+            )
             return list(self.tracks.values())
 
         r_val = ranges[valid_idx]
@@ -1182,6 +1983,26 @@ class DynamicObstacleTracker:
                 if not (self.min_chord_m <= chord_len <= self.max_chord_m):
                     continue
 
+                if seg_se is not None:
+                    start_v_pos = int(non_static_sel[seg_se[0]])
+                    end_v_pos = int(non_static_sel[seg_se[1] - 1])
+                else:
+                    (sl, el), (s0, e0) = wrap_se  # type: ignore[misc]
+                    start_v_pos = int(non_static_sel[sl])
+                    end_v_pos = int(non_static_sel[e0 - 1])
+                if self._is_static_wall_fragment(
+                    cl_pts,
+                    start_v_pos,
+                    end_v_pos,
+                    valid_idx,
+                    wx,
+                    wy,
+                    in_static,
+                    n_rays,
+                    is_full_360,
+                ):
+                    continue
+
                 est = correct_cluster_center_and_radius(
                     cl_pts,
                     robot_xy=(rx, ry),
@@ -1194,10 +2015,29 @@ class DynamicObstacleTracker:
 
         # KF association & update runs BEFORE updating static_occ so newly confirmed
         # tracks immediately mask out their dynamic footprint from static_occ.
-        self._kf_step_and_associate(detections, dt, stamp_f, freeze_velocity=freeze_velocity)
+        self._kf_step_and_associate(
+            detections,
+            dt,
+            stamp_f,
+            freeze_velocity=freeze_velocity,
+            allow_confirm=allow_confirm,
+            rot_guard_active=rot_guard_active,
+        )
 
         self._update_background_grids(
-            rx, ry, rth, ranges, cos_lut, sin_lut, r_val, wx, wy, ix, iy, pre_obs_free
+            rx,
+            ry,
+            rth,
+            ranges,
+            cos_lut,
+            sin_lut,
+            r_val,
+            wx,
+            wy,
+            ix,
+            iy,
+            pre_obs_free,
+            rot_guard_active=rot_guard_active,
         )
 
         if abs(t_eval - stamp_f) <= 1e-6:
@@ -1246,6 +2086,24 @@ class DynamicObstacleTracker:
                         missed_ticks=trk.missed_ticks,
                         q_acc_scale=trk.q_acc_scale,
                         vel_history=trk.vel_history,
+                        birth_x=trk.birth_x,
+                        birth_y=trk.birth_y,
+                        max_speed_seen=trk.max_speed_seen,
+                        max_disp_seen=trk.max_disp_seen,
+                        pos_history=trk.pos_history,
+                        imm_valid=trk.imm_valid,
+                        imm_u_hat=trk.imm_u_hat,
+                        imm_p_c=trk.imm_p_c,
+                        imm_amp=trk.imm_amp,
+                        imm_omega=trk.imm_omega,
+                        imm_phi=trk.imm_phi,
+                        imm_t_ref=trk.imm_t_ref,
+                        imm_mu_cv=trk.imm_mu_cv,
+                        imm_mu_harm=trk.imm_mu_harm,
+                        imm_sigma_h0=trk.imm_sigma_h0,
+                        imm_sigma_omega=trk.imm_sigma_omega,
+                        imm_harm_rmse=trk.imm_harm_rmse,
+                        imm_cv_rmse=trk.imm_cv_rmse,
                     )
                 )
         else:
@@ -1283,6 +2141,24 @@ class DynamicObstacleTracker:
                         missed_ticks=trk.missed_ticks,
                         q_acc_scale=trk.q_acc_scale,
                         vel_history=trk.vel_history,
+                        birth_x=trk.birth_x,
+                        birth_y=trk.birth_y,
+                        max_speed_seen=trk.max_speed_seen,
+                        max_disp_seen=trk.max_disp_seen,
+                        pos_history=trk.pos_history,
+                        imm_valid=trk.imm_valid,
+                        imm_u_hat=trk.imm_u_hat,
+                        imm_p_c=trk.imm_p_c,
+                        imm_amp=trk.imm_amp,
+                        imm_omega=trk.imm_omega,
+                        imm_phi=trk.imm_phi,
+                        imm_t_ref=trk.imm_t_ref,
+                        imm_mu_cv=trk.imm_mu_cv,
+                        imm_mu_harm=trk.imm_mu_harm,
+                        imm_sigma_h0=trk.imm_sigma_h0,
+                        imm_sigma_omega=trk.imm_sigma_omega,
+                        imm_harm_rmse=trk.imm_harm_rmse,
+                        imm_cv_rmse=trk.imm_cv_rmse,
                     )
                 )
         return out
@@ -1320,6 +2196,18 @@ class DynamicObstacleTracker:
                 trk.vel_history = tuple(
                     (c * hvx - s * hvy, s * hvx + c * hvy) for hvx, hvy in trk.vel_history
                 )
+            if trk.pos_history:
+                trk.pos_history = tuple(
+                    (ht, float(d_tx + c * hx - s * hy), float(d_ty + s * hx + c * hy))
+                    for ht, hx, hy in trk.pos_history
+                )
+            ux_o, uy_o = trk.imm_u_hat
+            trk.imm_u_hat = (float(c * ux_o - s * uy_o), float(s * ux_o + c * uy_o))
+            pcx_o, pcy_o = trk.imm_p_c
+            trk.imm_p_c = (
+                float(d_tx + c * pcx_o - s * pcy_o),
+                float(d_ty + s * pcx_o + c * pcy_o),
+            )
 
         if self.grid_initialized and (abs(d_tx) > 1e-4 or abs(d_ty) > 1e-4 or abs(d_th) > 1e-4):
             # Nearest-neighbor inverse warp of static_occ and observed_free to transformed world coords
@@ -1358,12 +2246,31 @@ class DynamicObstacleTracker:
         d_ty = ny - (s_d * ox + c_d * oy)
         self.apply_se2_increment(d_tx, d_ty, d_th)
 
+    def predict_trajectory(
+        self,
+        track: TrackedObstacle,
+        taus: Sequence[float],
+    ) -> TrajectoryPrediction:
+        """
+        Predict future centers p_hat(t + tau), uncertainty radii sigma(tau),
+        estimated sweep segment [p_c - A*u_hat, p_c + A*u_hat], and principal axis u_hat
+        for tau in [0.0, 4.5] s using the 2-model CV + Harmonic IMM predictor.
+        """
+        return predict_track_trajectory(
+            track,
+            taus=taus,
+            beta=self.beta,
+            q_acc_base=self.q_acc_base,
+            enable_harmonic=self.enable_spatiotemporal_dynamic_control,
+        )
+
     def predict_future(
         self, track: TrackedObstacle, tau: float
     ) -> Tuple[float, float, float, np.ndarray]:
         """
         Predict future position (px, py), uncertainty-inflated radius r_eff(tau),
         and 2x2 position covariance Sigma_p(tau) at horizon tau >= 0.
+        Uses CV+Harmonic IMM blend when harmonic model has non-trivial probability.
         """
         s0 = np.array([track.x, track.y, track.vx, track.vy], dtype=np.float64)
         cached = self._ch3_fq_cache.get(float(tau))
@@ -1381,8 +2288,20 @@ class DynamicObstacleTracker:
                 q_acc=self.q_acc_base * track.q_acc_scale,
             )
         cov_p = P_t[:2, :2]
+        if (
+            self.enable_spatiotemporal_dynamic_control
+            and getattr(track, "imm_valid", False)
+            and float(getattr(track, "imm_mu_harm", 0.0)) > 0.01
+        ):
+            pred = self.predict_trajectory(track, (float(tau),))
+            px = float(pred.centers[0, 0])
+            py = float(pred.centers[0, 1])
+            sig = float(pred.sigmas[0])
+            cov_imm = np.diag([sig * sig, sig * sig]).astype(np.float64)
+            r_eff = float(track.radius) + min(1.5 * sig, CH3_MAX_R_INFL)
+            return px, py, r_eff, cov_imm
         lam_max = max_eigenvalue_2x2(cov_p)
-        r_eff = float(track.radius) + 1.5 * math.sqrt(lam_max)
+        r_eff = float(track.radius) + min(1.5 * math.sqrt(lam_max), CH3_MAX_R_INFL)
         return float(s_t[0]), float(s_t[1]), r_eff, cov_p
 
     def project_ch3(
@@ -1463,6 +2382,9 @@ class DynamicObstacleTracker:
                     if F_ext is not None:
                         s_cur = F_ext @ s_cur
                         P_cur = F_ext @ P_cur @ F_ext.T + trk.q_acc_scale * Q_ext_base
+                        P_cur = 0.5 * (P_cur + P_cur.T)
+                        if now_sec is not None:
+                            self._extrap_cache_states[tid] = (s_cur, P_cur)
 
                 s_h = F_b @ s_cur  # (H, 4)
                 P_h = F_b @ P_cur @ FT_b + trk.q_acc_scale * Q_b  # (H, 4, 4)
@@ -1476,7 +2398,7 @@ class DynamicObstacleTracker:
                 cp = P_h[:, 1, 1]
                 disc = np.sqrt(np.maximum(0.0, (a - cp) ** 2 + 4.0 * b * b))
                 lam_max = np.maximum(0.0, 0.5 * (a + cp + disc))
-                r_eff = r_c + 1.5 * np.sqrt(lam_max)
+                r_eff = r_c + np.minimum(1.5 * np.sqrt(lam_max), CH3_MAX_R_INFL)
                 denom = np.maximum(r_eff - r_c, eps).astype(np.float32)[:, None]
 
                 gx = _EGO_FLAT_X[None, :] - ex
@@ -1498,16 +2420,21 @@ class DynamicObstacleTracker:
         denoms: List[float] = []
         wvals: List[float] = []
 
-        for trk in self.tracks.values():
+        for tid, trk in self.tracks.items():
             if not trk.is_confirmed:
                 continue
             r_c = float(trk.radius)
-            s_cur = np.array([trk.x, trk.y, trk.vx, trk.vy], dtype=np.float64)
-            P_cur = trk.P_4x4
-            if F_ext is not None:
-                s_cur = F_ext @ s_cur
-                P_cur = F_ext @ P_cur @ F_ext.T + trk.q_acc_scale * Q_ext_base
-                P_cur = 0.5 * (P_cur + P_cur.T)
+            if tid in self._extrap_cache_states and self._extrap_cache_stamp is not None and now_sec is not None and abs(float(now_sec) - self._extrap_cache_stamp) <= 1e-9:
+                s_cur, P_cur = self._extrap_cache_states[tid]
+            else:
+                s_cur = np.array([trk.x, trk.y, trk.vx, trk.vy], dtype=np.float64)
+                P_cur = trk.P_4x4
+                if F_ext is not None:
+                    s_cur = F_ext @ s_cur
+                    P_cur = F_ext @ P_cur @ F_ext.T + trk.q_acc_scale * Q_ext_base
+                    P_cur = 0.5 * (P_cur + P_cur.T)
+                    if now_sec is not None:
+                        self._extrap_cache_states[tid] = (s_cur, P_cur)
 
             for tau, w_tau in zip(hs, ws):
                 cached = self._ch3_fq_cache.get(float(tau))
@@ -1524,7 +2451,7 @@ class DynamicObstacleTracker:
                         q_acc=self.q_acc_base * trk.q_acc_scale,
                     )
                 lam_max = max_eigenvalue_2x2(P_t[:2, :2])
-                r_eff = r_c + 1.5 * math.sqrt(lam_max)
+                r_eff = r_c + min(1.5 * math.sqrt(lam_max), CH3_MAX_R_INFL)
                 dx = float(s_t[0]) - rx_f
                 dy = float(s_t[1]) - ry_f
                 ego_xs.append(c * dx + s * dy)

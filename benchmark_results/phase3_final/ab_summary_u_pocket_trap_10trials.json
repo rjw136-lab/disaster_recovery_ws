@@ -1,0 +1,38 @@
+{
+  "u_pocket_trap": {
+    "baseline": {
+      "scenario": "u_pocket_trap",
+      "label_ko": "ㄷ자 막다른 함정 (후진·대우회 필수)",
+      "strategy": "baseline",
+      "trials": 0,
+      "passes": 0,
+      "success_rate_pct": 0.0,
+      "arrival_passes": 0,
+      "arrival_success_rate_pct": 0.0,
+      "collision_trials": 0,
+      "mean_error_cm_all": NaN,
+      "mean_error_cm_pass": null,
+      "mean_time_s_all": NaN,
+      "mean_time_s_pass": null,
+      "mean_ret_path_m_pass": null,
+      "mean_explored_m": NaN
+    },
+    "proposed": {
+      "scenario": "u_pocket_trap",
+      "label_ko": "ㄷ자 막다른 함정 (후진·대우회 필수)",
+      "strategy": "phase4",
+      "trials": 10,
+      "passes": 8,
+      "success_rate_pct": 80.0,
+      "arrival_passes": 9,
+      "arrival_success_rate_pct": 90.0,
+      "collision_trials": 1,
+      "mean_error_cm_all": 15.62,
+      "mean_error_cm_pass": 4.31,
+      "mean_time_s_all": 95.78,
+      "mean_time_s_pass": 94.79,
+      "mean_ret_path_m_pass": 286.92,
+      "mean_explored_m": 15.56
+    }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "smoke_lidar_corruption": {
+    "baseline": {
+      "scenario": "smoke_lidar_corruption",
+      "label_ko": "화재 연기·분진 협곡 (LiDAR 산란 스파이크·결측)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 0,
+      "success_rate_pct": 0.0,
+      "arrival_passes": 0,
+      "arrival_success_rate_pct": 0.0,
+      "collision_trials": 1,
+      "mean_error_cm_all": 548.72,
+      "mean_error_cm_pass": null,
+      "mean_time_s_all": 250.48,
+      "mean_time_s_pass": null,
+      "mean_ret_path_m_pass": null,
+      "mean_explored_m": 14.45
+    },
+    "proposed": {
+      "scenario": "smoke_lidar_corruption",
+      "label_ko": "화재 연기·분진 협곡 (LiDAR 산란 스파이크·결측)",
+      "strategy": "proposed_rl",
+      "trials": 10,
+      "passes": 9,
+      "success_rate_pct": 90.0,
+      "arrival_passes": 10,
+      "arrival_success_rate_pct": 100.0,
+      "collision_trials": 1,
+      "mean_error_cm_all": 7.97,
+      "mean_error_cm_pass": 7.95,
+      "mean_time_s_all": 95.07,
+      "mean_time_s_pass": 90.8,
+      "mean_ret_path_m_pass": 13.49,
+      "mean_explored_m": 13.98
+    }
+  }
+}

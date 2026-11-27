@@ -1,0 +1,38 @@
+{
+  "maze": {
+    "baseline": {
+      "scenario": "maze",
+      "label_ko": "미로 격벽 (동적 이동 장애물 포함)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 0,
+      "success_rate_pct": 0.0,
+      "arrival_passes": 10,
+      "arrival_success_rate_pct": 100.0,
+      "collision_trials": 10,
+      "mean_error_cm_all": 2.88,
+      "mean_error_cm_pass": null,
+      "mean_time_s_all": 84.74,
+      "mean_time_s_pass": null,
+      "mean_ret_path_m_pass": null,
+      "mean_explored_m": 10.72
+    },
+    "proposed": {
+      "scenario": "maze",
+      "label_ko": "미로 격벽 (동적 이동 장애물 포함)",
+      "strategy": "proposed_rl",
+      "trials": 10,
+      "passes": 10,
+      "success_rate_pct": 100.0,
+      "arrival_passes": 10,
+      "arrival_success_rate_pct": 100.0,
+      "collision_trials": 0,
+      "mean_error_cm_all": 8.04,
+      "mean_error_cm_pass": 8.04,
+      "mean_time_s_all": 24.43,
+      "mean_time_s_pass": 24.43,
+      "mean_ret_path_m_pass": 2.7,
+      "mean_explored_m": 10.24
+    }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "dynamic_gauntlet": {
+    "baseline": {
+      "scenario": "dynamic_gauntlet",
+      "label_ko": "동적 장애물 교차 홀 (다중 낙석 + 회전 격벽)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 0,
+      "success_rate_pct": 0.0,
+      "arrival_passes": 7,
+      "arrival_success_rate_pct": 70.0,
+      "collision_trials": 10,
+      "mean_error_cm_all": 81.76,
+      "mean_error_cm_pass": null,
+      "mean_time_s_all": 194.92,
+      "mean_time_s_pass": null,
+      "mean_ret_path_m_pass": null,
+      "mean_explored_m": 21.3
+    },
+    "proposed": {
+      "scenario": "dynamic_gauntlet",
+      "label_ko": "동적 장애물 교차 홀 (다중 낙석 + 회전 격벽)",
+      "strategy": "phase4_real",
+      "trials": 10,
+      "passes": 3,
+      "success_rate_pct": 30.0,
+      "arrival_passes": 6,
+      "arrival_success_rate_pct": 60.0,
+      "collision_trials": 7,
+      "mean_error_cm_all": 217.32,
+      "mean_error_cm_pass": 8.65,
+      "mean_time_s_all": 212.58,
+      "mean_time_s_pass": 68.4,
+      "mean_ret_path_m_pass": 178.58,
+      "mean_explored_m": 21.21
+    }
+  }
+}

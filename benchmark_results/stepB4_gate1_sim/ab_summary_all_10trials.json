@@ -1,0 +1,74 @@
+{
+  "dynamic_gauntlet": {
+    "baseline": {
+      "scenario": "dynamic_gauntlet",
+      "label_ko": "동적 장애물 교차 홀 (다중 낙석 + 회전 격벽)",
+      "strategy": "baseline",
+      "trials": 0,
+      "passes": 0,
+      "success_rate_pct": 0.0,
+      "arrival_passes": 0,
+      "arrival_success_rate_pct": 0.0,
+      "collision_trials": 0,
+      "mean_error_cm_all": NaN,
+      "mean_error_cm_pass": null,
+      "mean_time_s_all": NaN,
+      "mean_time_s_pass": null,
+      "mean_ret_path_m_pass": null,
+      "mean_explored_m": NaN
+    },
+    "proposed": {
+      "scenario": "dynamic_gauntlet",
+      "label_ko": "동적 장애물 교차 홀 (다중 낙석 + 회전 격벽)",
+      "strategy": "phase4",
+      "trials": 10,
+      "passes": 7,
+      "success_rate_pct": 70.0,
+      "arrival_passes": 8,
+      "arrival_success_rate_pct": 80.0,
+      "collision_trials": 3,
+      "mean_error_cm_all": 120.95,
+      "mean_error_cm_pass": 4.63,
+      "mean_time_s_all": 137.23,
+      "mean_time_s_pass": 101.4,
+      "mean_ret_path_m_pass": 16.75,
+      "mean_explored_m": 19.1
+    }
+  },
+  "dynamic_crossfire_alley": {
+    "baseline": {
+      "scenario": "dynamic_crossfire_alley",
+      "label_ko": "동적 교차 협곡 (잔상 장벽·대각선 교차 장애물)",
+      "strategy": "baseline",
+      "trials": 0,
+      "passes": 0,
+      "success_rate_pct": 0.0,
+      "arrival_passes": 0,
+      "arrival_success_rate_pct": 0.0,
+      "collision_trials": 0,
+      "mean_error_cm_all": NaN,
+      "mean_error_cm_pass": null,
+      "mean_time_s_all": NaN,
+      "mean_time_s_pass": null,
+      "mean_ret_path_m_pass": null,
+      "mean_explored_m": NaN
+    },
+    "proposed": {
+      "scenario": "dynamic_crossfire_alley",
+      "label_ko": "동적 교차 협곡 (잔상 장벽·대각선 교차 장애물)",
+      "strategy": "phase4",
+      "trials": 10,
+      "passes": 7,
+      "success_rate_pct": 70.0,
+      "arrival_passes": 9,
+      "arrival_success_rate_pct": 90.0,
+      "collision_trials": 2,
+      "mean_error_cm_all": 12.14,
+      "mean_error_cm_pass": 9.29,
+      "mean_time_s_all": 65.0,
+      "mean_time_s_pass": 62.49,
+      "mean_ret_path_m_pass": 8.68,
+      "mean_explored_m": 14.15
+    }
+  }
+}

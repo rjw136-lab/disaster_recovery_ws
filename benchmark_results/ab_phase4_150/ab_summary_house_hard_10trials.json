@@ -1,0 +1,38 @@
+{
+  "house_hard": {
+    "baseline": {
+      "scenario": "house_hard",
+      "label_ko": "실내 가옥 HARD (다실 문틀 + 4~7개 낙석)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 0,
+      "success_rate_pct": 0.0,
+      "arrival_passes": 5,
+      "arrival_success_rate_pct": 50.0,
+      "collision_trials": 10,
+      "mean_error_cm_all": 80.96,
+      "mean_error_cm_pass": null,
+      "mean_time_s_all": 197.37,
+      "mean_time_s_pass": null,
+      "mean_ret_path_m_pass": null,
+      "mean_explored_m": 20.17
+    },
+    "proposed": {
+      "scenario": "house_hard",
+      "label_ko": "실내 가옥 HARD (다실 문틀 + 4~7개 낙석)",
+      "strategy": "phase4",
+      "trials": 10,
+      "passes": 5,
+      "success_rate_pct": 50.0,
+      "arrival_passes": 6,
+      "arrival_success_rate_pct": 60.0,
+      "collision_trials": 4,
+      "mean_error_cm_all": 111.98,
+      "mean_error_cm_pass": 8.95,
+      "mean_time_s_all": 212.11,
+      "mean_time_s_pass": 122.5,
+      "mean_ret_path_m_pass": 263.35,
+      "mean_explored_m": 19.3
+    }
+  }
+}

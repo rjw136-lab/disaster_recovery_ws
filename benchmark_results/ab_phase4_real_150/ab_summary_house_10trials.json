@@ -1,0 +1,38 @@
+{
+  "house": {
+    "baseline": {
+      "scenario": "house",
+      "label_ko": "실내 가옥 (다실 문틀·직각 복도)",
+      "strategy": "baseline",
+      "trials": 10,
+      "passes": 0,
+      "success_rate_pct": 0.0,
+      "arrival_passes": 9,
+      "arrival_success_rate_pct": 90.0,
+      "collision_trials": 10,
+      "mean_error_cm_all": 31.48,
+      "mean_error_cm_pass": null,
+      "mean_time_s_all": 127.35,
+      "mean_time_s_pass": null,
+      "mean_ret_path_m_pass": null,
+      "mean_explored_m": 16.9
+    },
+    "proposed": {
+      "scenario": "house",
+      "label_ko": "실내 가옥 (다실 문틀·직각 복도)",
+      "strategy": "phase4_real",
+      "trials": 10,
+      "passes": 5,
+      "success_rate_pct": 50.0,
+      "arrival_passes": 8,
+      "arrival_success_rate_pct": 80.0,
+      "collision_trials": 5,
+      "mean_error_cm_all": 78.74,
+      "mean_error_cm_pass": 8.82,
+      "mean_time_s_all": 154.7,
+      "mean_time_s_pass": 127.48,
+      "mean_ret_path_m_pass": 254.05,
+      "mean_explored_m": 16.22
+    }
+  }
+}

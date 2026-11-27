@@ -39,6 +39,8 @@ PATCH_SPAN_M = 1.8
 FLAT_INPUT_DIM = HISTORY_LEN * STEP_FEAT_DIM + PATCH_SIZE * PATCH_SIZE  # 544 + 144 = 688
 SEMANTIC_PATCH_CHANNELS = 3
 SEMANTIC_FLAT_INPUT_DIM = HISTORY_LEN * STEP_FEAT_DIM + SEMANTIC_PATCH_CHANNELS * PATCH_SIZE * PATCH_SIZE  # 544 + 432 = 976
+PHASE4_PATCH_CHANNELS = 4
+PHASE4_FLAT_INPUT_DIM = HISTORY_LEN * STEP_FEAT_DIM + PHASE4_PATCH_CHANNELS * PATCH_SIZE * PATCH_SIZE  # 544 + 576 = 1120
 
 TB3_MIN_V = -0.10
 TB3_MAX_V = 0.20
@@ -48,6 +50,41 @@ TB3_MAX_W = 0.65
 def compute_flat_input_dim(patch_channels: int = 1) -> int:
     """Return flattened observation dimension for DistilledEdgeStudent / ContextRLStudentPolicy."""
     return int(HISTORY_LEN * STEP_FEAT_DIM + int(patch_channels) * PATCH_SIZE * PATCH_SIZE)
+
+
+def compute_homotopy_gate(ch123_peak: float) -> float:
+    """Stage 3 continuous homotopy gate: g_res = clip((ch123_peak - 1e-4) / 0.04, 0.0, 1.0)."""
+    return float(np.clip((float(ch123_peak) - 1e-4) / 0.04, 0.0, 1.0))
+
+
+def compute_homotopy_blend(
+    v_base: float,
+    w_base: float,
+    v_rl: float,
+    w_rl: float,
+    alpha_rl: float,
+    ch123_peak: float,
+    v_min: float = TB3_MIN_V,
+    v_max: float = TB3_MAX_V,
+    w_max: float = TB3_MAX_W,
+) -> Tuple[float, float, float]:
+    """
+    Stage 3 continuous homotopy unification:
+      u_blend = clip(alpha_rl * u_rl + (1 - alpha_rl) * u_base)
+      g_res   = clip((ch123_peak - 1e-4) / 0.04, 0.0, 1.0)
+      u_nom   = (1 - g_res) * u_blend + g_res * u_rl
+    Returns (v_nom, w_nom, g_res).
+    """
+    a_rl = float(np.clip(alpha_rl, 0.0, 1.0))
+    a_base = 1.0 - a_rl
+    v_blend = float(np.clip(a_rl * v_rl + a_base * v_base, v_min, v_max))
+    w_blend = float(np.clip(a_rl * w_rl + a_base * w_base, -w_max, w_max))
+    g_res = compute_homotopy_gate(ch123_peak)
+    v_rl_c = float(np.clip(v_rl, v_min, v_max))
+    w_rl_c = float(np.clip(w_rl, -w_max, w_max))
+    v_nom = (1.0 - g_res) * v_blend + g_res * v_rl_c
+    w_nom = (1.0 - g_res) * w_blend + g_res * w_rl_c
+    return float(v_nom), float(w_nom), g_res
 
 
 def _build_ego_grid_xy() -> Tuple[np.ndarray, np.ndarray]:
@@ -271,8 +308,9 @@ class ContextRLStudentPolicy:
     """
     Edge inference wrapper maintaining 1.6s rolling observation context and executing
     distilled ONNX policy at 10-20 Hz (<1.5ms CPU latency).
-    Supports both 1-channel (688-dim) Phase 2-B ONNX models and 3-channel (976-dim)
-    Phase 3 semantic ONNX models via automatic input shape detection.
+    Supports 1-channel (688-dim) Phase 2-B, 3-channel (976-dim) Phase 3 semantic,
+    and 4-channel (1120-dim) Phase 4 dynamic-semantic ONNX models via automatic
+    input shape detection.
     """
 
     def __init__(
@@ -282,6 +320,7 @@ class ContextRLStudentPolicy:
         w_max: float = TB3_MAX_W,
         phase2b_mode: bool = False,
         patch_channels: Optional[int] = None,
+        v_min: float = TB3_MIN_V,
     ):
         if not HAS_ORT:
             raise RuntimeError("onnxruntime is required for ContextRLStudentPolicy")
@@ -299,23 +338,30 @@ class ContextRLStudentPolicy:
             detected_dim = int(inp_meta.shape[-1])
         if patch_channels is not None:
             self.patch_channels = int(patch_channels)
+        elif detected_dim == PHASE4_FLAT_INPUT_DIM:
+            self.patch_channels = PHASE4_PATCH_CHANNELS
         elif detected_dim == SEMANTIC_FLAT_INPUT_DIM:
-            self.patch_channels = 3
+            self.patch_channels = SEMANTIC_PATCH_CHANNELS
         else:
             patch_elems = max(PATCH_SIZE * PATCH_SIZE, detected_dim - HISTORY_LEN * STEP_FEAT_DIM)
             self.patch_channels = max(1, patch_elems // (PATCH_SIZE * PATCH_SIZE))
         self.flat_input_dim = compute_flat_input_dim(self.patch_channels)
 
+        self.v_min = float(v_min)
         self.v_max = float(v_max)
         self.w_max = float(w_max)
         self.phase2b_mode = bool(phase2b_mode)
         self._near_latch_ttl = np.zeros(24, dtype=np.int32)
+        self._needs_prime = True
+        self.last_ch123_peak = 0.0
         self.hist: Deque[np.ndarray] = collections.deque(maxlen=HISTORY_LEN)
         self.reset()
 
     def reset(self) -> None:
         self.hist.clear()
         self._near_latch_ttl.fill(0)
+        self._needs_prime = True
+        self.last_ch123_peak = 0.0
         zero_step = np.zeros(STEP_FEAT_DIM, dtype=np.float32)
         zero_step[:24] = 1.0
         for _ in range(HISTORY_LEN):
@@ -411,57 +457,104 @@ class ContextRLStudentPolicy:
         patch_channels: int = 1,
         semantic_obstacles: Optional[Sequence[Tuple[float, float, float]]] = None,
         semantic_hazards: Optional[Sequence[Tuple[float, float, float]]] = None,
+        dynamic_ch3: Optional[np.ndarray] = None,
+        angle_min: float = 0.0,
+        angle_increment: Optional[float] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
         feat = np.zeros(STEP_FEAT_DIM, dtype=np.float32)
         ch0 = np.zeros((PATCH_SIZE, PATCH_SIZE), dtype=np.float32)
+        half = 0.5 * PATCH_SPAN_M
+        cell_res = PATCH_SPAN_M / PATCH_SIZE
 
         if scan_ranges is not None and len(scan_ranges) >= 24:
-            r = np.asarray(scan_ranges, dtype=np.float32).copy()
-            if near_latch_ttl is not None:
-                finite_pos = np.isfinite(r) & (r > 0.0)
-                r[~finite_pos] = 3.5
-                r = np.clip(r, 0.12, 3.5)
-                n = len(r)
-                step = max(1, n // 24)
-                usable = step * 24
-                rolled = np.roll(r[:usable], step // 2)
-                rolled_fin = np.roll(finite_pos[:usable], step // 2)
-                sec_r = rolled.reshape(24, step)
-                sec_fin = rolled_fin.reshape(24, step)
-                bins_24 = sec_r.min(axis=1) / 3.5
-                for s in range(24):
-                    if np.any(sec_fin[s]):
-                        s_min = float(sec_r[s].min())
+            r_raw = np.asarray(scan_ranges, dtype=np.float32)
+            n = len(r_raw)
+            if angle_increment is not None and math.isfinite(float(angle_increment)) and float(angle_increment) != 0.0:
+                angs = (float(angle_min) + np.arange(n, dtype=np.float32) * float(angle_increment)).astype(np.float32)
+            else:
+                angs = np.linspace(
+                    float(angle_min), float(angle_min) + 2.0 * math.pi, n, endpoint=False, dtype=np.float32
+                )
+
+            # Classify LiDAR returns safely:
+            #   - valid_pos: finite positive returns (0 < r < 0.12 preserved as 0.12, NOT 3.5!)
+            #   - far_open:  +inf or r > 3.5 -> genuine open space (3.5)
+            #   - invalid:   NaN, -inf, or <= 0.0 -> latch/conservative neighbor fallback (never blindly 1.0)
+            valid_pos = np.isfinite(r_raw) & (r_raw > 0.0)
+            far_open = np.isposinf(r_raw) | (valid_pos & (r_raw > 3.5))
+            known_mask = valid_pos | far_open
+            r_known = np.full(n, 3.5, dtype=np.float32)
+            r_known[valid_pos] = np.clip(r_raw[valid_pos], 0.12, 3.5)
+
+            # Angle-based 24-bin assignment centered on 0 rad (handles non-multiples of 24 & arbitrary angle_min)
+            two_pi = 2.0 * math.pi
+            bin_width = two_pi / 24.0
+            angs_mod = np.mod(angs, two_pi)
+            bin_ids = (np.floor(np.mod(angs_mod + 0.5 * bin_width, two_pi) / bin_width).astype(np.int32)) % 24
+
+            bins_m = np.full(24, np.nan, dtype=np.float32)
+            bin_has_known = np.zeros(24, dtype=bool)
+            latched_bins = np.zeros(24, dtype=bool)
+            for s in range(24):
+                in_s = (bin_ids == s) & known_mask
+                if np.any(in_s):
+                    s_min = float(np.min(r_known[in_s]))
+                    bins_m[s] = s_min
+                    bin_has_known[s] = True
+                    if near_latch_ttl is not None:
                         if s_min < 0.18:
                             near_latch_ttl[s] = 15
                         else:
                             near_latch_ttl[s] = 0
-                    elif near_latch_ttl[s] > 0:
-                        bins_24[s] = 0.12 / 3.5
-                        near_latch_ttl[s] -= 1
-            else:
-                r[(~np.isfinite(r)) | (r < 0.12)] = 3.5
-                r = np.clip(r, 0.12, 3.5)
-                n = len(r)
-                step = max(1, n // 24)
-                usable = step * 24
-                rolled = np.roll(r[:usable], step // 2)
-                bins_24 = rolled.reshape(24, step).min(axis=1) / 3.5
-            feat[:24] = bins_24
+                elif near_latch_ttl is not None and near_latch_ttl[s] > 0:
+                    bins_m[s] = 0.12
+                    latched_bins[s] = True
+                    near_latch_ttl[s] -= 1
 
-            angs = np.linspace(0.0, 2.0 * math.pi, n, endpoint=False, dtype=np.float32)
-            half = 0.5 * PATCH_SPAN_M
-            cell_res = PATCH_SPAN_M / PATCH_SIZE
-            px = r * np.cos(angs)
-            py = r * np.sin(angs)
-            mask = (r < 3.42) & (px > -half) & (px < half) & (py > -half) & (py < half)
+            # Fill remaining unlatched invalid bins conservatively from nearest valid adjacent bins (or 0.12 if all invalid)
+            all_invalid = not bool(np.any(bin_has_known))
+            if all_invalid:
+                for s in range(24):
+                    if not np.isfinite(bins_m[s]):
+                        bins_m[s] = 0.12
+                        latched_bins[s] = True
+            else:
+                for s in range(24):
+                    if not np.isfinite(bins_m[s]):
+                        found_vals = []
+                        for offset in range(1, 13):
+                            l_idx = (s - offset) % 24
+                            r_idx = (s + offset) % 24
+                            if bin_has_known[l_idx]:
+                                found_vals.append(float(bins_m[l_idx]))
+                            if bin_has_known[r_idx]:
+                                found_vals.append(float(bins_m[r_idx]))
+                            if found_vals:
+                                break
+                        bins_m[s] = min(found_vals) if found_vals else 0.12
+
+            feat[:24] = np.clip(bins_m / 3.5, 0.12 / 3.5, 1.0)
+
+            # Build 12x12 Ch0 occupancy patch using true ray angles & safe near-latched hits
+            px = r_known * np.cos(angs)
+            py = r_known * np.sin(angs)
+            mask = valid_pos & (r_known < 3.42) & (px > -half) & (px < half) & (py > -half) & (py < half)
             if np.any(mask):
                 ix = np.clip(((px[mask] + half) / cell_res).astype(np.int32), 0, PATCH_SIZE - 1)
                 iy = np.clip(((py[mask] + half) / cell_res).astype(np.int32), 0, PATCH_SIZE - 1)
                 np.add.at(ch0, (ix, iy), 1.0)
-                ch0 = np.clip(ch0, 0.0, 1.0)
+            if np.any(latched_bins):
+                lat_idx = np.nonzero(latched_bins)[0]
+                lat_angs = lat_idx.astype(np.float32) * np.float32(bin_width)
+                lx = np.float32(0.12) * np.cos(lat_angs)
+                ly = np.float32(0.12) * np.sin(lat_angs)
+                lix = np.clip(((lx + half) / cell_res).astype(np.int32), 0, PATCH_SIZE - 1)
+                liy = np.clip(((ly + half) / cell_res).astype(np.int32), 0, PATCH_SIZE - 1)
+                np.add.at(ch0, (lix, liy), 1.0)
+            ch0 = np.clip(ch0, 0.0, 1.0)
         else:
-            feat[:24] = 1.0
+            # Conservative fail-safe lower bound matching all_invalid and td3_policy.py
+            feat[:24] = 0.12 / 3.5
 
         dx = tx - rx
         dy = ty - ry
@@ -488,7 +581,26 @@ class ContextRLStudentPolicy:
                 semantic_obstacles=semantic_obstacles,
                 semantic_hazards=semantic_hazards,
             )
-            patch = np.stack([ch0, ch1, ch2], axis=0).astype(np.float32)
+            if int(patch_channels) == 2:
+                patch = np.stack([ch0, ch1], axis=0).astype(np.float32)
+            elif int(patch_channels) == 3:
+                patch = np.stack([ch0, ch1, ch2], axis=0).astype(np.float32)
+            else:
+                if dynamic_ch3 is not None:
+                    ch3 = np.asarray(dynamic_ch3, dtype=np.float32)
+                    if ch3.shape != (PATCH_SIZE, PATCH_SIZE):
+                        raise ValueError(
+                            f"dynamic_ch3 shape must be ({PATCH_SIZE}, {PATCH_SIZE}), got {ch3.shape}"
+                        )
+                    ch3 = np.clip(
+                        np.nan_to_num(ch3, nan=0.0, posinf=1.0, neginf=0.0), 0.0, 1.0
+                    ).astype(np.float32)
+                else:
+                    ch3 = np.zeros((PATCH_SIZE, PATCH_SIZE), dtype=np.float32)
+                chans = [ch0, ch1, ch2, ch3]
+                while len(chans) < int(patch_channels):
+                    chans.append(np.zeros((PATCH_SIZE, PATCH_SIZE), dtype=np.float32))
+                patch = np.stack(chans[: int(patch_channels)], axis=0).astype(np.float32)
 
         return feat, patch
 
@@ -507,16 +619,34 @@ class ContextRLStudentPolicy:
         step_norm: float = 0.0,
         semantic_obstacles: Optional[Sequence[Tuple[float, float, float]]] = None,
         semantic_hazards: Optional[Sequence[Tuple[float, float, float]]] = None,
+        dynamic_ch3: Optional[np.ndarray] = None,
+        angle_min: float = 0.0,
+        angle_increment: Optional[float] = None,
     ) -> np.ndarray:
-        """Append the current step feature vector to the rolling context buffer."""
+        """Append the current step feature vector to the rolling context buffer (cold-start primed on first tick)."""
         feat, patch = self._build_step_and_patch(
             scan_ranges, rx, ry, rth, tx, ty, cmd_v, cmd_w, act_v, act_w, step_norm,
-            near_latch_ttl=(self._near_latch_ttl if self.phase2b_mode else None),
+            near_latch_ttl=self._near_latch_ttl,
             patch_channels=self.patch_channels,
             semantic_obstacles=semantic_obstacles,
             semantic_hazards=semantic_hazards,
+            dynamic_ch3=dynamic_ch3,
+            angle_min=angle_min,
+            angle_increment=angle_increment,
         )
-        self.hist.append(feat)
+        has_valid_scan = scan_ranges is not None and len(scan_ranges) >= 24
+        if self._needs_prime:
+            self.hist.clear()
+            for _ in range(HISTORY_LEN):
+                self.hist.append(feat.copy())
+            if has_valid_scan:
+                self._needs_prime = False
+        else:
+            self.hist.append(feat)
+        if self.patch_channels >= 3 and patch.ndim == 3 and patch.shape[0] >= 3:
+            self.last_ch123_peak = float(np.max(np.abs(patch[1:])))
+        else:
+            self.last_ch123_peak = 0.0
         return patch
 
     def predict(
@@ -534,16 +664,22 @@ class ContextRLStudentPolicy:
         step_norm: float = 0.0,
         semantic_obstacles: Optional[Sequence[Tuple[float, float, float]]] = None,
         semantic_hazards: Optional[Sequence[Tuple[float, float, float]]] = None,
+        dynamic_ch3: Optional[np.ndarray] = None,
+        angle_min: float = 0.0,
+        angle_increment: Optional[float] = None,
     ) -> Tuple[float, float]:
         patch = self.observe(
             scan_ranges, rx, ry, rth, tx, ty, cmd_v, cmd_w, act_v, act_w, step_norm,
             semantic_obstacles=semantic_obstacles,
             semantic_hazards=semantic_hazards,
+            dynamic_ch3=dynamic_ch3,
+            angle_min=angle_min,
+            angle_increment=angle_increment,
         )
         hist_arr = np.stack(list(self.hist), axis=0).reshape(1, -1)
         patch_arr = patch.reshape(1, -1)
         flat = np.concatenate([hist_arr, patch_arr], axis=1).astype(np.float32)
         out = self.sess.run(None, {self.input_name: flat})[0][0]
-        v = float(np.clip(out[0], TB3_MIN_V, self.v_max))
+        v = float(np.clip(out[0], self.v_min, self.v_max))
         w = float(np.clip(out[1], -self.w_max, self.w_max))
         return v, w

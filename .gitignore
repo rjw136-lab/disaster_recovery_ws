@@ -33,8 +33,21 @@ cam_test.png
 
 # Local-only agent & server instructions
 AGENTS.md
+QWEN.md
 SERVER_MISSION.md
 HANDOFF_SWARM.md
 HANDOFF_SLAM_PLAN.md
+.geminiignore
 .cache_atlas_models/
 docs/2026-11-14_중간상황_및_서버이관_체크포인트.md
+
+# Backups, archives, bags, and oversized showcase artifacts
+*.v3_backup
+*.bag
+*.zip
+benchmark_results/**/*.log
+benchmark_results/stepB4_showcase_videos/
+ENTRYPOINT
+ENV
+EOF
+FROM

@@ -39,6 +39,7 @@ from gazebo_msgs.srv import DeleteEntity, SpawnEntity
 from geometry_msgs.msg import Point, Twist
 from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Image, LaserScan
 from std_msgs.msg import Bool, Float32, Header, String
@@ -105,6 +106,44 @@ def _gas_disc_sdf(name: str, radius: float = 0.55) -> str:
         f"<emissive>0.55 0.22 0.0 0.5</emissive></material></visual>"
         f"</link></model></sdf>"
     )
+
+
+def compute_semantic_world_min_wall_geom(points: Sequence[Tuple[float, float]]) -> float:
+    """
+    Exact minimum signed distance from robot center trajectory points to all solid static
+    geometries in `disaster_semantic_rescue_world.world`:
+      - Outer perimeter walls: inner faces x in [-1.11, 7.51], y in [-2.31, 2.31]
+      - Partition 1 (x=1.45, thick 0.16): p1_n y in [0.945, 2.395], p1_s y in [-2.395, -0.745]
+      - Partition 2 (x=4.35, thick 0.16): p2_n y in [0.745, 2.395], p2_s y in [-2.395, -0.945]
+      - Internal pillars: pil_1(0.40, 1.65, 0.36x0.36), pil_2(3.00, -1.75, 0.40x0.40),
+        pil_3(6.60, -1.55, 0.45x0.45)
+      - Standing survivor cylinder: survivor_person(5.85, 0.45, radius=0.22)
+    """
+    boxes = (
+        (1.45, 1.67, 0.08, 0.725),    # p1_n: y >= +0.945
+        (1.45, -1.57, 0.08, 0.825),   # p1_s: y <= -0.745
+        (4.35, 1.57, 0.08, 0.825),    # p2_n: y >= +0.745
+        (4.35, -1.67, 0.08, 0.725),   # p2_s: y <= -0.945
+        (0.40, 1.65, 0.18, 0.18),     # pil_1
+        (3.00, -1.75, 0.20, 0.20),    # pil_2
+        (6.60, -1.55, 0.225, 0.225),  # pil_3
+    )
+    min_d = 99.0
+    for wx, wy in points:
+        wx_f, wy_f = float(wx), float(wy)
+        mw = min(abs(wx_f - (-1.11)), abs(7.51 - wx_f), abs(wy_f - (-2.31)), abs(2.31 - wy_f))
+        for cx, cy, hx, hy in boxes:
+            dx = max(0.0, abs(wx_f - cx) - hx)
+            dy = max(0.0, abs(wy_f - cy) - hy)
+            d_box = math.hypot(dx, dy)
+            if d_box < mw:
+                mw = d_box
+        d_surv = max(0.0, math.hypot(wx_f - 5.85, wy_f - 0.45) - 0.22)
+        if d_surv < mw:
+            mw = d_surv
+        if mw < min_d:
+            min_d = mw
+    return float(min_d)
 
 
 def _make_rviz_semantic_config(src_rviz: str, dst_rviz: str, win_w: int = 700, win_h: int = 640, win_x: int = 1220, win_y: int = 0) -> None:
@@ -209,7 +248,10 @@ def _arrange_3pane_windows(display_str: str, rviz_h: int = 640) -> None:
 
 class SemanticSuiteNode(Node):
     def __init__(self):
-        super().__init__("phase3_semantic_suite")
+        super().__init__(
+            "phase3_semantic_suite",
+            parameter_overrides=[Parameter("use_sim_time", value=True)],
+        )
         sensor_qos = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=10)
         rel_qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=10)
         map_qos = QoSProfile(
@@ -240,11 +282,25 @@ class SemanticSuiteNode(Node):
 
         self.bridge = CvBridge()
         self.odom_ready = False
+        self.odom_seq = 0
         self.scan_ready = False
         self.cur_x = 0.0
         self.cur_y = 0.0
         self.cur_th = 0.0
+        self.cur_roll_deg = 0.0
+        self.cur_pitch_deg = 0.0
+        self.cur_tilt_deg = 0.0
+        self.max_roll_pitch_deg = 0.0
         self.ctrl_state = "INIT"
+        self.ctrl_stack = 0
+        self.ctrl_pose: Optional[Tuple[float, float, float]] = None
+        self.status_seq = 0
+        self.cbf_status_stats: Dict[str, float] = {}
+        self.cbf_mq2_escape_steps = 0
+        self.cur_confirmed_dyn_tracks = 0
+        self.max_confirmed_dyn_tracks = 0
+        self.cur_crossing_mode = "NONE"
+        self.crossing_scheduler_modes: set = set()
         self.scan_ranges: Optional[np.ndarray] = None
         self.scan_angles: Optional[np.ndarray] = None
         self.scan_front_min = 10.0
@@ -265,10 +321,114 @@ class SemanticSuiteNode(Node):
     def sim_now(self) -> float:
         return self.get_clock().now().nanoseconds * 1e-9
 
-    def sim_sleep(self, sec: float) -> None:
+    def sim_sleep(self, sec: float, wall_timeout_s: Optional[float] = None) -> None:
         t0 = self.sim_now()
-        while self.sim_now() - t0 < sec:
+        w0 = time.time()
+        max_wall = float(wall_timeout_s) if wall_timeout_s is not None else max(15.0, float(sec) * 10.0 + 10.0)
+        while (self.sim_now() - t0 < sec) and (time.time() - w0 < max_wall):
             rclpy.spin_once(self, timeout_sec=0.01)
+
+    def wait_for_teleport_odom(
+        self,
+        target_x: float = 0.0,
+        target_y: float = 0.0,
+        tol_m: float = 0.15,
+        timeout_wall_s: float = 8.0,
+    ) -> bool:
+        """Wait until fresh /odom arrives within tol_m of teleport target before publishing reset."""
+        start_seq = self.odom_seq
+        w0 = time.time()
+        while time.time() - w0 < timeout_wall_s:
+            rclpy.spin_once(self, timeout_sec=0.02)
+            if self.odom_seq > start_seq and math.hypot(self.cur_x - target_x, self.cur_y - target_y) < tol_m:
+                return True
+        return False
+
+    def reset_trial_telemetry(self) -> None:
+        """Reset per-trial tilt, CBF escape, dynamic-track, and crossing-mode accumulators."""
+        self.max_roll_pitch_deg = 0.0
+        self.cbf_mq2_escape_steps = 0
+        self.max_confirmed_dyn_tracks = 0
+        self.crossing_scheduler_modes = set()
+
+    def reset_episode_and_sync(
+        self,
+        gz_uri: str,
+        target_x: float = 0.0,
+        target_y: float = 0.0,
+        tol_m: float = 0.15,
+        max_teleport_attempts: int = 3,
+    ) -> bool:
+        """
+        Synchronized inter-trial reset sequence:
+          1) Enable heartbeat and send zero velocity command before teleport.
+          2) Teleport burger to (0, 0, 0.01) and verify wait_for_teleport_odom() (retry on failure).
+          3) sim_sleep(0.5) and confirm /recovery/status POSE is within tol_m of (0, 0).
+          4) Publish /recovery/reset_episode and confirm STATE:NORMAL_TELEOP & STACK<=1 (& POSE<=tol_m).
+        """
+        self.hb_enabled = True
+        self.stop()
+
+        odom_ok = False
+        for _ in range(max(1, int(max_teleport_attempts))):
+            run_cmd_bounded(
+                f"GAZEBO_MASTER_URI={gz_uri} timeout -k 1 2 gz model -m burger "
+                f"-x {target_x:.3f} -y {target_y:.3f} -z 0.01 -R 0 -P 0 -Y 0 >/dev/null 2>&1",
+                timeout_s=3.0,
+            )
+            if self.wait_for_teleport_odom(target_x, target_y, tol_m=tol_m, timeout_wall_s=8.0):
+                odom_ok = True
+                break
+        if not odom_ok:
+            print(
+                f"[WARN] wait_for_teleport_odom failed after {max_teleport_attempts} attempts "
+                f"(cur_odom=({self.cur_x:.3f}, {self.cur_y:.3f}))",
+                flush=True,
+            )
+
+        self.sim_sleep(0.5)
+        # Verify /recovery/status POSE settled within tol_m of (0, 0) prior to reset
+        st_seq0 = self.status_seq
+        w0 = time.time()
+        while time.time() - w0 < 4.0:
+            rclpy.spin_once(self, timeout_sec=0.02)
+            if (
+                self.status_seq > st_seq0
+                and self.ctrl_pose is not None
+                and math.hypot(self.ctrl_pose[0] - target_x, self.ctrl_pose[1] - target_y) <= tol_m
+            ):
+                break
+
+        # Publish /recovery/reset_episode and verify STATE:NORMAL_TELEOP, STACK<=1, and POSE<=tol_m
+        synced = False
+        for attempt in range(2):
+            reset_seq = self.status_seq
+            self.pub_reset.publish(Bool(data=True))
+            self.sim_sleep(0.25)
+            w_r = time.time()
+            while time.time() - w_r < (3.0 if attempt == 0 else 5.0):
+                rclpy.spin_once(self, timeout_sec=0.02)
+                if (
+                    self.status_seq > reset_seq + 1
+                    and self.ctrl_state == "NORMAL_TELEOP"
+                    and self.ctrl_stack <= 1
+                    and self.ctrl_pose is not None
+                    and math.hypot(self.ctrl_pose[0] - target_x, self.ctrl_pose[1] - target_y) <= tol_m
+                ):
+                    synced = True
+                    break
+            if synced:
+                break
+        if not synced:
+            print(
+                f"[WARN] Post-reset sync incomplete: state={self.ctrl_state}, "
+                f"stack={self.ctrl_stack}, pose={self.ctrl_pose}",
+                flush=True,
+            )
+        # Allow fresh 5 Hz /scan to bind start_scan_pts cleanly at (0, 0)
+        self.sim_sleep(0.25)
+        self.reset_trial_telemetry()
+        return bool(odom_ok and synced)
 
     def _hb_tick(self):
         if self.hb_enabled:
@@ -283,22 +443,33 @@ class SemanticSuiteNode(Node):
         self.cur_y = float(msg.pose.pose.position.y)
         q = msg.pose.pose.orientation
         self.cur_th = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        sinr_cosp = 2.0 * (q.w * q.x + q.y * q.z)
+        cosr_cosp = 1.0 - 2.0 * (q.x * q.x + q.y * q.y)
+        self.cur_roll_deg = abs(math.degrees(math.atan2(sinr_cosp, cosr_cosp)))
+        sinp = max(-1.0, min(1.0, 2.0 * (q.w * q.y - q.z * q.x)))
+        self.cur_pitch_deg = abs(math.degrees(math.asin(sinp)))
+        self.cur_tilt_deg = max(self.cur_roll_deg, self.cur_pitch_deg)
+        if self.cur_tilt_deg > self.max_roll_pitch_deg:
+            self.max_roll_pitch_deg = self.cur_tilt_deg
         self.odom_ready = True
+        self.odom_seq += 1
 
     def _cb_scan(self, msg: LaserScan):
         r = np.array(msg.ranges, dtype=np.float32)
         ang = msg.angle_min + np.arange(len(r)) * msg.angle_increment
         ang = (ang + math.pi) % (2.0 * math.pi) - math.pi
-        clean = np.where((r >= 0.10) & (r <= 3.5) & np.isfinite(r), r, 3.5)
-        valid = (r >= 0.10) & (r <= 3.5) & np.isfinite(r)
+        # Clamp positive ultra-close returns (0 < r < 0.120) to 0.120 so ultra-close collisions are never missed
+        r_eff = np.where(np.isfinite(r) & (r > 0.0) & (r < 0.120), np.float32(0.120), r)
+        clean = np.where((r_eff >= 0.10) & (r_eff <= 3.5) & np.isfinite(r_eff), r_eff, 3.5)
+        valid = (r_eff >= 0.10) & (r_eff <= 3.5) & np.isfinite(r_eff)
         fwd = valid & (np.abs(ang) <= math.radians(25.0))
         left = valid & (ang > math.radians(25.0)) & (ang <= math.radians(85.0))
         right = valid & (ang < -math.radians(25.0)) & (ang >= -math.radians(85.0))
-        self.scan_front_min = float(np.min(r[fwd])) if np.any(fwd) else 10.0
-        self.scan_left_min = float(np.min(r[left])) if np.any(left) else 10.0
-        self.scan_right_min = float(np.min(r[right])) if np.any(right) else 10.0
-        phys = (r >= 0.120) & (r <= 3.5) & np.isfinite(r)
-        self.scan_all_min = float(np.min(r[phys])) if np.any(phys) else 10.0
+        self.scan_front_min = float(np.min(r_eff[fwd])) if np.any(fwd) else 10.0
+        self.scan_left_min = float(np.min(r_eff[left])) if np.any(left) else 10.0
+        self.scan_right_min = float(np.min(r_eff[right])) if np.any(right) else 10.0
+        phys = (r_eff >= 0.120) & (r_eff <= 3.5) & np.isfinite(r_eff)
+        self.scan_all_min = float(np.min(r_eff[phys])) if np.any(phys) else 10.0
         self.scan_ranges = clean
         self.scan_angles = ang
         self.scan_ready = True
@@ -307,6 +478,52 @@ class SemanticSuiteNode(Node):
         for part in msg.data.split("|"):
             if part.startswith("STATE:"):
                 self.ctrl_state = part.split(":", 1)[1]
+            elif part.startswith("STACK:"):
+                try:
+                    self.ctrl_stack = int(part.split(":", 1)[1])
+                except ValueError:
+                    pass
+            elif part.startswith("POSE:"):
+                try:
+                    xs, ys, ths = part.split(":", 1)[1].split(",")
+                    self.ctrl_pose = (float(xs), float(ys), float(ths))
+                except ValueError:
+                    pass
+            elif part.startswith("CBF:"):
+                try:
+                    vals = part.split(":", 1)[1].split(",")
+                    if len(vals) >= 7:
+                        self.cbf_status_stats = {
+                            "total_steps": float(vals[0]),
+                            "intervention_steps": float(vals[1]),
+                            "v_sign_reversals": float(vals[2]),
+                            "v_stall_toggles": float(vals[3]),
+                            "reverse_steps": float(vals[4]),
+                            "max_slack_seen": float(vals[5]),
+                            "mean_solve_ms": float(vals[6]),
+                        }
+                        if len(vals) >= 8:
+                            self.cbf_status_stats["max_solve_ms"] = float(vals[7])
+                        if len(vals) >= 9:
+                            mq2_st = int(float(vals[8]))
+                            self.cbf_status_stats["mq2_escape_steps"] = float(mq2_st)
+                            self.cbf_mq2_escape_steps = mq2_st
+                except ValueError:
+                    pass
+            elif part.startswith("DYN:"):
+                try:
+                    n_dyn = int(part.split(":", 1)[1])
+                    self.cur_confirmed_dyn_tracks = n_dyn
+                    if n_dyn > self.max_confirmed_dyn_tracks:
+                        self.max_confirmed_dyn_tracks = n_dyn
+                except ValueError:
+                    pass
+            elif part.startswith("CROSS:"):
+                cmode = part.split(":", 1)[1].strip()
+                if cmode:
+                    self.cur_crossing_mode = cmode
+                    self.crossing_scheduler_modes.add(cmode)
+        self.status_seq += 1
 
     def _cb_det_objs(self, msg: String):
         try:
@@ -348,8 +565,10 @@ class SemanticSuiteNode(Node):
     def drive_to_waypoints(self, waypoints: Sequence[Tuple[float, float]], max_sim_sec: float = 90.0, on_step=None) -> List[Tuple[float, float]]:
         pts = [(self.cur_x, self.cur_y)]
         t0 = self.sim_now()
+        w0 = time.time()
+        max_wall = max(30.0, float(max_sim_sec) * 3.0 + 15.0)
         idx = 0
-        while self.sim_now() - t0 < max_sim_sec and idx < len(waypoints):
+        while (self.sim_now() - t0 < max_sim_sec) and (time.time() - w0 < max_wall) and idx < len(waypoints):
             rclpy.spin_once(self, timeout_sec=0.02)
             gx, gy = waypoints[idx]
             dist = math.hypot(gx - self.cur_x, gy - self.cur_y)
@@ -373,6 +592,8 @@ class SemanticSuiteNode(Node):
                 on_step()
             self.sim_sleep(0.05)
         self.stop()
+        if math.hypot(self.cur_x - pts[-1][0], self.cur_y - pts[-1][1]) >= 1e-3:
+            pts.append((self.cur_x, self.cur_y))
         return pts
 
     def publish_overlay_markers(
@@ -780,11 +1001,8 @@ def run_ab10(args) -> int:
                     _delete_entity(node, f"low_obs_{k}")
                 _delete_entity(node, "gas_zone_1")
 
-                # Reset burger pose to (0,0,0)
-                run_cmd_bounded(f"GAZEBO_MASTER_URI={gz_uri} timeout -k 1 2 gz model -m burger -x 0.0 -y 0.0 -z 0.01 -R 0 -P 0 -Y 0 >/dev/null 2>&1", timeout_s=3.0)
-                node.hb_enabled = True
-                node.pub_reset.publish(Bool(data=True))
-                node.sim_sleep(0.4)
+                # Reset burger pose to (0,0,0) and confirm fresh /odom + /recovery/status sync before episode reset
+                node.reset_episode_and_sync(gz_uri, target_x=0.0, target_y=0.0, tol_m=0.15)
 
                 # Spawn trial low obstacles + gas disc AFTER outbound or before?
                 # Spawn low obstacles during exploration? Wait: outbound follows clean corridor waypoints around them or spawns right before blackout (like sudden rubble/furniture obstacles), AND semantic cache holds them!
@@ -796,7 +1014,7 @@ def run_ab10(args) -> int:
                 _spawn_model_at(node, "gas_zone_1", _gas_disc_sdf("gas_zone_1"), gas_xy[0], gas_xy[1], 0.0)
 
                 # Guided outbound path past doorways to survivor alcove (4.95, 0.25)
-                out_wps = [(0.9, 0.0), (1.55, 0.48), (2.7, 0.55), (4.2, 0.10), (4.95, 0.25)]
+                out_wps = [(0.9, 0.0), (1.55, 0.55), (2.7, 0.60), (3.95, 0.55), (4.45, 0.30), (4.95, 0.25)]
                 outbound_path = node.drive_to_waypoints(out_wps, max_sim_sec=75.0)
                 node.sim_sleep(0.3)
 
@@ -812,49 +1030,91 @@ def run_ab10(args) -> int:
                 # Trigger blackout!
                 node.hb_enabled = False
                 t_blk = node.sim_now()
+                w_blk = time.time()
                 saw_rec = False
-                arrived = False
-                ret_traj = [(node.cur_x, node.cur_y)]
+                mission_complete = False
+                tp_init = get_gazebo_true_pose("burger")
+                px0, py0 = (tp_init[0], tp_init[1]) if tp_init is not None else (node.cur_x, node.cur_y)
+                outbound_end_err_m = math.hypot(px0 - out_wps[-1][0], py0 - out_wps[-1][1])
+                outbound_reached = bool(outbound_end_err_m <= 0.40)
+                ret_traj = [(px0, py0)]
                 min_low_d = 99.0
                 min_gas_d = 99.0
                 min_scan_m = 10.0
 
-                while node.sim_now() - t_blk < 130.0:
-                    rclpy.spin_once(node, timeout_sec=0.02)
-                    if node.ctrl_state in ("BACKTRACKING_ROTATE", "BACKTRACKING_HYBRID", "BACKTRACKING_TRANSLATE", "LOCAL_TD3_AVOIDANCE", "MISSION_COMPLETE"):
-                        saw_rec = True
-                    if saw_rec:
-                        d_l = min(math.hypot(node.cur_x - lx, node.cur_y - ly) for lx, ly in low_list)
-                        if d_l < 0.45:
-                            tp = get_gazebo_true_pose("burger")
-                            if tp is not None:
-                                d_l = min(math.hypot(tp[0] - lx, tp[1] - ly) for lx, ly in low_list)
-                        min_low_d = min(min_low_d, d_l)
-                        d_g = math.hypot(node.cur_x - gas_xy[0], node.cur_y - gas_xy[1])
-                        min_gas_d = min(min_gas_d, d_g)
-                        min_scan_m = min(min_scan_m, node.scan_all_min)
+                latest_tp: List[Optional[Tuple[float, float, float]]] = [tp_init]
+                stop_tp_poll = threading.Event()
 
-                    if math.hypot(node.cur_x - ret_traj[-1][0], node.cur_y - ret_traj[-1][1]) >= 0.10:
-                        ret_traj.append((node.cur_x, node.cur_y))
-                    if saw_rec and node.ctrl_state in ("MISSION_COMPLETE", "NORMAL_TELEOP"):
-                        arrived = True
-                        break
-                    self_sleep_t = node.sim_now()
-                    while node.sim_now() - self_sleep_t < 0.08:
-                        rclpy.spin_once(node, timeout_sec=0.01)
+                def _poll_true_pose() -> None:
+                    while not stop_tp_poll.is_set():
+                        p = get_gazebo_true_pose("burger")
+                        if p is not None:
+                            latest_tp[0] = p
+                        time.sleep(0.04)
+
+                tp_thread = threading.Thread(target=_poll_true_pose, daemon=True)
+                tp_thread.start()
+
+                try:
+                    while (node.sim_now() - t_blk < 130.0) and (time.time() - w_blk < 300.0):
+                        for _ in range(25):
+                            rclpy.spin_once(node, timeout_sec=0.002)
+                            if node.ctrl_state == "MISSION_COMPLETE":
+                                break
+                        tp = latest_tp[0]
+                        if tp is not None and math.isfinite(tp[0]) and math.isfinite(tp[1]):
+                            px, py = float(tp[0]), float(tp[1])
+                        else:
+                            px, py = node.cur_x, node.cur_y
+                        if (
+                            node.ctrl_state in ("BACKTRACKING_ROTATE", "BACKTRACKING_HYBRID", "BACKTRACKING_TRANSLATE", "LOCAL_TD3_AVOIDANCE", "MISSION_COMPLETE")
+                            or math.hypot(px - px0, py - py0) >= 0.15
+                            or math.hypot(node.cur_x - px0, node.cur_y - py0) >= 0.15
+                        ):
+                            saw_rec = True
+                        if saw_rec:
+                            d_l = min(math.hypot(px - lx, py - ly) for lx, ly in low_list)
+                            min_low_d = min(min_low_d, d_l)
+                            d_g = math.hypot(px - gas_xy[0], py - gas_xy[1])
+                            min_gas_d = min(min_gas_d, d_g)
+                            min_scan_m = min(min_scan_m, node.scan_all_min)
+
+                        if math.hypot(px - ret_traj[-1][0], py - ret_traj[-1][1]) >= 0.10:
+                            ret_traj.append((px, py))
+                        if node.ctrl_state == "MISSION_COMPLETE":
+                            mission_complete = True
+                            break
+                        self_sleep_t = node.sim_now()
+                        self_sleep_w = time.time()
+                        while (node.sim_now() - self_sleep_t < 0.04) and (time.time() - self_sleep_w < 0.2):
+                            rclpy.spin_once(node, timeout_sec=0.002)
+                            if node.ctrl_state == "MISSION_COMPLETE":
+                                mission_complete = True
+                                break
+                        if mission_complete:
+                            break
+                finally:
+                    stop_tp_poll.set()
+                    tp_thread.join(timeout=1.5)
 
                 ret_dur = node.sim_now() - t_blk
                 tp_end = get_gazebo_true_pose("burger")
-                fx, fy = (tp_end[0], tp_end[1]) if tp_end is not None else (node.cur_x, node.cur_y)
+                if tp_end is not None and math.isfinite(tp_end[0]) and math.isfinite(tp_end[1]):
+                    fx, fy = float(tp_end[0]), float(tp_end[1])
+                else:
+                    fx, fy = node.cur_x, node.cur_y
+                if saw_rec:
+                    min_low_d = min(min_low_d, min(math.hypot(fx - lx, fy - ly) for lx, ly in low_list))
+                    min_gas_d = min(min_gas_d, math.hypot(fx - gas_xy[0], fy - gas_xy[1]))
                 err_m = math.hypot(fx, fy)
-                if arrived and err_m > 0.85:
-                    arrived = False
-                elif not arrived and err_m < 0.60 and saw_rec:
-                    arrived = True
+                arrived = bool(mission_complete and err_m <= 0.85)
+
+                min_wall_geom = compute_semantic_world_min_wall_geom(ret_traj + [(fx, fy)])
 
                 low_col = bool(min_low_d < 0.255)
                 gas_viol = bool(min_gas_d < 0.55)
-                cf_pass = bool(arrived and (not low_col))
+                wall_col = bool(min_wall_geom < 0.105 or min_scan_m < 0.125)
+                cf_pass = bool(arrived and (not low_col) and (not wall_col))
                 strict_pass = bool(cf_pass and (not gas_viol))
 
                 rec = {
@@ -862,13 +1122,23 @@ def run_ab10(args) -> int:
                     "seed": spec["seed"],
                     "mode": mode_key,
                     "use_semantic_rl_policy": use_sem,
+                    "outbound_reached": outbound_reached,
+                    "outbound_end_err_m": round(outbound_end_err_m, 4),
+                    "max_roll_pitch_deg": round(node.max_roll_pitch_deg, 2),
+                    "cbf_mq2_escape_steps": int(node.cbf_mq2_escape_steps),
+                    "max_confirmed_dyn_tracks": int(node.max_confirmed_dyn_tracks),
+                    "crossing_scheduler_modes": sorted(node.crossing_scheduler_modes),
+                    "mission_complete": mission_complete,
                     "arrival_success": arrived,
                     "low_obstacle_collision": low_col,
+                    "wall_collision": wall_col,
                     "gas_zone_violated": gas_viol,
                     "collision_free_success": cf_pass,
                     "strict_hazard_free_success": strict_pass,
                     "min_low_obstacle_dist_m": round(min_low_d, 4),
                     "min_gas_zone_dist_m": round(min_gas_d, 4),
+                    "min_wall_geom_m": round(min_wall_geom, 4),
+                    "min_scan_m": round(min_scan_m, 4),
                     "return_duration_s": round(ret_dur, 2),
                     "terminal_error_cm": round(err_m * 100.0, 2),
                     "low_obstacles": low_list,
@@ -878,8 +1148,10 @@ def run_ab10(args) -> int:
                 }
                 results[mode_key].append(rec)
                 print(
-                    f"  [{mode_key:15s} #{t_idx:02d}/{trials_n}] cf_pass={cf_pass} | low_col={low_col} (d={min_low_d:.3f}m) | "
-                    f"gas_viol={gas_viol} (d={min_gas_d:.3f}m) | err={err_m*100:.1f}cm | t={ret_dur:.1f}s",
+                    f"  [{mode_key:15s} #{t_idx:02d}/{trials_n}] out_ok={outbound_reached}({outbound_end_err_m:.2f}m) "
+                    f"tilt={node.max_roll_pitch_deg:.1f}deg | strict={strict_pass} cf={cf_pass} | "
+                    f"low={low_col} (d={min_low_d:.3f}m) wall={wall_col} (wg={min_wall_geom:.3f}m) | "
+                    f"gas={gas_viol} (d={min_gas_d:.3f}m) | err={err_m*100:.1f}cm | t={ret_dur:.1f}s",
                     flush=True,
                 )
         finally:
@@ -893,14 +1165,20 @@ def run_ab10(args) -> int:
         n = max(1, len(arr))
         summary[k] = {
             "trials": len(arr),
+            "outbound_reached_count": sum(1 for r in arr if r["outbound_reached"]),
             "arrival_passes": sum(1 for r in arr if r["arrival_success"]),
             "collision_free_passes": sum(1 for r in arr if r["collision_free_success"]),
             "strict_hazard_free_passes": sum(1 for r in arr if r["strict_hazard_free_success"]),
             "low_obstacle_collisions": sum(1 for r in arr if r["low_obstacle_collision"]),
+            "wall_collisions": sum(1 for r in arr if r["wall_collision"]),
             "gas_zone_violations": sum(1 for r in arr if r["gas_zone_violated"]),
+            "total_cbf_mq2_escape_steps": sum(int(r["cbf_mq2_escape_steps"]) for r in arr),
+            "max_confirmed_dyn_tracks": max((int(r["max_confirmed_dyn_tracks"]) for r in arr), default=0),
             "mean_min_low_dist_m": round(float(np.mean([r["min_low_obstacle_dist_m"] for r in arr])), 4),
             "mean_min_gas_dist_m": round(float(np.mean([r["min_gas_zone_dist_m"] for r in arr])), 4),
+            "mean_min_scan_m": round(float(np.mean([r["min_scan_m"] for r in arr])), 4),
             "mean_return_time_s": round(float(np.mean([r["return_duration_s"] for r in arr])), 2),
+            "mean_terminal_error_cm": round(float(np.mean([r["terminal_error_cm"] for r in arr])), 2),
         }
     out_json = os.path.join(WS_ROOT, "benchmark_results", "phase3_semantic_v3", "semantic_avoidance_ab_10trials.json")
     os.makedirs(os.path.dirname(out_json), exist_ok=True)
@@ -1067,7 +1345,7 @@ def _annotate_mp4_and_gif(
             prev = out_tag
         cmd.extend([
             "-filter_complex", ";".join(filters), "-map", "[v]",
-            "-c:v", "libx264", "-preset", "medium", "-crf", "22", "-pix_fmt", "yuv420p", out_mp4,
+            "-c:v", "libx264", "-preset", "medium", "-crf", "22", "-pix_fmt", "yuv420p", "-movflags", "+faststart", out_mp4,
         ])
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     else:
@@ -1078,7 +1356,7 @@ def _annotate_mp4_and_gif(
             [
                 "ffmpeg", "-y", "-i", raw_mp4, "-i", tmp_banner,
                 "-filter_complex", "[0:v][1:v]overlay=0:0[v]", "-map", "[v]",
-                "-c:v", "libx264", "-preset", "medium", "-crf", "22", "-pix_fmt", "yuv420p",
+                "-c:v", "libx264", "-preset", "medium", "-crf", "22", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
                 out_mp4,
             ],
             check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -1317,7 +1595,8 @@ def run_record_e2e(args) -> int:
         t_done_wall: Optional[float] = None
         node.hb_enabled = False
         t_ret0 = node.sim_now()
-        while node.sim_now() - t_ret0 < 85.0:
+        w_ret0 = time.time()
+        while (node.sim_now() - t_ret0 < 85.0) and (time.time() - w_ret0 < 240.0):
             rclpy.spin_once(node, timeout_sec=0.02)
             if t_rec_wall is None and node.ctrl_state in ("EMERGENCY_STOP", "BACKTRACKING_ROTATE", "BACKTRACKING_HYBRID", "BACKTRACKING_TRANSLATE", "LOCAL_TD3_AVOIDANCE"):
                 t_rec_wall = max(t_cut_wall + 0.1, time.time() - t_rec_start)
@@ -1335,13 +1614,7 @@ def run_record_e2e(args) -> int:
             p_ff.stdin.flush()
         p_ff.wait(timeout=15.0)
 
-        # Save final semantic map & render crisp high-res overlay PNG
-        if node.cli_save_map.wait_for_service(timeout_sec=3.0):
-            fut = node.cli_save_map.call_async(Trigger.Request())
-            t_sv = time.time()
-            while not fut.done() and time.time() - t_sv < 4.0:
-                rclpy.spin_once(node, timeout_sec=0.02)
-
+        # Render crisp high-res overlay PNG using the semantic map saved prior to host blackout
         overlay_repo = os.path.join(WS_ROOT, "docs", "images", "evidence", "phase3_gazebo_semantic_map_overlay.png")
         _render_highres_semantic_overlay(
             node.latest_map,
@@ -1546,29 +1819,34 @@ def _record_single_ab_run(
         t_done_wall: Optional[float] = None
         node.hb_enabled = False
         t_blk = node.sim_now()
+        w_blk = time.time()
         saw_rec = False
         arrived = False
         snap_ts = None
         min_low_d = 99.0
         min_gas_d = 99.0
-        ret_pts = [(node.cur_x, node.cur_y)]
+        tp_ab0 = get_gazebo_true_pose("burger")
+        px0_ab, py0_ab = (tp_ab0[0], tp_ab0[1]) if tp_ab0 is not None else (node.cur_x, node.cur_y)
+        ret_pts = [(px0_ab, py0_ab)]
 
-        while node.sim_now() - t_blk < 78.0:
+        while (node.sim_now() - t_blk < 78.0) and (time.time() - w_blk < 240.0):
             rclpy.spin_once(node, timeout_sec=0.02)
             if node.ctrl_state in ("EMERGENCY_STOP", "BACKTRACKING_ROTATE", "BACKTRACKING_HYBRID", "BACKTRACKING_TRANSLATE", "LOCAL_TD3_AVOIDANCE", "MISSION_COMPLETE"):
                 saw_rec = True
                 if t_rec_wall is None:
                     t_rec_wall = max(t_cut_wall + 0.1, time.time() - t_rec_start)
-            d_l = min(math.hypot(node.cur_x - lx, node.cur_y - ly) for lx, ly in low_list)
-            d_g = math.hypot(node.cur_x - gas_xy[0], node.cur_y - gas_xy[1])
+            tp_ab = get_gazebo_true_pose("burger")
+            px_ab, py_ab = (tp_ab[0], tp_ab[1]) if tp_ab is not None else (node.cur_x, node.cur_y)
+            d_l = min(math.hypot(px_ab - lx, py_ab - ly) for lx, ly in low_list)
+            d_g = math.hypot(px_ab - gas_xy[0], py_ab - gas_xy[1])
             min_low_d = min(min_low_d, d_l)
             min_gas_d = min(min_gas_d, d_g)
 
-            if math.hypot(node.cur_x - ret_pts[-1][0], node.cur_y - ret_pts[-1][1]) >= 0.08:
-                ret_pts.append((node.cur_x, node.cur_y))
+            if math.hypot(px_ab - ret_pts[-1][0], py_ab - ret_pts[-1][1]) >= 0.08:
+                ret_pts.append((px_ab, py_ab))
             _tick()
 
-            if (snap_ts is None) and ((not use_sem and d_l < 0.28) or (use_sem and node.cur_x < 2.25)):
+            if (snap_ts is None) and ((not use_sem and d_l < 0.28) or (use_sem and px_ab < 2.25)):
                 snap_ts = max(1.0, time.time() - t_rec_start)
 
             if saw_rec and node.ctrl_state == "MISSION_COMPLETE":
@@ -1576,7 +1854,8 @@ def _record_single_ab_run(
                 t_done_wall = max((t_rec_wall or t_cut_wall) + 0.1, time.time() - t_rec_start)
                 break
             t_s = node.sim_now()
-            while node.sim_now() - t_s < 0.08:
+            w_s = time.time()
+            while (node.sim_now() - t_s < 0.08) and (time.time() - w_s < 5.0):
                 rclpy.spin_once(node, timeout_sec=0.01)
 
         if snap_ts is None:
